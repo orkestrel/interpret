@@ -1,21 +1,23 @@
 {
-	"name": "@orkestrel/relation",
+	"name": "@orkestrel/interpret",
 	"version": "0.0.1",
-	"description": "A typed relation manager over database tables — batched eager loading and junction management, environment-agnostic. Part of the @orkestrel line.",
+	"description": "A typed interpretation engine: managers, stages, and a narrator that render reason definitions, subjects, and results as natural language. Part of the @orkestrel line.",
 	"keywords": [
-		"database",
-		"eager-loading",
-		"orm",
-		"relation",
-		"relations",
+		"interpret",
+		"interpretation",
+		"narration",
+		"natural-language",
+		"reasoning",
 		"typescript"
 	],
-	"homepage": "https://github.com/orkestrel/relation#readme",
-	"bugs": "https://github.com/orkestrel/relation/issues",
+	"homepage": "https://github.com/orkestrel/interpret#readme",
+	"bugs": {
+		"url": "https://github.com/orkestrel/interpret/issues"
+	},
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/orkestrel/relation.git"
+		"url": "git+https://github.com/orkestrel/interpret.git"
 	},
 	"files": [
 		"dist",
@@ -64,8 +66,8 @@
 	},
 	"dependencies": {
 		"@orkestrel/contract": "^0.0.1",
-		"@orkestrel/database": "^0.0.1",
-		"@orkestrel/emitter": "^0.0.1"
+		"@orkestrel/emitter": "^0.0.1",
+		"@orkestrel/reason": "^0.0.1"
 	},
 	"devDependencies": {
 		"@microsoft/api-extractor": "^7.58.9",
