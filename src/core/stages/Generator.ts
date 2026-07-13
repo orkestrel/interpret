@@ -4,7 +4,6 @@ import type {
 	FieldMapping,
 	GenerateResult,
 	GeneratorInterface,
-	GeneratorOptions,
 	Template,
 } from '../types.js'
 import { isFiniteNumber } from '@orkestrel/contract'
@@ -32,7 +31,9 @@ import { deriveAggregateField, setField } from '../helpers.js'
  * an empty entity set). A `FieldMapping` is emitted for EVERY field that
  * lands on the subject, including defaults, computed fields, and aggregates
  * — scsr silently omitted defaults/computed from its audit trail; this
- * closes that gap.
+ * closes that gap. `GeneratorOptions` is a reserved extension seam — the
+ * stage has no knobs yet, so construction takes no arguments until one
+ * exists.
  *
  * @example
  * ```ts
@@ -62,11 +63,6 @@ import { deriveAggregateField, setField } from '../helpers.js'
  * ```
  */
 export class Generator implements GeneratorInterface {
-	// `GeneratorOptions` is an empty extension seam today (AGENTS §4.6.1 `_`
-	// marker) — kept so a future knob never has to change the constructor
-	// signature.
-	constructor(_options?: GeneratorOptions) {}
-
 	generate(entities: readonly Entity[], template: Template): GenerateResult {
 		let subject: Subject = {}
 		const mappings: FieldMapping[] = []

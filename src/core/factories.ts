@@ -167,8 +167,8 @@ export function createFormatter(options?: FormatterOptions): FormatterInterface 
  * const generator = createGenerator()
  * ```
  */
-export function createGenerator(options?: GeneratorOptions): GeneratorInterface {
-	return new Generator(options)
+export function createGenerator(_options?: GeneratorOptions): GeneratorInterface {
+	return new Generator()
 }
 
 /**
