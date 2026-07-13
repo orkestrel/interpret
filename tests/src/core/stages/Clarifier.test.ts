@@ -1,12 +1,12 @@
-import type { Entity, Intent } from '../../../../../src/core/interprets/types.js'
-import { constant, operation, variable } from '@src/core'
+import type { Entity, Intent } from '@src/core'
+import { constant, operation, variable } from '@orkestrel/reason'
+import { Clarifier } from '@src/core'
 import { describe, expect, it } from 'vitest'
-import { Clarifier } from '../../../../../src/core/interprets/stages/Clarifier.js'
 import {
 	buildInterpretation,
 	buildInterpretTemplate,
 	seedInterpretContext,
-} from '../../../../setup.js'
+} from '../../../setup.js'
 
 // The `Clarifier` stage — carry-over, defaults, computed fields (topological,
 // gap-on-cycle), and floor-gated ambiguities (design §8). Drives a REAL

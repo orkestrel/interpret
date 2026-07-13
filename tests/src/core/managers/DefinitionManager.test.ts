@@ -1,8 +1,8 @@
-import { symbolicDefinition } from '@src/core'
+import type { DefinitionManagerEventMap } from '@src/core'
+import { symbolicDefinition } from '@orkestrel/reason'
+import { DefinitionManager, isInterpretError } from '@src/core'
 import { describe, expect, it } from 'vitest'
-import { isInterpretError } from '../../../../../src/core/interprets/errors.js'
-import { DefinitionManager } from '../../../../../src/core/interprets/managers/DefinitionManager.js'
-import { captureError } from '../../../../setup.js'
+import { captureError, recordEmitterEvents } from '../../../setup.js'
 
 // The `DefinitionManager` registry — versioned/hashed records keyed by the
 // definition id, content-derived version bumps, all-or-nothing batch remove,
@@ -52,5 +52,40 @@ describe('DefinitionManager', () => {
 		manager.destroy()
 		const error = captureError(() => manager.has('rate'))
 		expect(isInterpretError(error) && error.code === 'DESTROYED').toBe(true)
+	})
+
+	describe('emitter events', () => {
+		it('fires add with the record id, once per add call', () => {
+			const manager = new DefinitionManager()
+			const events = recordEmitterEvents<DefinitionManagerEventMap, 'add'>(manager.emitter, ['add'])
+			manager.add(symbolicDefinition('a', 'A', []))
+			manager.add(symbolicDefinition('b', 'B', []))
+			expect(events.add.calls).toEqual([['a'], ['b']])
+		})
+
+		it('fires remove with the record id for a single remove, and per id for a batch remove', () => {
+			const manager = new DefinitionManager({
+				definitions: [symbolicDefinition('a', 'A', []), symbolicDefinition('b', 'B', [])],
+			})
+			const events = recordEmitterEvents<DefinitionManagerEventMap, 'remove'>(manager.emitter, [
+				'remove',
+			])
+			manager.remove('a')
+			expect(events.remove.calls).toEqual([['a']])
+			manager.remove(['b'])
+			expect(events.remove.calls).toEqual([['a'], ['b']])
+		})
+
+		it('fires destroy exactly once, and every method after destroy throws DESTROYED', () => {
+			const manager = new DefinitionManager()
+			const events = recordEmitterEvents<DefinitionManagerEventMap, 'destroy'>(manager.emitter, [
+				'destroy',
+			])
+			manager.destroy()
+			manager.destroy()
+			expect(events.destroy.calls).toEqual([[]])
+			const error = captureError(() => manager.add(symbolicDefinition('c', 'C', [])))
+			expect(isInterpretError(error) && error.code === 'DESTROYED').toBe(true)
+		})
 	})
 })

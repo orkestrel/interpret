@@ -1,10 +1,10 @@
-import type { Lexicon, NarratorOptions } from '../../../../src/core/interprets/types.js'
+import type { Lexicon, NarratorOptions } from '@src/core'
 import {
 	atom,
 	constant,
 	equation,
-	factorGroup,
 	fact,
+	factorGroup,
 	fieldFactor,
 	inference,
 	inferentialDefinition,
@@ -13,10 +13,10 @@ import {
 	rule,
 	symbolicDefinition,
 	variable,
-} from '@src/core'
+} from '@orkestrel/reason'
+import { Narrator } from '@src/core'
 import { describe, expect, it } from 'vitest'
-import { Narrator } from '../../../../src/core/interprets/Narrator.js'
-import { TRICKY_KEYS } from '../../../setup.js'
+import { TRICKY_KEYS } from '../../setup.js'
 
 // The `Narrator` — a stateless, total, lexicon-driven reverse rendering
 // engine (AGENTS §21 mechanism-never-policy). Every wording decision is data

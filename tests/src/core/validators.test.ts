@@ -5,15 +5,10 @@ import {
 	operation,
 	quantitativeDefinition,
 	variable,
-} from '@src/core'
+} from '@orkestrel/reason'
+import { isComputedField, isEntityMapping, isFieldDefault, isTemplate } from '@src/core'
 import { describe, expect, it } from 'vitest'
-import {
-	isComputedField,
-	isEntityMapping,
-	isFieldDefault,
-	isTemplate,
-} from '../../../../src/core/interprets/validators.js'
-import { buildInterpretTemplate, TRICKY_KEYS } from '../../../setup.js'
+import { buildInterpretTemplate, TRICKY_KEYS } from '../../setup.js'
 
 // The interprets validators — deep TOTAL guards (AGENTS §14): adversarial
 // junk (cycles, hostile prototypes, wrong shapes) returns `false`, never

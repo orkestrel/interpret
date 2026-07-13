@@ -1,18 +1,3 @@
-import {
-	constant,
-	createReason,
-	createSymbolicReasoner,
-	equation,
-	isRecord,
-	isString,
-	symbolicDefinition,
-	variable,
-} from '@src/core'
-import { describe, expect, it } from 'vitest'
-import { isInterpretError } from '../../../../src/core/interprets/errors.js'
-import { createNarrator } from '../../../../src/core/interprets/factories.js'
-import { Interpret } from '../../../../src/core/interprets/Interpret.js'
-import { Extractor } from '../../../../src/core/interprets/stages/Extractor.js'
 import type {
 	ClarifierInterface,
 	ExtractorInterface,
@@ -21,7 +6,18 @@ import type {
 	GeneratorInterface,
 	InterpretEventMap,
 	NormalizerInterface,
-} from '../../../../src/core/interprets/types.js'
+} from '@src/core'
+import { isRecord, isString } from '@orkestrel/contract'
+import {
+	constant,
+	createReason,
+	createSymbolicReasoner,
+	equation,
+	symbolicDefinition,
+	variable,
+} from '@orkestrel/reason'
+import { createNarrator, Extractor, Interpret, isInterpretError } from '@src/core'
+import { describe, expect, it } from 'vitest'
 import {
 	buildInsuranceTemplate,
 	buildInterpretTemplate,
@@ -29,7 +25,7 @@ import {
 	INTERPRET_ACTIONS,
 	INTERPRET_DOMAINS,
 	recordEmitterEvents,
-} from '../../../setup.js'
+} from '../../setup.js'
 
 // The `Interpret` orchestrator — registry, synchronous five-stage pipeline,
 // explicit NO_TEMPLATE / LOW_CONFIDENCE gates, visible stage-throw failures,

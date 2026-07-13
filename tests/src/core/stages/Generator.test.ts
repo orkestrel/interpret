@@ -1,6 +1,6 @@
+import { Generator } from '@src/core'
 import { describe, expect, it } from 'vitest'
-import { Generator } from '../../../../../src/core/interprets/stages/Generator.js'
-import { buildInterpretTemplate, TRICKY_KEYS } from '../../../../setup.js'
+import { buildInterpretTemplate, TRICKY_KEYS } from '../../../setup.js'
 
 // The `Generator` stage — entity → field, array unwrap/aggregate, mean
 // confidence, and a `FieldMapping` for EVERY subject field (design §8).
@@ -131,7 +131,11 @@ describe('Generator', () => {
 		)
 	})
 
-	it('assigns every TRICKY_KEYS value as a field path, refusing only __proto__ (prototype-pollution defense)', () => {
+	it('assigns every TRICKY_KEYS value as a field path, refusing UNSAFE_FIELD_SEGMENTS (prototype-pollution defense)', () => {
+		// UPDATED for the refactored `setField` semantics: `UNSAFE_FIELD_SEGMENTS`
+		// (constants.ts) refuses `__proto__` / `prototype` / `constructor` — not
+		// only `__proto__` as the pre-refactor expectation pinned.
+		const UNSAFE = new Set(['__proto__', 'prototype', 'constructor'])
 		const observed = TRICKY_KEYS.map((key) => {
 			const template = buildInterpretTemplate({
 				mappings: [{ entity: 'value', aliases: [], field: key }],
@@ -156,8 +160,8 @@ describe('Generator', () => {
 		expect(observed).toEqual(
 			TRICKY_KEYS.map((key) => ({
 				key,
-				owned: key !== '__proto__',
-				value: key === '__proto__' ? undefined : 42,
+				owned: !UNSAFE.has(key),
+				value: UNSAFE.has(key) ? undefined : 42,
 				mapped: key,
 			})),
 		)
@@ -174,5 +178,47 @@ describe('Generator', () => {
 			},
 		]
 		expect(generator.generate(entities, template)).toEqual(generator.generate(entities, template))
+	})
+
+	describe('immutability', () => {
+		it('never mutates the input entities array or its element objects', () => {
+			const template = buildInterpretTemplate()
+			const entity = {
+				name: 'value',
+				value: 42,
+				provenance: { category: 'extracted' as const },
+				confidence: 0.9,
+			}
+			const entities = Object.freeze([entity])
+			const before = structuredClone(entities)
+			const result = generator.generate(entities, template)
+			expect(entities).toEqual(before)
+			expect(result.subject).not.toBe(entities)
+		})
+
+		it('never mutates a multi-element array entity value while building aggregates', () => {
+			const template = buildInterpretTemplate()
+			const value = Object.freeze([10, 20, 30])
+			const entities = [
+				{ name: 'value', value, provenance: { category: 'extracted' as const }, confidence: 0.9 },
+			]
+			const result = generator.generate(entities, template)
+			// `value` stays frozen and unchanged (a mutation would throw under
+			// strict mode / fail this equality) — the array is carried through,
+			// never mutated in place, even though it is not deep-cloned.
+			expect(value).toEqual([10, 20, 30])
+			expect(result.subject.value).toEqual([10, 20, 30])
+		})
+
+		it('builds a fresh subject reference on every call — no shared mutable state across calls', () => {
+			const template = buildInterpretTemplate()
+			const entities = [
+				{ name: 'value', value: 1, provenance: { category: 'extracted' as const }, confidence: 1 },
+			]
+			const first = generator.generate(entities, template)
+			const second = generator.generate(entities, template)
+			expect(first.subject).not.toBe(second.subject)
+			expect(first.subject).toEqual(second.subject)
+		})
 	})
 })

@@ -1,4 +1,5 @@
 import type { InterpretEventMap, Template } from '@src/core'
+import { factorGroup, fieldFactor, quantitativeDefinition } from '@orkestrel/reason'
 import {
 	Clarifier,
 	createClarifier,
@@ -17,8 +18,6 @@ import {
 	DEFAULT_INTERPRET_SIMILARITY,
 	DefinitionManager,
 	Extractor,
-	factorGroup,
-	fieldFactor,
 	Formatter,
 	Generator,
 	Interpret,
@@ -26,7 +25,6 @@ import {
 	InterpretError,
 	isInterpretError,
 	Normalizer,
-	quantitativeDefinition,
 	SubjectManager,
 	TemplateManager,
 } from '@src/core'
@@ -40,7 +38,7 @@ import {
 	INTERPRET_DOMAINS,
 	invokeRaw,
 	recordEmitterEvents,
-} from '../../../setup.js'
+} from '../../setup.js'
 
 // This file also verifies the aggregate `@src/core` barrel drops nothing for
 // `interprets`: a representative sample of the module's exports resolves in

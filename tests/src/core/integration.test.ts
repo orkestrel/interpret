@@ -1,7 +1,6 @@
+import type { InterpretEventMap } from '@src/core'
+import { Extractor, Interpret } from '@src/core'
 import { describe, expect, it } from 'vitest'
-import { Interpret } from '../../../../src/core/interprets/Interpret.js'
-import { Extractor } from '../../../../src/core/interprets/stages/Extractor.js'
-import type { InterpretEventMap } from '../../../../src/core/interprets/types.js'
 import {
 	buildEligibilityTemplate,
 	buildInsuranceTemplate,
@@ -11,7 +10,7 @@ import {
 	INTERPRET_ACTIONS,
 	INTERPRET_DOMAINS,
 	recordEmitterEvents,
-} from '../../../setup.js'
+} from '../../setup.js'
 
 // The interprets integration corpus — the terrain-vocabulary redesign of scsr's
 // 49-case suite (sync API; no-match is auditable-incomplete, never templates[0];

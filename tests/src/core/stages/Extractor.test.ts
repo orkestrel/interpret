@@ -1,5 +1,5 @@
+import { Extractor } from '@src/core'
 import { describe, expect, it } from 'vitest'
-import { Extractor } from '../../../../../src/core/interprets/stages/Extractor.js'
 
 // The `Extractor` stage — template-agnostic: intent classification + raw
 // number mining only, never entity assignment (design §2/§8, ledger 17).

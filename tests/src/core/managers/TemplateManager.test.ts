@@ -1,7 +1,7 @@
+import type { TemplateManagerEventMap } from '@src/core'
+import { isInterpretError, TemplateManager } from '@src/core'
 import { describe, expect, it } from 'vitest'
-import { isInterpretError } from '../../../../../src/core/interprets/errors.js'
-import { TemplateManager } from '../../../../../src/core/interprets/managers/TemplateManager.js'
-import { buildInterpretTemplate, captureError } from '../../../../setup.js'
+import { buildInterpretTemplate, captureError, recordEmitterEvents } from '../../../setup.js'
 
 // The `TemplateManager` registry — versioned/hashed records, content-derived
 // version bumps (identical re-add keeps its version), all-or-nothing batch
@@ -73,5 +73,53 @@ describe('TemplateManager', () => {
 		manager.destroy()
 		const error = captureError(() => manager.size)
 		expect(isInterpretError(error) && error.code === 'DESTROYED').toBe(true)
+	})
+
+	describe('emitter events', () => {
+		it('fires add with the record id, once per add call', () => {
+			const manager = new TemplateManager()
+			const events = recordEmitterEvents<TemplateManagerEventMap, 'add'>(manager.emitter, ['add'])
+			manager.add(buildInterpretTemplate({ id: 'a' }))
+			manager.add(buildInterpretTemplate({ id: 'b' }))
+			expect(events.add.calls).toEqual([['a'], ['b']])
+		})
+
+		it('fires remove with the record id for a single remove, and per id for a batch remove', () => {
+			const manager = new TemplateManager({
+				templates: [buildInterpretTemplate({ id: 'a' }), buildInterpretTemplate({ id: 'b' })],
+			})
+			const events = recordEmitterEvents<TemplateManagerEventMap, 'remove'>(manager.emitter, [
+				'remove',
+			])
+			manager.remove('a')
+			expect(events.remove.calls).toEqual([['a']])
+			manager.remove(['b'])
+			expect(events.remove.calls).toEqual([['a'], ['b']])
+		})
+
+		it('fires remove for every record when remove() clears the whole registry, never on a failed batch', () => {
+			const manager = new TemplateManager({
+				templates: [buildInterpretTemplate({ id: 'a' }), buildInterpretTemplate({ id: 'b' })],
+			})
+			const events = recordEmitterEvents<TemplateManagerEventMap, 'remove'>(manager.emitter, [
+				'remove',
+			])
+			expect(manager.remove(['a', 'missing'])).toBe(false)
+			expect(events.remove.count).toBe(0)
+			manager.remove()
+			expect(events.remove.calls).toEqual([['a'], ['b']])
+		})
+
+		it('fires destroy exactly once, and every method after destroy throws DESTROYED', () => {
+			const manager = new TemplateManager({ templates: [buildInterpretTemplate()] })
+			const events = recordEmitterEvents<TemplateManagerEventMap, 'destroy'>(manager.emitter, [
+				'destroy',
+			])
+			manager.destroy()
+			manager.destroy()
+			expect(events.destroy.calls).toEqual([[]])
+			const error = captureError(() => manager.add(buildInterpretTemplate()))
+			expect(isInterpretError(error) && error.code === 'DESTROYED').toBe(true)
+		})
 	})
 })

@@ -1,7 +1,7 @@
+import type { InterpretContextEventMap } from '@src/core'
+import { InterpretContext, isInterpretError } from '@src/core'
 import { describe, expect, it } from 'vitest'
-import { isInterpretError } from '../../../../../src/core/interprets/errors.js'
-import { InterpretContext } from '../../../../../src/core/interprets/managers/InterpretContext.js'
-import { buildInterpretation, captureError } from '../../../../setup.js'
+import { buildInterpretation, captureError, recordEmitterEvents } from '../../../setup.js'
 
 // The `InterpretContext` — capped ring-buffer history (newest-last), flattened
 // entity carry-over source, own subject/definition registries, clear vs.
@@ -104,5 +104,38 @@ describe('InterpretContext', () => {
 		context.destroy()
 		const error = captureError(() => context.previous())
 		expect(isInterpretError(error) && error.code === 'DESTROYED').toBe(true)
+	})
+
+	describe('emitter events', () => {
+		it('fires add with the entry digest, once per add call', () => {
+			const context = new InterpretContext()
+			const events = recordEmitterEvents<InterpretContextEventMap, 'add'>(context.emitter, ['add'])
+			context.add(buildInterpretation({ digest: 'digest-1' }))
+			context.add(buildInterpretation({ digest: 'digest-2' }))
+			expect(events.add.calls).toEqual([['digest-1'], ['digest-2']])
+		})
+
+		it('fires clear with no payload on clear()', () => {
+			const context = new InterpretContext()
+			context.add(buildInterpretation())
+			const events = recordEmitterEvents<InterpretContextEventMap, 'clear'>(context.emitter, [
+				'clear',
+			])
+			context.clear()
+			expect(events.clear.calls).toEqual([[]])
+		})
+
+		it('fires destroy exactly once, and every method after destroy throws DESTROYED', () => {
+			const context = new InterpretContext()
+			context.add(buildInterpretation())
+			const events = recordEmitterEvents<InterpretContextEventMap, 'destroy'>(context.emitter, [
+				'destroy',
+			])
+			context.destroy()
+			context.destroy()
+			expect(events.destroy.calls).toEqual([[]])
+			const error = captureError(() => context.add(buildInterpretation()))
+			expect(isInterpretError(error) && error.code === 'DESTROYED').toBe(true)
+		})
 	})
 })

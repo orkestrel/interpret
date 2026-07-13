@@ -1,6 +1,6 @@
+import { Formatter } from '@src/core'
 import { describe, expect, it } from 'vitest'
-import { Formatter } from '../../../../../src/core/interprets/stages/Formatter.js'
-import { buildInterpretTemplate } from '../../../../setup.js'
+import { buildInterpretTemplate } from '../../../setup.js'
 
 // The `Formatter` stage — prose shape: `{verb} {name}` + `with …` (non-
 // default entities) + `(defaults: …)` + `needed: …` (ambiguities).

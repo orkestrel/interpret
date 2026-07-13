@@ -1,5 +1,5 @@
+import { Normalizer } from '@src/core'
 import { describe, expect, it } from 'vitest'
-import { Normalizer } from '../../../../../src/core/interprets/stages/Normalizer.js'
 
 // The `Normalizer` stage — AGENTS §16: same inputs → same outputs, so every
 // scenario double-invokes to pin run-twice determinism directly.
