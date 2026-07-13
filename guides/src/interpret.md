@@ -1,7 +1,7 @@
 # Interpret
 
-> A zero-dependency, synchronous, deterministic bidirectional bridge between
-> natural language and the `@orkestrel/reason` engine. FORWARD: raw text is
+> A synchronous, deterministic bidirectional bridge between natural language
+> and the `@orkestrel/reason` engine. FORWARD: raw text is
 > **normalized** (contraction/abbreviation/correction substitutions),
 > **extracted** (template-agnostic intent classification + numeric mining),
 > matched against a registered **`Template`**, its numbers **assigned** to
@@ -10,7 +10,7 @@
 > refined natural-language prompt, then **generated** into a `Subject` +
 > `Definition` pair ready for `Reason.reason`. REVERSE: a `Definition` /
 > `Subject` / `ReasonResult` renders to display-neutral prose through a
-> lexicon-driven `Narrator`, complementing (never duplicating) raters'
+> lexicon-driven `Narrator`, complementing (never duplicating) rater's
 > `describe*` family. Nothing here is an LLM, provider, or agent — the
 > `prompt` a result carries is FOR an external model, never consumed
 > internally. Every discriminant names its axis, never `kind` / `type`
@@ -260,32 +260,34 @@ isTemplate({
 Pure, exported utility functions (AGENTS §4.3) — the referentially-
 transparent leaves behind the `Interpret` orchestrator and its stages.
 
-| API                  | Kind     | Summary                                                                                                   |
-| -------------------- | -------- | --------------------------------------------------------------------------------------------------------- |
-| `escapeRegExp`       | function | Escape every regex metacharacter so text matches literally when compiled into a `RegExp`.                 |
-| `setField`           | function | Copy-on-write write a value at a (possibly nested) field path — prototype-pollution-safe.                 |
-| `interpolateMessage` | function | Interpolate `{{dotted.path}}` tokens in a message template against a record.                              |
-| `applyReplacements`  | function | Replace every whole-word occurrence of a map's keys with their values.                                    |
-| `collapseWhitespace` | function | Collapse every run of whitespace to a single space and trim the ends.                                     |
-| `tokenize`           | function | Split text into lowercase tokens, stripping punctuation outside a numeric/currency-safe allowlist.        |
-| `extractNumbers`     | function | Mine every numeric literal from text.                                                                     |
-| `assignEntities`     | function | Assign already-extracted numbers to a matched template's entity mappings.                                 |
-| `classifyIntent`     | function | Classify the action + domain intent of text against caller-supplied vocabularies.                         |
-| `scoreSimilarity`    | function | Bigram (Dice coefficient) string similarity, case-insensitive.                                            |
-| `matchAlias`         | function | The best `scoreSimilarity` a token achieves against a list of aliases, gated by a threshold.              |
-| `canonicalize`       | function | Render a value into a canonical, key-order-stable string.                                                 |
-| `digestValue`        | function | Compute a canonical structural digest (FNV-1a, 8-hex-digit) of a pure-JSON value.                         |
-| `scoreTemplate`      | function | Score how well a classified intent matches one template's domain + action.                                |
-| `matchTemplate`      | function | Find the best-scoring registered template for a classified intent, gated by a confidence floor.           |
-| `variablesOf`        | function | Collect every variable name referenced by a symbolic expression tree.                                     |
-| `resolveExpression`  | function | Evaluate a symbolic expression tree against resolved bindings.                                            |
-| `describeSubject`    | function | Render a one-line, display-neutral description of a reasons `Subject`, through an injected `Narrator`.    |
-| `parseTemplate`      | function | Parse a JSON string into a `Template`, or `undefined` on invalid JSON or a shape that fails `isTemplate`. |
+| API                    | Kind     | Summary                                                                                                                                     |
+| ---------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `escapeRegExp`         | function | Escape every regex metacharacter so text matches literally when compiled into a `RegExp`.                                                   |
+| `setField`             | function | Copy-on-write write a value at a (possibly nested) field path — prototype-pollution-safe.                                                   |
+| `deriveAggregateField` | function | Derive the sibling field path for a computed aggregate of a field — nests beside an array `FieldPath`, stays flat for a plain string field. |
+| `interpolateMessage`   | function | Interpolate `{{dotted.path}}` tokens in a message template against a record.                                                                |
+| `applyReplacements`    | function | Replace every whole-word occurrence of a map's keys with their values.                                                                      |
+| `collapseWhitespace`   | function | Collapse every run of whitespace to a single space and trim the ends.                                                                       |
+| `tokenize`             | function | Split text into lowercase tokens, stripping punctuation outside a numeric/currency-safe allowlist.                                          |
+| `extractNumbers`       | function | Mine every numeric literal from text.                                                                                                       |
+| `assignEntities`       | function | Assign already-extracted numbers to a matched template's entity mappings.                                                                   |
+| `classifyIntent`       | function | Classify the action + domain intent of text against caller-supplied vocabularies.                                                           |
+| `scoreSimilarity`      | function | Bigram (Dice coefficient) string similarity, case-insensitive.                                                                              |
+| `matchAlias`           | function | The best `scoreSimilarity` a token achieves against a list of aliases, gated by a threshold.                                                |
+| `canonicalize`         | function | Render a value into a canonical, key-order-stable string.                                                                                   |
+| `digestValue`          | function | Compute a canonical structural digest (FNV-1a, 8-hex-digit) of a pure-JSON value.                                                           |
+| `scoreTemplate`        | function | Score how well a classified intent matches one template's domain + action.                                                                  |
+| `matchTemplate`        | function | Find the best-scoring registered template for a classified intent, gated by a confidence floor.                                             |
+| `variablesOf`          | function | Collect every variable name referenced by a symbolic expression tree.                                                                       |
+| `resolveExpression`    | function | Evaluate a symbolic expression tree against resolved bindings.                                                                              |
+| `describeSubject`      | function | Render a one-line, display-neutral description of a reasons `Subject`, through an injected `Narrator`.                                      |
+| `parseTemplate`        | function | Parse a JSON string into a `Template`, or `undefined` on invalid JSON or a shape that fails `isTemplate`.                                   |
 
 ```ts
 import {
 	applyReplacements,
 	collapseWhitespace,
+	deriveAggregateField,
 	escapeRegExp,
 	setField,
 	tokenize,
@@ -294,6 +296,8 @@ import {
 escapeRegExp('a.b*c') // 'a\\.b\\*c'
 setField({ age: 25 }, 'age', 30) // { age: 30 }
 setField({}, ['address', 'city'], 'Reno') // { address: { city: 'Reno' } }
+deriveAggregateField(['address', 'amounts'], 'Sum') // ['address', 'amountsSum']
+deriveAggregateField('amounts', 'Sum') // 'amountsSum'
 applyReplacements("can't stop", { "can't": 'cannot' }) // 'cannot stop'
 collapseWhitespace('  a   b\t c ') // 'a b c'
 tokenize('The rate is 85%.') // ['the', 'rate', 'is', '85%']

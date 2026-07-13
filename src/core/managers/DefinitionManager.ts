@@ -25,7 +25,8 @@ import { digestValue } from '../helpers.js'
  *
  * @example
  * ```ts
- * import { DefinitionManager, symbolicDefinition } from '@src/core'
+ * import { symbolicDefinition } from '@orkestrel/reason'
+ * import { DefinitionManager } from '@src/core'
  *
  * const manager = new DefinitionManager()
  * const record = manager.add(symbolicDefinition('rate', 'Rate', []))

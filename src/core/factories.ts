@@ -53,7 +53,8 @@ import { Normalizer } from './stages/Normalizer.js'
  *
  * @example
  * ```ts
- * import { createInterpret, factorGroup, fieldFactor, quantitativeDefinition } from '@src/core'
+ * import { factorGroup, fieldFactor, quantitativeDefinition } from '@orkestrel/reason'
+ * import { createInterpret } from '@src/core'
  *
  * const interpret = createInterpret({
  * 	extractor: { extract: () => ({ intent: { action: 'calculate', domain: 'arithmetic', confidence: 1 }, numbers: [42], complete: true }) },
@@ -178,7 +179,8 @@ export function createGenerator(options?: GeneratorOptions): GeneratorInterface 
  *
  * @example
  * ```ts
- * import { createTemplate, createTemplateManager, factorGroup, fieldFactor, quantitativeDefinition } from '@src/core'
+ * import { factorGroup, fieldFactor, quantitativeDefinition } from '@orkestrel/reason'
+ * import { createTemplate, createTemplateManager } from '@src/core'
  *
  * const template = createTemplate({
  * 	id: 't1', name: 'Arithmetic', domain: 'arithmetic', intents: ['calculate'],
@@ -223,7 +225,8 @@ export function createSubjectManager(options?: SubjectManagerOptions): SubjectMa
  *
  * @example
  * ```ts
- * import { createDefinitionManager, factorGroup, fieldFactor, quantitativeDefinition } from '@src/core'
+ * import { factorGroup, fieldFactor, quantitativeDefinition } from '@orkestrel/reason'
+ * import { createDefinitionManager } from '@src/core'
  *
  * const definitions = createDefinitionManager({
  * 	definitions: [quantitativeDefinition('d1', 'D1', [factorGroup('total', 'sum', [fieldFactor('value', 'value')])])],
@@ -271,7 +274,8 @@ export function createInterpretContext(
  *
  * @example
  * ```ts
- * import { createTemplate, factorGroup, fieldFactor, quantitativeDefinition } from '@src/core'
+ * import { factorGroup, fieldFactor, quantitativeDefinition } from '@orkestrel/reason'
+ * import { createTemplate } from '@src/core'
  *
  * const template = createTemplate({
  * 	id: 't1', name: 'Arithmetic', domain: 'arithmetic', intents: ['calculate'],

@@ -24,6 +24,8 @@ import {
 	resolveExpression,
 	scoreSimilarity,
 	scoreTemplate,
+	setField,
+	SubjectManager,
 	tokenize,
 	variablesOf,
 } from '@src/core'
@@ -322,6 +324,77 @@ describe('canonicalize / digestValue', () => {
 
 	it('digestValue differs for structurally different values', () => {
 		expect(digestValue({ x: 1 })).not.toBe(digestValue({ x: 2 }))
+	})
+
+	it('canonicalize is cycle-safe: a self-referential record terminates and renders the cycle marker', () => {
+		const subject: Record<string, unknown> = { age: 25 }
+		subject.self = subject
+		expect(() => canonicalize(subject)).not.toThrow()
+		expect(canonicalize(subject)).toContain('[cycle]')
+	})
+
+	it('digestValue on a self-referential record terminates and yields a stable digest', () => {
+		const subject: Record<string, unknown> = { age: 25 }
+		subject.self = subject
+		let digest = ''
+		expect(() => {
+			digest = digestValue(subject)
+		}).not.toThrow()
+		expect(digestValue(subject)).toBe(digest)
+	})
+
+	it('SubjectManager.add on a self-referential subject terminates and stores a stable hash', () => {
+		const subject: Record<string, unknown> = { age: 25 }
+		subject.self = subject
+		const manager = new SubjectManager()
+		let record: ReturnType<typeof manager.add> | undefined
+		expect(() => {
+			record = manager.add(subject)
+		}).not.toThrow()
+		expect(record?.hash).toBe(digestValue(subject))
+	})
+})
+
+describe('setField', () => {
+	it('refuses an unsafe segment at a NESTED position and pollutes no prototype', () => {
+		const first = setField({}, ['a', '__proto__'], { polluted: true })
+		expect(first).toEqual({})
+		expect(Reflect.get({}, 'polluted')).toBeUndefined()
+		expect(Object.getOwnPropertyDescriptor(Object.prototype, 'polluted')).toBeUndefined()
+
+		const second = setField({}, ['a', 'constructor', 'b'], true)
+		expect(second).toEqual({})
+		expect(Reflect.get({}, 'polluted')).toBeUndefined()
+		expect(Object.getOwnPropertyDescriptor(Object.prototype, 'polluted')).toBeUndefined()
+	})
+
+	it('nested copy-on-write: input and its nested sub-record stay untouched, output is reference-distinct at every level', () => {
+		const nested = { x: 1 }
+		const input = { a: nested }
+		const output = setField(input, ['a', 'y'], 2)
+
+		expect(input).toEqual({ a: { x: 1 } })
+		expect(input.a).toBe(nested)
+		expect(output).not.toBe(input)
+		expect(Reflect.get(output, 'a')).not.toBe(nested)
+		expect(output).toEqual({ a: { x: 1, y: 2 } })
+	})
+
+	it('a scalar or array at an intermediate segment is replaced by a fresh record', () => {
+		expect(setField({ a: 5 }, ['a', 'b'], 1)).toEqual({ a: { b: 1 } })
+		expect(setField({ a: [1, 2, 3] }, ['a', 'b'], 1)).toEqual({ a: { b: 1 } })
+	})
+
+	it('an empty path returns the input unchanged', () => {
+		const input = { a: 1 }
+		expect(setField(input, [], 2)).toBe(input)
+	})
+
+	it('a plain string field behaves identically to its single-element array form', () => {
+		expect(setField({ age: 25 }, 'age', 30)).toEqual(setField({ age: 25 }, ['age'], 30))
+		expect(setField({}, 'address', { city: 'Reno' })).toEqual(
+			setField({}, ['address'], { city: 'Reno' }),
+		)
 	})
 })
 

@@ -29,7 +29,8 @@ import { digestValue } from '../helpers.js'
  *
  * @example
  * ```ts
- * import { TemplateManager, factorGroup, fieldFactor, quantitativeDefinition } from '@src/core'
+ * import { factorGroup, fieldFactor, quantitativeDefinition } from '@orkestrel/reason'
+ * import { TemplateManager } from '@src/core'
  *
  * const manager = new TemplateManager()
  * const record = manager.add({

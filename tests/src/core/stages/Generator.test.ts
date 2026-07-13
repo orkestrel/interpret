@@ -83,6 +83,41 @@ describe('Generator', () => {
 		])
 	})
 
+	it('a nested array mapping produces nested sibling aggregates (subject.address.amountsSum, ...)', () => {
+		const template = buildInterpretTemplate({
+			mappings: [{ entity: 'value', aliases: [], field: ['address', 'amounts'] }],
+		})
+		const entities = [
+			{
+				name: 'value',
+				value: [10, 20, 30],
+				provenance: { category: 'extracted' as const, detail: 'collect' },
+				confidence: 0.9,
+			},
+		]
+		const result = generator.generate(entities, template)
+		expect(result.subject).toEqual({
+			address: {
+				amounts: [10, 20, 30],
+				amountsSum: 60,
+				amountsCount: 3,
+				amountsAverage: 20,
+				amountsMinimum: 10,
+				amountsMaximum: 30,
+			},
+		})
+		const aggregateMappings = result.mappings.filter(
+			(mapping) => mapping.provenance.category === 'computed',
+		)
+		expect(aggregateMappings.map((mapping) => mapping.field)).toEqual([
+			['address', 'amountsSum'],
+			['address', 'amountsCount'],
+			['address', 'amountsAverage'],
+			['address', 'amountsMinimum'],
+			['address', 'amountsMaximum'],
+		])
+	})
+
 	it('leaves a multi-element NON-numeric array untouched — no aggregates', () => {
 		const template = buildInterpretTemplate()
 		const entities = [

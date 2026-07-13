@@ -8,9 +8,8 @@ import type {
 	Template,
 } from '../types.js'
 import { isFiniteNumber } from '@orkestrel/contract'
-import { formatField } from '@orkestrel/reason'
 import { CONFIDENCE_COMPUTED } from '../constants.js'
-import { setField } from '../helpers.js'
+import { deriveAggregateField, setField } from '../helpers.js'
 
 /**
  * The `Generator` stage: builds the final `Subject` from a fully resolved
@@ -23,8 +22,12 @@ import { setField } from '../helpers.js'
  * default/computed entities, so one lookup rule serves both extraction-
  * mapped and template-data-derived fields. A single-element array value
  * unwraps to its scalar; a multi-element, ALL-numeric array value stays an
- * array AND additionally emits five aggregate fields (`{field}Sum` /
- * `Count` / `Average` / `Minimum` / `Maximum`, provenance `computed`).
+ * array AND additionally emits five aggregate fields (`Sum` / `Count` /
+ * `Average` / `Minimum` / `Maximum`, provenance `computed`), each derived as
+ * a SIBLING path beside the source field via `deriveAggregateField` — for an
+ * array `FieldPath` (e.g. `['address', 'amounts']`) the aggregates nest
+ * (`['address', 'amountsSum']`, ...); for a plain string field they stay
+ * flat (`'amountsSum'`), matching the source field's own shape.
  * `confidence` is the mean of the input entities' own confidences (`0` for
  * an empty entity set). A `FieldMapping` is emitted for EVERY field that
  * lands on the subject, including defaults, computed fields, and aggregates
@@ -101,15 +104,16 @@ export class Generator implements GeneratorInterface {
 						provenance: entity.provenance,
 						confidence: entity.confidence,
 					})
-					const label = formatField(field)
 					const sum = numeric.reduce((total, item) => total + item, 0)
-					const aggregates: readonly (readonly [string, number])[] = [
-						[`${label}Sum`, sum],
-						[`${label}Count`, numeric.length],
-						[`${label}Average`, sum / numeric.length],
-						[`${label}Minimum`, Math.min(...numeric)],
-						[`${label}Maximum`, Math.max(...numeric)],
-					]
+					const minimum = numeric.reduce((min, item) => (item < min ? item : min), numeric[0])
+					const maximum = numeric.reduce((max, item) => (item > max ? item : max), numeric[0])
+					const aggregates = [
+						[deriveAggregateField(field, 'Sum'), sum],
+						[deriveAggregateField(field, 'Count'), numeric.length],
+						[deriveAggregateField(field, 'Average'), sum / numeric.length],
+						[deriveAggregateField(field, 'Minimum'), minimum],
+						[deriveAggregateField(field, 'Maximum'), maximum],
+					] as const
 					for (const [aggregateField, aggregateValue] of aggregates) {
 						subject = setField(subject, aggregateField, aggregateValue)
 						mappings.push({

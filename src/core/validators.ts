@@ -72,7 +72,8 @@ export function isFieldDefault(value: unknown): value is FieldDefault {
  *
  * @example
  * ```ts
- * import { constant, isComputedField, operation, variable } from '@src/core'
+ * import { constant, operation, variable } from '@orkestrel/reason'
+ * import { isComputedField } from '@src/core'
  *
  * isComputedField({
  * 	field: 'monthly',
@@ -99,7 +100,8 @@ export function isComputedField(value: unknown): value is ComputedField {
  *
  * @example
  * ```ts
- * import { factorGroup, fieldFactor, isTemplate, quantitativeDefinition } from '@src/core'
+ * import { factorGroup, fieldFactor, quantitativeDefinition } from '@orkestrel/reason'
+ * import { isTemplate } from '@src/core'
  *
  * isTemplate({
  * 	id: 't1',

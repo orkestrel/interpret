@@ -67,7 +67,8 @@ import { Normalizer } from './stages/Normalizer.js'
  *
  * @example
  * ```ts
- * import { Interpret, Extractor, factorGroup, fieldFactor, quantitativeDefinition } from '@src/core'
+ * import { factorGroup, fieldFactor, quantitativeDefinition } from '@orkestrel/reason'
+ * import { Interpret, Extractor } from '@src/core'
  *
  * const interpret = new Interpret({
  * 	extractor: new Extractor({ actions: { calculate: 'calculate' }, domains: { arithmetic: ['arithmetic'] } }),

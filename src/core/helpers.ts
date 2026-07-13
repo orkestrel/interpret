@@ -69,6 +69,37 @@ export function escapeRegExp(text: string): string {
  * setField({}, ['__proto__', 'polluted'], true)  // {} — refused, unchanged
  * ```
  */
+/**
+ * Derive the sibling field path for a computed aggregate of `field` — the
+ * suffix is appended to `field`'s OWN last segment, so the aggregate nests
+ * beside the source field rather than flattening past it.
+ *
+ * @remarks
+ * For an array {@link FieldPath} (e.g. `['address', 'amounts']`) with suffix
+ * `'Sum'` the result is `['address', 'amountsSum']` — nested beside
+ * `address.amounts`. For a plain string field the result stays a flat string
+ * (`'amounts'` → `'amountsSum'`), matching the existing single-key behavior.
+ *
+ * @param field - The source field path
+ * @param suffix - The aggregate suffix (`'Sum'`, `'Count'`, `'Average'`, `'Minimum'`, `'Maximum'`)
+ * @returns The sibling field path for the aggregate
+ *
+ * @example
+ * ```ts
+ * import { deriveAggregateField } from '@src/core'
+ *
+ * deriveAggregateField(['address', 'amounts'], 'Sum') // ['address', 'amountsSum']
+ * deriveAggregateField('amounts', 'Sum')               // 'amountsSum'
+ * ```
+ */
+export function deriveAggregateField(field: FieldPath, suffix: string): FieldPath {
+	if (Array.isArray(field)) {
+		const last = field[field.length - 1]
+		return [...field.slice(0, -1), `${last}${suffix}`]
+	}
+	return `${field}${suffix}`
+}
+
 export function setField(subject: Subject, field: FieldPath, value: unknown): Subject {
 	const path = Array.isArray(field) ? field : [field]
 	if (path.length === 0) return subject
@@ -560,8 +591,15 @@ export function matchAlias(token: string, aliases: readonly string[], threshold:
  * Ported from the app's `raters` digest machinery (`app/core/raters/helpers.ts`)
  * — record keys sort before serialization so a re-ordered object canonicalizes
  * identically; arrays keep position order (position is meaningful).
+ * Cycle-safe and total (AGENTS §14): `visited` tracks the object ancestors
+ * along the CURRENT recursion path (not a global "seen" set, so the same
+ * object reachable twice via non-cyclic sibling branches still canonicalizes
+ * normally); revisiting an ancestor renders that node as the literal string
+ * `'[cycle]'` instead of recursing — deterministic, never throws, never
+ * overflows the call stack.
  *
  * @param value - The value to canonicalize
+ * @param visited - The object ancestors along the current recursion path (internal; omit at the call site)
  * @returns The canonical string form
  *
  * @example
@@ -571,11 +609,19 @@ export function matchAlias(token: string, aliases: readonly string[], threshold:
  * canonicalize({ b: 1, a: 2 }) === canonicalize({ a: 2, b: 1 }) // true
  * ```
  */
-export function canonicalize(value: unknown): string {
-	if (Array.isArray(value)) return `[${value.map((entry) => canonicalize(entry)).join(',')}]`
+export function canonicalize(value: unknown, visited: ReadonlySet<object> = new Set()): string {
+	if (Array.isArray(value)) {
+		if (visited.has(value)) return JSON.stringify('[cycle]')
+		const nextVisited = new Set(visited)
+		nextVisited.add(value)
+		return `[${value.map((entry) => canonicalize(entry, nextVisited)).join(',')}]`
+	}
 	if (isRecord(value)) {
+		if (visited.has(value)) return JSON.stringify('[cycle]')
+		const nextVisited = new Set(visited)
+		nextVisited.add(value)
 		const keys = Object.keys(value).sort()
-		return `{${keys.map((key) => `${JSON.stringify(key)}:${canonicalize(value[key])}`).join(',')}}`
+		return `{${keys.map((key) => `${JSON.stringify(key)}:${canonicalize(value[key], nextVisited)}`).join(',')}}`
 	}
 	return JSON.stringify(value) ?? 'null'
 }
@@ -688,7 +734,8 @@ export function matchTemplate(
  *
  * @example
  * ```ts
- * import { constant, operation, variable, variablesOf } from '@src/core'
+ * import { constant, operation, variable } from '@orkestrel/reason'
+ * import { variablesOf } from '@src/core'
  *
  * variablesOf(operation('divide', variable('deductible'), constant(12))) // ['deductible']
  * ```
@@ -736,7 +783,8 @@ export function variablesOf(expression: SymbolicExpression): readonly string[] {
  *
  * @example
  * ```ts
- * import { constant, operation, resolveExpression, variable } from '@src/core'
+ * import { constant, operation, variable } from '@orkestrel/reason'
+ * import { resolveExpression } from '@src/core'
  *
  * resolveExpression(operation('divide', variable('deductible'), constant(12)), { deductible: 6000 }) // 500
  * resolveExpression(operation('divide', constant(1), constant(0)), {}) // undefined — NaN gap
