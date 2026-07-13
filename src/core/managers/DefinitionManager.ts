@@ -1,10 +1,13 @@
-import type { Definition } from '../../reasons/index.js'
+import type { EmitterInterface } from '@orkestrel/emitter'
+import type { Definition } from '@orkestrel/reason'
 import type {
+	DefinitionManagerEventMap,
 	DefinitionManagerInterface,
 	DefinitionManagerOptions,
 	DefinitionRecord,
 	ManagerAddOptions,
 } from '../types.js'
+import { Emitter } from '@orkestrel/emitter'
 import { InterpretError } from '../errors.js'
 import { digestValue } from '../helpers.js'
 
@@ -32,10 +35,19 @@ import { digestValue } from '../helpers.js'
  */
 export class DefinitionManager implements DefinitionManagerInterface {
 	readonly #records = new Map<string, DefinitionRecord>()
+	readonly #emitter: Emitter<DefinitionManagerEventMap>
 	#destroyed = false
 
 	constructor(options?: DefinitionManagerOptions) {
+		this.#emitter = new Emitter<DefinitionManagerEventMap>({
+			on: options?.on,
+			error: options?.error,
+		})
 		for (const definition of options?.definitions ?? []) this.add(definition)
+	}
+
+	get emitter(): EmitterInterface<DefinitionManagerEventMap> {
+		return this.#emitter
 	}
 
 	get size(): number {
@@ -67,6 +79,7 @@ export class DefinitionManager implements DefinitionManagerInterface {
 			existing === undefined ? 1 : existing.hash === hash ? existing.version : existing.version + 1
 		const record: DefinitionRecord = { id, definition, version, hash }
 		this.#records.set(id, record)
+		this.#emitter.emit('add', id)
 		return record
 	}
 
@@ -77,12 +90,20 @@ export class DefinitionManager implements DefinitionManagerInterface {
 	remove(target?: string | readonly string[]): boolean | void {
 		this.#ensureAlive()
 		if (target === undefined) {
+			for (const id of this.#records.keys()) this.#emitter.emit('remove', id)
 			this.#records.clear()
 			return
 		}
-		if (typeof target === 'string') return this.#records.delete(target)
+		if (typeof target === 'string') {
+			const removed = this.#records.delete(target)
+			if (removed) this.#emitter.emit('remove', target)
+			return removed
+		}
 		for (const id of target) if (!this.#records.has(id)) return false
-		for (const id of target) this.#records.delete(id)
+		for (const id of target) {
+			this.#records.delete(id)
+			this.#emitter.emit('remove', id)
+		}
 		return true
 	}
 
@@ -90,6 +111,8 @@ export class DefinitionManager implements DefinitionManagerInterface {
 		if (this.#destroyed) return
 		this.#records.clear()
 		this.#destroyed = true
+		this.#emitter.emit('destroy')
+		this.#emitter.destroy()
 	}
 
 	#ensureAlive(): void {

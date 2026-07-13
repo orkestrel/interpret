@@ -1,14 +1,15 @@
-import type { Subject, SymbolicExpression } from '../reasons/index.js'
+import type { FieldPath } from '@orkestrel/contract'
+import type { Subject, SymbolicExpression } from '@orkestrel/reason'
 import type { Entity, EntityMapping, Intent, NarratorInterface, Template } from './types.js'
-import { isFiniteNumber, isRecord, parseJSONAs } from '../contracts/index.js'
-import { escapeRegExp } from '../helpers.js'
-import { createTransformer } from '../reasons/index.js'
+import { isFiniteNumber, isRecord, parseJSONAs, resolveField } from '@orkestrel/contract'
+import { applyOperation } from '@orkestrel/reason'
 import {
 	CONFIDENCE_ALIAS,
 	CONFIDENCE_COLLECT,
 	CONFIDENCE_EXACT,
 	CONFIDENCE_POSITIONAL,
 	NUMBER_PATTERN,
+	UNSAFE_FIELD_SEGMENTS,
 } from './constants.js'
 import { isTemplate } from './validators.js'
 
@@ -17,6 +18,106 @@ import { isTemplate } from './validators.js'
 // and independently unit-testable. Stateful orchestration (the five-stage
 // pipeline, entity assignment sequencing, template registration) lives on the
 // `Interpret` orchestrator and its stage classes, never here.
+
+// === Regex safety
+
+/**
+ * Escape every regex metacharacter in `text` so it matches literally when
+ * compiled into a `RegExp`.
+ *
+ * @param text - The literal text to escape
+ * @returns `text` with every regex metacharacter backslash-escaped
+ *
+ * @example
+ * ```ts
+ * import { escapeRegExp } from '@src/core'
+ *
+ * escapeRegExp('a.b*c') // 'a\\.b\\*c'
+ * new RegExp(escapeRegExp('a.b*c')).test('a.b*c') // true
+ * ```
+ */
+export function escapeRegExp(text: string): string {
+	return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+// === Field paths — safe copy-on-write writes
+
+/**
+ * Copy-on-write write a value at a (possibly nested) field path on a subject.
+ *
+ * @remarks
+ * Never mutates `subject` — every level a `field` array descends through is
+ * freshly copied, so the input and every intermediate record stay untouched
+ * (AGENTS §11). Prototype-pollution-safe: a `field` containing `__proto__`,
+ * `prototype`, or `constructor` at ANY segment (checked against
+ * `UNSAFE_FIELD_SEGMENTS`) is refused as a no-op, returning `subject`
+ * unchanged. A non-record value already sitting at an intermediate segment is
+ * replaced by a fresh record rather than descended into.
+ *
+ * @param subject - The subject to derive from
+ * @param field - The (possibly nested) field path to write
+ * @param value - The value to write
+ * @returns A fresh subject with `value` written at `field`, or `subject`
+ * unchanged when `field` carries an unsafe segment
+ *
+ * @example
+ * ```ts
+ * import { setField } from '@src/core'
+ *
+ * setField({ age: 25 }, 'age', 30)               // { age: 30 }
+ * setField({}, ['address', 'city'], 'Reno')      // { address: { city: 'Reno' } }
+ * setField({}, ['__proto__', 'polluted'], true)  // {} — refused, unchanged
+ * ```
+ */
+export function setField(subject: Subject, field: FieldPath, value: unknown): Subject {
+	const path = Array.isArray(field) ? field : [field]
+	if (path.length === 0) return subject
+	if (path.some((segment) => UNSAFE_FIELD_SEGMENTS.includes(segment))) return subject
+	const [key, ...rest] = path
+	if (key === undefined) return subject
+	if (rest.length === 0) return { ...subject, [key]: value }
+	const child = subject[key]
+	const nested = isRecord(child) ? child : {}
+	return { ...subject, [key]: setField(nested, rest, value) }
+}
+
+// === Message interpolation
+
+/**
+ * Interpolate `{{dotted.path}}` tokens in a message template against a record.
+ *
+ * @remarks
+ * Each token is split on `.` into a {@link FieldPath} array and resolved with
+ * the contracts `resolveField` (a plain string field is ONE key, never
+ * dot-split — the split here is the token-to-path bridge). A finite number
+ * renders with `en-US` thousand grouping (`5010` → `5,010`); any other
+ * resolved value String-coerces. An UNRESOLVED path (the resolved value is
+ * `undefined`) renders as the empty string — the deterministic "nothing to
+ * show" rule.
+ *
+ * @param template - The message template carrying `{{dotted.path}}` tokens
+ * @param record - The record tokens resolve against
+ * @returns The template with every token replaced
+ *
+ * @example
+ * ```ts
+ * import { interpolateMessage } from '@src/core'
+ *
+ * interpolateMessage('Limit is {{limit}}', { limit: 5010 }) // 'Limit is 5,010'
+ * interpolateMessage('Missing {{gone}}', {})                // 'Missing '
+ * ```
+ */
+export function interpolateMessage(
+	template: string,
+	record: Readonly<Record<string, unknown>>,
+): string {
+	return template.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_match, path: string) => {
+		const value = resolveField(record, path.split('.'))
+		if (value === undefined) return ''
+		if (isFiniteNumber(value)) return value.toLocaleString('en-US')
+		return String(value)
+	})
+}
 
 // === Normalization
 
@@ -620,15 +721,13 @@ export function variablesOf(expression: SymbolicExpression): readonly string[] {
  * @remarks
  * THE critical leaf (design-pinned, engine-parity semantics): an absent
  * `right` operand on a binary operation defaults to `0` — matching
- * `SymbolicReasoner`'s internal `#evaluate`, NOT `Transform`'s own
- * absent-operand default (`1` for `multiply` / `divide` / `power`) — and is
- * always passed as an EXPLICIT numeric operand, so the same tree evaluates
- * identically here and inside the engine. Each arithmetic step delegates to a
- * reasons `Transformer`, mapping the node's `.operator` field onto
- * `Transform`'s `.operation` field (they are NOT the same key). An unresolved
- * input variable, or a non-finite result (`NaN` from a divide-by-zero, or an
- * overflowing `±Infinity`), becomes a gap — `undefined`, never landing on a
- * subject.
+ * `SymbolicReasoner`'s internal `#evaluate` — and is always passed as an
+ * EXPLICIT numeric operand, so the same tree evaluates identically here and
+ * inside the engine. Each arithmetic step delegates to the reasons
+ * `applyOperation` pure function, mapping the node's `.operator` field onto
+ * its `operator` parameter. An unresolved input variable, or a non-finite
+ * result (`NaN` from a divide-by-zero, or an overflowing `±Infinity`),
+ * becomes a gap — `undefined`, never landing on a subject.
  *
  * @param expression - The expression tree to evaluate
  * @param bindings - The resolved variable bindings
@@ -657,8 +756,7 @@ export function resolveExpression(
 	const right = expression.right === undefined ? 0 : resolveExpression(expression.right, bindings)
 	if (right === undefined) return undefined
 
-	const transformer = createTransformer()
-	const result = transformer.apply(left, { operation: expression.operator, operand: right })
+	const result = applyOperation(expression.operator, left, right)
 	return isFiniteNumber(result) ? result : undefined
 }
 

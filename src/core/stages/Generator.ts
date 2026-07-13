@@ -1,3 +1,4 @@
+import type { Subject } from '@orkestrel/reason'
 import type {
 	Entity,
 	FieldMapping,
@@ -6,9 +7,10 @@ import type {
 	GeneratorOptions,
 	Template,
 } from '../types.js'
-import { isFiniteNumber } from '../../contracts/index.js'
-import { formatField, setField } from '../../helpers.js'
+import { isFiniteNumber } from '@orkestrel/contract'
+import { formatField } from '@orkestrel/reason'
 import { CONFIDENCE_COMPUTED } from '../constants.js'
+import { setField } from '../helpers.js'
 
 /**
  * The `Generator` stage: builds the final `Subject` from a fully resolved
@@ -63,7 +65,7 @@ export class Generator implements GeneratorInterface {
 	constructor(_options?: GeneratorOptions) {}
 
 	generate(entities: readonly Entity[], template: Template): GenerateResult {
-		const subject: Record<string, unknown> = {}
+		let subject: Subject = {}
 		const mappings: FieldMapping[] = []
 
 		for (const entity of entities) {
@@ -73,7 +75,7 @@ export class Generator implements GeneratorInterface {
 
 			if (Array.isArray(value) && value.length === 1) {
 				const scalar = value[0]
-				setField(subject, field, scalar)
+				subject = setField(subject, field, scalar)
 				mappings.push({
 					field,
 					entity: entity.name,
@@ -91,7 +93,7 @@ export class Generator implements GeneratorInterface {
 					numeric.push(item)
 				}
 				if (numeric.length === value.length) {
-					setField(subject, field, value)
+					subject = setField(subject, field, value)
 					mappings.push({
 						field,
 						entity: entity.name,
@@ -109,7 +111,7 @@ export class Generator implements GeneratorInterface {
 						[`${label}Maximum`, Math.max(...numeric)],
 					]
 					for (const [aggregateField, aggregateValue] of aggregates) {
-						setField(subject, aggregateField, aggregateValue)
+						subject = setField(subject, aggregateField, aggregateValue)
 						mappings.push({
 							field: aggregateField,
 							value: aggregateValue,
@@ -121,7 +123,7 @@ export class Generator implements GeneratorInterface {
 				}
 			}
 
-			setField(subject, field, value)
+			subject = setField(subject, field, value)
 			mappings.push({
 				field,
 				entity: entity.name,

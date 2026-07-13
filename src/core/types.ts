@@ -1,6 +1,6 @@
-import type { FieldPath } from '../types.js'
-import type { EmitterErrorHandler, EmitterHooks, EmitterInterface } from '../emitters/index.js'
-import type { Definition, ReasonResult, Subject, SymbolicExpression } from '../reasons/index.js'
+import type { FieldPath } from '@orkestrel/contract'
+import type { EmitterErrorHandler, EmitterHooks, EmitterInterface } from '@orkestrel/emitter'
+import type { Definition, ReasonResult, Subject, SymbolicExpression } from '@orkestrel/reason'
 
 // Interprets — a zero-dependency, synchronous, deterministic bidirectional
 // bridge between natural language and the reasons engine, plus the manager
@@ -360,6 +360,57 @@ export type InterpretEventMap = {
 	readonly destroy: readonly []
 }
 
+/**
+ * The push observation surface of a {@link TemplateManagerInterface} (AGENTS
+ * §13) — an id-keyed registry, so `add` / `remove` are the events (never
+ * ordered-list `append`/`prepend`).
+ */
+export type TemplateManagerEventMap = {
+	/** A template record was added — carries its record id. */
+	readonly add: readonly [id: string]
+	/** A template record was removed — carries its record id. */
+	readonly remove: readonly [id: string]
+	/** The manager was destroyed. */
+	readonly destroy: readonly []
+}
+
+/** The push observation surface of a {@link SubjectManagerInterface} (AGENTS §13). */
+export type SubjectManagerEventMap = {
+	/** A subject record was added — carries its (own-minted) record id. */
+	readonly add: readonly [id: string]
+	/** A subject record was removed — carries its record id. */
+	readonly remove: readonly [id: string]
+	/** The manager was destroyed. */
+	readonly destroy: readonly []
+}
+
+/** The push observation surface of a {@link DefinitionManagerInterface} (AGENTS §13). */
+export type DefinitionManagerEventMap = {
+	/** A definition record was added — carries its record id. */
+	readonly add: readonly [id: string]
+	/** A definition record was removed — carries its record id. */
+	readonly remove: readonly [id: string]
+	/** The manager was destroyed. */
+	readonly destroy: readonly []
+}
+
+/**
+ * The push observation surface of an {@link InterpretContextInterface} (AGENTS
+ * §13).
+ *
+ * @remarks
+ * An {@link Interpretation} carries no `id` of its own — `add` carries the
+ * entry's `digest` instead, the closest content-derived identity it has.
+ */
+export type InterpretContextEventMap = {
+	/** A completed interpretation was added to the history — carries its digest. */
+	readonly add: readonly [digest: string]
+	/** The history and both registries were cleared. */
+	readonly clear: readonly []
+	/** The context was destroyed. */
+	readonly destroy: readonly []
+}
+
 // === Narrator — lexicon-driven reverse rendering (mechanism, never policy)
 
 /**
@@ -457,16 +508,22 @@ export interface GeneratorOptions {}
 /** Options for `createTemplateManager` / the `TemplateManager` constructor — the initial seed collection. */
 export interface TemplateManagerOptions {
 	readonly templates?: readonly Template[]
+	readonly on?: EmitterHooks<TemplateManagerEventMap>
+	readonly error?: EmitterErrorHandler
 }
 
 /** Options for `createSubjectManager` / the `SubjectManager` constructor — the initial seed collection. */
 export interface SubjectManagerOptions {
 	readonly subjects?: readonly Subject[]
+	readonly on?: EmitterHooks<SubjectManagerEventMap>
+	readonly error?: EmitterErrorHandler
 }
 
 /** Options for `createDefinitionManager` / the `DefinitionManager` constructor — the initial seed collection. */
 export interface DefinitionManagerOptions {
 	readonly definitions?: readonly Definition[]
+	readonly on?: EmitterHooks<DefinitionManagerEventMap>
+	readonly error?: EmitterErrorHandler
 }
 
 /**
@@ -486,6 +543,8 @@ export interface ManagerAddOptions {
 export interface InterpretContextOptions {
 	readonly session?: string
 	readonly history?: number
+	readonly on?: EmitterHooks<InterpretContextEventMap>
+	readonly error?: EmitterErrorHandler
 }
 
 /**
@@ -600,6 +659,7 @@ export interface NarratorInterface {
  * untouched and returns `false`.
  */
 export interface TemplateManagerInterface {
+	readonly emitter: EmitterInterface<TemplateManagerEventMap>
 	readonly size: number
 	has(id: string): boolean
 	template(id: string): TemplateRecord | undefined
@@ -616,6 +676,7 @@ export interface TemplateManagerInterface {
  * that mints its own record ids (a `Subject` carries none).
  */
 export interface SubjectManagerInterface {
+	readonly emitter: EmitterInterface<SubjectManagerEventMap>
 	readonly size: number
 	has(id: string): boolean
 	subject(id: string): SubjectRecord | undefined
@@ -629,6 +690,7 @@ export interface SubjectManagerInterface {
 
 /** The definition registry — a self-owning, versioned/hashed record-holder. */
 export interface DefinitionManagerInterface {
+	readonly emitter: EmitterInterface<DefinitionManagerEventMap>
 	readonly size: number
 	has(id: string): boolean
 	definition(id: string): DefinitionRecord | undefined
@@ -652,6 +714,7 @@ export interface DefinitionManagerInterface {
  * {@link Interpretation}, dropping the oldest entry once the cap is reached.
  */
 export interface InterpretContextInterface {
+	readonly emitter: EmitterInterface<InterpretContextEventMap>
 	readonly session?: string
 	readonly subjects: SubjectManagerInterface
 	readonly definitions: DefinitionManagerInterface

@@ -1,11 +1,14 @@
+import type { EmitterInterface } from '@orkestrel/emitter'
 import type {
 	DefinitionManagerInterface,
 	Entity,
+	InterpretContextEventMap,
 	InterpretContextInterface,
 	InterpretContextOptions,
 	Interpretation,
 	SubjectManagerInterface,
 } from '../types.js'
+import { Emitter } from '@orkestrel/emitter'
 import { DEFAULT_INTERPRET_HISTORY } from '../constants.js'
 import { InterpretError } from '../errors.js'
 import { DefinitionManager } from './DefinitionManager.js'
@@ -41,6 +44,7 @@ export class InterpretContext implements InterpretContextInterface {
 	readonly #definitions: DefinitionManagerInterface
 	readonly #history: number
 	readonly #previous: Interpretation[] = []
+	readonly #emitter: Emitter<InterpretContextEventMap>
 	#destroyed = false
 
 	constructor(options?: InterpretContextOptions) {
@@ -48,6 +52,14 @@ export class InterpretContext implements InterpretContextInterface {
 		this.#history = Math.max(0, options?.history ?? DEFAULT_INTERPRET_HISTORY)
 		this.#subjects = new SubjectManager()
 		this.#definitions = new DefinitionManager()
+		this.#emitter = new Emitter<InterpretContextEventMap>({
+			on: options?.on,
+			error: options?.error,
+		})
+	}
+
+	get emitter(): EmitterInterface<InterpretContextEventMap> {
+		return this.#emitter
 	}
 
 	get session(): string | undefined {
@@ -79,6 +91,7 @@ export class InterpretContext implements InterpretContextInterface {
 		this.#ensureAlive()
 		this.#previous.push(result)
 		while (this.#previous.length > this.#history) this.#previous.shift()
+		this.#emitter.emit('add', result.digest)
 	}
 
 	clear(): void {
@@ -86,6 +99,7 @@ export class InterpretContext implements InterpretContextInterface {
 		this.#previous.length = 0
 		this.#subjects.remove()
 		this.#definitions.remove()
+		this.#emitter.emit('clear')
 	}
 
 	destroy(): void {
@@ -94,6 +108,8 @@ export class InterpretContext implements InterpretContextInterface {
 		this.#subjects.destroy()
 		this.#definitions.destroy()
 		this.#destroyed = true
+		this.#emitter.emit('destroy')
+		this.#emitter.destroy()
 	}
 
 	#ensureAlive(): void {

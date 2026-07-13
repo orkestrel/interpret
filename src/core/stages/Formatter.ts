@@ -7,7 +7,7 @@ import type {
 	Intent,
 	Template,
 } from '../types.js'
-import { formatField } from '../../helpers.js'
+import { formatField } from '@orkestrel/reason'
 import { DEFAULT_VERBS } from '../constants.js'
 
 /**

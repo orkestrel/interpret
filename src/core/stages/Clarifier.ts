@@ -9,8 +9,8 @@ import type {
 	InterpretContextInterface,
 	Template,
 } from '../types.js'
-import { isFiniteNumber } from '../../contracts/index.js'
-import { formatField } from '../../helpers.js'
+import { isFiniteNumber } from '@orkestrel/contract'
+import { formatField } from '@orkestrel/reason'
 import {
 	CONFIDENCE_CARRIED,
 	CONFIDENCE_COMPUTED,

@@ -1,8 +1,9 @@
-import type { FieldPath } from '../types.js'
-import type { Definition, ReasonResult } from '../reasons/index.js'
+import type { FieldPath } from '@orkestrel/contract'
+import type { Definition, ReasonResult } from '@orkestrel/reason'
 import type { Lexicon, NarratorFormatter, NarratorInterface, NarratorOptions } from './types.js'
-import { formatField, interpolateMessage } from '../helpers.js'
+import { formatField } from '@orkestrel/reason'
 import { DEFAULT_LEXICON } from './constants.js'
+import { interpolateMessage } from './helpers.js'
 
 /**
  * A stateless, TOTAL, lexicon-driven rendering engine for the reverse

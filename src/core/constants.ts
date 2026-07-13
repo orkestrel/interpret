@@ -65,6 +65,16 @@ export const CONFIDENCE_COMPUTED = 0.9
 export const NUMBER_PATTERN = /(?:\$\s*)?(\d+(?:,\d{3})*(?:\.\d+)?)\s*%?/g
 
 /**
+ * Prototype-pollution-unsafe field-path segments — `setField` refuses to
+ * write ANY path containing one, returning its input unchanged.
+ */
+export const UNSAFE_FIELD_SEGMENTS: readonly string[] = Object.freeze([
+	'__proto__',
+	'prototype',
+	'constructor',
+])
+
+/**
  * Neutral built-in contraction expansions for `Normalizer` — small on
  * purpose; callers merge their own map over this one.
  */

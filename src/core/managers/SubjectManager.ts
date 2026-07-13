@@ -1,10 +1,13 @@
-import type { Subject } from '../../reasons/index.js'
+import type { EmitterInterface } from '@orkestrel/emitter'
+import type { Subject } from '@orkestrel/reason'
 import type {
 	ManagerAddOptions,
+	SubjectManagerEventMap,
 	SubjectManagerInterface,
 	SubjectManagerOptions,
 	SubjectRecord,
 } from '../types.js'
+import { Emitter } from '@orkestrel/emitter'
 import { InterpretError } from '../errors.js'
 import { digestValue } from '../helpers.js'
 
@@ -35,11 +38,17 @@ import { digestValue } from '../helpers.js'
  */
 export class SubjectManager implements SubjectManagerInterface {
 	readonly #records = new Map<string, SubjectRecord>()
+	readonly #emitter: Emitter<SubjectManagerEventMap>
 	#counter = 0
 	#destroyed = false
 
 	constructor(options?: SubjectManagerOptions) {
+		this.#emitter = new Emitter<SubjectManagerEventMap>({ on: options?.on, error: options?.error })
 		for (const subject of options?.subjects ?? []) this.add(subject)
+	}
+
+	get emitter(): EmitterInterface<SubjectManagerEventMap> {
+		return this.#emitter
 	}
 
 	get size(): number {
@@ -75,6 +84,7 @@ export class SubjectManager implements SubjectManagerInterface {
 			existing === undefined ? 1 : existing.hash === hash ? existing.version : existing.version + 1
 		const record: SubjectRecord = { id, subject, version, hash }
 		this.#records.set(id, record)
+		this.#emitter.emit('add', id)
 		return record
 	}
 
@@ -85,12 +95,20 @@ export class SubjectManager implements SubjectManagerInterface {
 	remove(target?: string | readonly string[]): boolean | void {
 		this.#ensureAlive()
 		if (target === undefined) {
+			for (const id of this.#records.keys()) this.#emitter.emit('remove', id)
 			this.#records.clear()
 			return
 		}
-		if (typeof target === 'string') return this.#records.delete(target)
+		if (typeof target === 'string') {
+			const removed = this.#records.delete(target)
+			if (removed) this.#emitter.emit('remove', target)
+			return removed
+		}
 		for (const id of target) if (!this.#records.has(id)) return false
-		for (const id of target) this.#records.delete(id)
+		for (const id of target) {
+			this.#records.delete(id)
+			this.#emitter.emit('remove', id)
+		}
 		return true
 	}
 
@@ -98,6 +116,8 @@ export class SubjectManager implements SubjectManagerInterface {
 		if (this.#destroyed) return
 		this.#records.clear()
 		this.#destroyed = true
+		this.#emitter.emit('destroy')
+		this.#emitter.destroy()
 	}
 
 	#ensureAlive(): void {

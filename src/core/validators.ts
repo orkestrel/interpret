@@ -1,6 +1,6 @@
 import type { ComputedField, EntityMapping, FieldDefault, Template } from './types.js'
-import { arrayOf, isBoolean, isString, notOf, recordOf, unionOf } from '../contracts/index.js'
-import { isDefinition, isFieldPath, isSymbolicExpression } from '../reasons/index.js'
+import { arrayOf, isBoolean, isString, notOf, recordOf, unionOf } from '@orkestrel/contract'
+import { isDefinition, isFieldPath, isSymbolicExpression } from '@orkestrel/reason'
 
 // AGENTS §14: every guard here is a TOTAL function — adversarial input (junk,
 // hostile prototypes, cyclic/deep nesting) returns `false`, never throws.

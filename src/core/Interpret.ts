@@ -1,5 +1,5 @@
-import type { EmitterInterface } from '../emitters/index.js'
-import type { Definition, ReasonResult } from '../reasons/index.js'
+import type { EmitterInterface } from '@orkestrel/emitter'
+import type { Definition, ReasonResult } from '@orkestrel/reason'
 import type {
 	Ambiguity,
 	ClarifierInterface,
@@ -26,7 +26,7 @@ import type {
 	StageRecord,
 	Template,
 } from './types.js'
-import { Emitter } from '../emitters/index.js'
+import { Emitter } from '@orkestrel/emitter'
 import { DEFAULT_INTERPRET_FLOOR, DEFAULT_INTERPRET_SIMILARITY } from './constants.js'
 import { InterpretError } from './errors.js'
 import { assignEntities, digestValue, matchTemplate } from './helpers.js'

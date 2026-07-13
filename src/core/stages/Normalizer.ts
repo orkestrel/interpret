@@ -4,9 +4,8 @@ import type {
 	NormalizerOptions,
 	TextChange,
 } from '../types.js'
-import { escapeRegExp } from '../../helpers.js'
 import { DEFAULT_ABBREVIATIONS, DEFAULT_CONTRACTIONS, DEFAULT_CORRECTIONS } from '../constants.js'
-import { applyReplacements, collapseWhitespace } from '../helpers.js'
+import { applyReplacements, collapseWhitespace, escapeRegExp } from '../helpers.js'
 
 /**
  * The `Normalizer` stage: applies contraction, abbreviation, and correction
