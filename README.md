@@ -1,71 +1,78 @@
-# @orkestrel/relation
+# @orkestrel/interpret
 
-A typed **relation manager** over [`@orkestrel/database`](https://github.com/orkestrel/database)
-tables — name a table's relations once, then `load` / `find` records with their
-related rows already attached. Loading is **batched** — one query per relation
-across the whole record set, grouped in memory and merged on — so a hundred
-parents cost the same number of round-trips as one. Five relation kinds
-(`belongs` / `many` / `one` / `through` / `morph`) cover the FK shapes; nested
-includes recurse through the registry; `link` / `unlink` / `links` manage a
-many-to-many junction without hand-writing join rows. Environment-agnostic —
-no I/O, no browser or server assumptions. Part of the `@orkestrel` line.
+A zero-dependency, synchronous, deterministic bidirectional bridge between
+natural language and the [`@orkestrel/reason`](https://github.com/orkestrel/reason)
+engine. FORWARD: raw text is normalized, classified into an intent, matched
+against a registered `Template`, mined for numeric entities, clarified
+(carry-over / defaults / computed fields), formatted into a refined prompt,
+then generated into a `Subject` + `Definition` pair ready for
+`Reason.reason`. REVERSE: a `Definition` / `Subject` / `ReasonResult`
+renders to display-neutral prose through a lexicon-driven `Narrator`.
+Nothing here is an LLM, provider, or agent. Environment-agnostic — no I/O,
+no browser or server assumptions. Part of the `@orkestrel` line.
 
 ## Install
 
 ```sh
-npm install @orkestrel/relation
+npm install @orkestrel/interpret
 ```
 
 ## Requirements
 
 - Node.js >= 24
 - ESM-only (no CommonJS build)
+- Runtime dependencies: [`@orkestrel/reason`](https://github.com/orkestrel/reason),
+  [`@orkestrel/contract`](https://github.com/orkestrel/contract),
+  [`@orkestrel/emitter`](https://github.com/orkestrel/emitter)
 
 ## Usage
 
 ```ts
-import { createRelationManager, belongsTo, hasMany, hasThrough } from '@orkestrel/relation'
-import { createDatabase, createMemoryDriver } from '@orkestrel/database'
-import { stringShape } from '@orkestrel/contract'
+import { createInterpret } from '@orkestrel/interpret'
+import { factorGroup, fieldFactor, quantitativeDefinition } from '@orkestrel/reason'
 
-const db = createDatabase({
-	driver: createMemoryDriver(),
-	tables: {
-		accounts: { id: stringShape(), name: stringShape(), classificationId: stringShape() },
-		contacts: { id: stringShape(), accountId: stringShape(), email: stringShape() },
-		classifications: { id: stringShape(), label: stringShape() },
+const interpret = createInterpret({
+	extractor: {
+		extract: () => ({
+			intent: { action: 'calculate', domain: 'arithmetic', confidence: 1 },
+			numbers: [42],
+			complete: true,
+		}),
 	},
-})
-
-const manager = createRelationManager({
-	database: db,
-	relations: {
-		accounts: {
-			classification: belongsTo('classificationId', 'classifications'), // FK on accounts
-			contacts: hasMany('accountId'), // FK on contacts → back here
+	templates: [
+		{
+			id: 't1',
+			name: 'Arithmetic',
+			domain: 'arithmetic',
+			intents: ['calculate'],
+			mappings: [{ entity: 'value', aliases: [], field: 'value' }],
+			defaults: [],
+			computations: [],
+			definition: quantitativeDefinition('t1', 'Arithmetic', [
+				factorGroup('total', 'sum', [fieldFactor('value', 'value')]),
+			]),
 		},
-		contacts: { account: belongsTo('accountId', 'accounts') },
-	},
+	],
 })
 
-const accounts = manager.model('accounts') // a typed Model; only the relations you ask for load
-const acme = await accounts.load('acc1', { contacts: true, classification: true })
+const result = interpret.interpret('calculate arithmetic 42')
+result.subject // { value: 42 }
 
-acme?.name // ✅ the base row is the table's row type
-acme?.contacts // the relation property — broad (Row | readonly Row[] | undefined)
+interpret.destroy()
 ```
 
-`model(name)` is checked against the database's declared tables, so a typo is a
-compile error. The model's own table (`model.table`) carries that table's row
-type; the attached related rows are the broad `Row` — narrow them where you
-read them.
+`interpret()` is genuinely synchronous and runs the fixed five-stage
+pipeline `[normalize, extract, clarify, format, generate]`. A `NO_TEMPLATE`
+/ `LOW_CONFIDENCE` non-match, or a thrown stage, both yield a visible
+INCOMPLETE result rather than an arbitrary fallback.
 
 ## Guide
 
-For the full surface — the manager, the `Model`, the relation builders
-(`belongsTo` / `hasMany` / `hasOne` / `hasThrough` / `hasMorph`), resolution,
-errors, and the observation surface — see
-[`guides/src/relation.md`](guides/src/relation.md).
+For the full surface — the `Interpret` orchestrator, the five pipeline
+stages, the template/subject/definition managers, the cross-turn context,
+the lexicon-driven `Narrator`, helpers, validators, factories, errors, and
+the observation surface — see
+[`guides/src/interpret.md`](guides/src/interpret.md).
 
 ## Package
 
