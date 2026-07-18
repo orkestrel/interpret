@@ -1,6 +1,6 @@
 {
 	"name": "@orkestrel/interpret",
-	"version": "0.0.3",
+	"version": "0.0.4",
 	"description": "A typed interpretation engine: managers, stages, and a narrator that render reason definitions, subjects, and results as natural language. Part of the @orkestrel line.",
 	"keywords": [
 		"interpret",
