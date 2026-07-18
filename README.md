@@ -19,7 +19,7 @@ npm install @orkestrel/interpret
 
 ## Requirements
 
-- Node.js >= 24
+- Node.js >= 22
 - ESM-only (no CommonJS build)
 - Runtime dependencies: [`@orkestrel/reason`](https://github.com/orkestrel/reason),
   [`@orkestrel/contract`](https://github.com/orkestrel/contract),
