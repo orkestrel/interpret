@@ -2,8 +2,8 @@ import type { FieldPath } from '@orkestrel/contract'
 import type { Definition, ReasonResult } from '@orkestrel/reason'
 import type { Lexicon, NarratorFormatter, NarratorInterface, NarratorOptions } from './types.js'
 import { formatField } from '@orkestrel/reason'
+import { fillTemplate } from '@orkestrel/template'
 import { DEFAULT_LEXICON } from './constants.js'
-import { interpolateMessage } from './helpers.js'
 
 /**
  * A stateless, TOTAL, lexicon-driven rendering engine for the reverse
@@ -69,7 +69,7 @@ export class Narrator implements NarratorInterface {
 	line(id: string, values: Readonly<Record<string, unknown>>): string {
 		if (!Object.hasOwn(this.#lexicon.templates, id)) return ''
 		const template = this.#lexicon.templates[id]
-		return typeof template === 'string' ? interpolateMessage(template, values) : ''
+		return typeof template === 'string' ? fillTemplate(template, values, { missing: 'empty' }) : ''
 	}
 
 	value(unit: string, raw: unknown): string {

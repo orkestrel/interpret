@@ -337,7 +337,7 @@ describe('Narrator', () => {
 	})
 
 	describe('thousands grouping — intended behavior for large numbers', () => {
-		it('pins the grouped rendering exactly as interpolateMessage produces it', () => {
+		it('pins the grouped rendering exactly as fillTemplate produces it', () => {
 			const narrator = new Narrator()
 			expect(
 				narrator.narrate({

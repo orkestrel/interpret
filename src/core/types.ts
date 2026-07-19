@@ -434,8 +434,8 @@ export type NarratorFormatter = (value: unknown) => string
  * dotted `FieldPath` string to its display label, falling back to
  * `formatField` when absent. `templates` maps a template id (e.g.
  * `'definition.quantitative'`, `'result.symbolic'`, `'subject.fields'`) to an
- * `interpolateMessage` template string — see `DEFAULT_LEXICON` for the
- * pinned neutral key set.
+ * @orkestrel/template `fillTemplate` template string — see `DEFAULT_LEXICON`
+ * for the pinned neutral key set.
  */
 export interface Lexicon {
 	readonly phrases?: Readonly<Record<string, Readonly<Record<string, string>>>>

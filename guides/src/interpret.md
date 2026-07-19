@@ -265,7 +265,6 @@ transparent leaves behind the `Interpret` orchestrator and its stages.
 | `escapeRegExp`         | function | Escape every regex metacharacter so text matches literally when compiled into a `RegExp`.                                                   |
 | `setField`             | function | Copy-on-write write a value at a (possibly nested) field path — prototype-pollution-safe.                                                   |
 | `deriveAggregateField` | function | Derive the sibling field path for a computed aggregate of a field — nests beside an array `FieldPath`, stays flat for a plain string field. |
-| `interpolateMessage`   | function | Interpolate `{{dotted.path}}` tokens in a message template against a record.                                                                |
 | `applyReplacements`    | function | Replace every whole-word occurrence of a map's keys with their values.                                                                      |
 | `collapseWhitespace`   | function | Collapse every run of whitespace to a single space and trim the ends.                                                                       |
 | `tokenize`             | function | Split text into lowercase tokens, stripping punctuation outside a numeric/currency-safe allowlist.                                          |
@@ -335,7 +334,6 @@ import {
 	createNarrator,
 	describeSubject,
 	digestValue,
-	interpolateMessage,
 	matchTemplate,
 	parseTemplate,
 	resolveExpression,
@@ -343,7 +341,6 @@ import {
 	variablesOf,
 } from '@orkestrel/interpret'
 
-interpolateMessage('Limit is {{limit}}', { limit: 5010 }) // 'Limit is 5,010'
 canonicalize({ b: 1, a: 2 }) === canonicalize({ a: 2, b: 1 }) // true
 digestValue({ a: 1 }) === digestValue({ a: 1 }) // true — deterministic
 matchTemplate({ action: '', domain: '', confidence: 0 }, [], 0.3) // undefined — empty registry

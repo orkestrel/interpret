@@ -1,7 +1,7 @@
 import type { FieldPath } from '@orkestrel/contract'
 import type { Subject, SymbolicExpression } from '@orkestrel/reason'
 import type { Entity, EntityMapping, Intent, NarratorInterface, Template } from './types.js'
-import { isFiniteNumber, isRecord, parseJSONAs, resolveField } from '@orkestrel/contract'
+import { isFiniteNumber, isRecord, parseJSONAs } from '@orkestrel/contract'
 import { applyOperation } from '@orkestrel/reason'
 import {
 	CONFIDENCE_ALIAS,
@@ -110,44 +110,6 @@ export function setField(subject: Subject, field: FieldPath, value: unknown): Su
 	const child = subject[key]
 	const nested = isRecord(child) ? child : {}
 	return { ...subject, [key]: setField(nested, rest, value) }
-}
-
-// === Message interpolation
-
-/**
- * Interpolate `{{dotted.path}}` tokens in a message template against a record.
- *
- * @remarks
- * Each token is split on `.` into a {@link FieldPath} array and resolved with
- * the contracts `resolveField` (a plain string field is ONE key, never
- * dot-split — the split here is the token-to-path bridge). A finite number
- * renders with `en-US` thousand grouping (`5010` → `5,010`); any other
- * resolved value String-coerces. An UNRESOLVED path (the resolved value is
- * `undefined`) renders as the empty string — the deterministic "nothing to
- * show" rule.
- *
- * @param template - The message template carrying `{{dotted.path}}` tokens
- * @param record - The record tokens resolve against
- * @returns The template with every token replaced
- *
- * @example
- * ```ts
- * import { interpolateMessage } from '@src/core'
- *
- * interpolateMessage('Limit is {{limit}}', { limit: 5010 }) // 'Limit is 5,010'
- * interpolateMessage('Missing {{gone}}', {})                // 'Missing '
- * ```
- */
-export function interpolateMessage(
-	template: string,
-	record: Readonly<Record<string, unknown>>,
-): string {
-	return template.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_match, path: string) => {
-		const value = resolveField(record, path.split('.'))
-		if (value === undefined) return ''
-		if (isFiniteNumber(value)) return value.toLocaleString('en-US')
-		return String(value)
-	})
 }
 
 // === Normalization

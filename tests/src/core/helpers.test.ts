@@ -17,7 +17,6 @@ import {
 	digestValue,
 	escapeRegExp,
 	extractNumbers,
-	interpolateMessage,
 	matchAlias,
 	matchTemplate,
 	parseTemplate,
@@ -79,40 +78,6 @@ describe('escapeRegExp', () => {
 
 	it('is deterministic across repeated calls', () => {
 		expect(escapeRegExp('a.b*c')).toBe(escapeRegExp('a.b*c'))
-	})
-})
-
-describe('interpolateMessage', () => {
-	it('resolves a dotted {{path}} token against a nested record', () => {
-		expect(interpolateMessage('City: {{address.city}}', { address: { city: 'Reno' } })).toBe(
-			'City: Reno',
-		)
-	})
-
-	it('renders a finite number with en-US thousands grouping (5010 -> 5,010)', () => {
-		expect(interpolateMessage('Limit is {{limit}}', { limit: 5010 })).toBe('Limit is 5,010')
-	})
-
-	it('renders an unresolved path as the empty string', () => {
-		expect(interpolateMessage('Missing {{gone}}', {})).toBe('Missing ')
-		expect(interpolateMessage('Missing {{a.b.c}}', {})).toBe('Missing ')
-	})
-
-	it('renders a resolved null value as the literal string "null"', () => {
-		expect(interpolateMessage('Value: {{value}}', { value: null })).toBe('Value: null')
-	})
-
-	it('never evaluates template content — a token is a plain field lookup, not an expression', () => {
-		expect(interpolateMessage('{{1 + 1}}', { '1 + 1': 'not evaluated' })).toBe('not evaluated')
-		expect(
-			interpolateMessage('{{a.b}}', { 'a.b': 'flat-key-value', a: { b: 'nested-value' } }),
-		).toBe('nested-value')
-	})
-
-	it('is deterministic across repeated calls', () => {
-		const template = 'Limit is {{limit}}, city {{address.city}}'
-		const record = { limit: 5010, address: { city: 'Reno' } }
-		expect(interpolateMessage(template, record)).toBe(interpolateMessage(template, record))
 	})
 })
 

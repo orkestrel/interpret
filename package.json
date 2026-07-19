@@ -1,6 +1,6 @@
 {
 	"name": "@orkestrel/interpret",
-	"version": "0.0.4",
+	"version": "0.0.5",
 	"description": "A typed interpretation engine: managers, stages, and a narrator that render reason definitions, subjects, and results as natural language. Part of the @orkestrel line.",
 	"keywords": [
 		"interpret",
@@ -68,7 +68,8 @@
 	"dependencies": {
 		"@orkestrel/contract": "^0.0.5",
 		"@orkestrel/emitter": "^0.0.3",
-		"@orkestrel/reason": "^0.0.3"
+		"@orkestrel/reason": "^0.0.3",
+		"@orkestrel/template": "^0.0.1"
 	},
 	"devDependencies": {
 		"@microsoft/api-extractor": "^7.58.11",

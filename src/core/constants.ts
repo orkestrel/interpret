@@ -111,8 +111,8 @@ export const DEFAULT_VERBS: Readonly<Record<string, string>> = Object.freeze({})
  * `{table}.{reasoning}` for the four reasons kinds, `result.quantitative.failed`
  * for the quantitative-result failure suffix, and `subject.fields` /
  * `subject.empty` for `describeSubject`. Every string is a plain
- * `interpolateMessage` template — `{{name}}`-style placeholders resolved
- * against the caller-supplied `values` record.
+ * @orkestrel/template `fillTemplate` template — `{{name}}`-style placeholders
+ * resolved against the caller-supplied `values` record.
  */
 export const DEFAULT_LEXICON: Lexicon = Object.freeze({
 	phrases: Object.freeze({}),

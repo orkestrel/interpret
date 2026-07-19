@@ -41,6 +41,15 @@ helpers), not anything sourced in this repo; it is kept here so a reader of
 the parity suite can see the primitives it is built from without leaving
 this guide set.
 
+[`src/template.md`](src/template.md) is a byte-identical mirror of the guide
+for `@orkestrel/template` — a runtime dependency. It documents **that
+package's** surface (the string-fill `Template` / `TemplateManager`), not
+anything sourced in this repo; it is kept here for the same reason. Note the
+name collision: this documents `@orkestrel/template`'s own string-fill
+`Template` / `TemplateManager` classes, not this repo's distinct
+`Template` / `TemplateManager` intent-registry classes, which remain
+documented in [`src/interpret.md`](src/interpret.md).
+
 ## See also
 
 - [`AGENTS.md`](../AGENTS.md) — the rules; §22 documentation-as-contracts.
