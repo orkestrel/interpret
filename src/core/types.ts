@@ -435,7 +435,10 @@ export type NarratorFormatter = (value: unknown) => string
  * `formatField` when absent. `templates` maps a template id (e.g.
  * `'definition.quantitative'`, `'result.symbolic'`, `'subject.fields'`) to an
  * @orkestrel/template `fillTemplate` template string — see `DEFAULT_LEXICON`
- * for the pinned neutral key set.
+ * for the pinned neutral key set. Token grammar (the `[^{}]` token class, the
+ * `\{{` literal escape, whitespace trimming, and dotted-token path
+ * resolution) is defined by @orkestrel/template — see the vendored
+ * `guides/src/template.md` for the authoritative contract.
  */
 export interface Lexicon {
 	readonly phrases?: Readonly<Record<string, Readonly<Record<string, string>>>>
