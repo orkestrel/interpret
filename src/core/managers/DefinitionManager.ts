@@ -41,8 +41,8 @@ export class DefinitionManager implements DefinitionManagerInterface {
 
 	constructor(options?: DefinitionManagerOptions) {
 		this.#emitter = new Emitter<DefinitionManagerEventMap>({
-			on: options?.on,
-			error: options?.error,
+			...(options?.on === undefined ? {} : { on: options.on }),
+			...(options?.error === undefined ? {} : { error: options.error }),
 		})
 		for (const definition of options?.definitions ?? []) this.add(definition)
 	}

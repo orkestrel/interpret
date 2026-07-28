@@ -59,16 +59,19 @@ export class Formatter implements FormatterInterface {
 		ambiguities: readonly Ambiguity[],
 	): FormatResult {
 		const verb = this.#verbs[intent.action] ?? intent.action
-		const render = (list: readonly Entity[]): string =>
-			list.map((entity) => `${formatField(entity.name)}: ${String(entity.value)}`).join(', ')
+		const resolved: string[] = []
+		const defaults: string[] = []
+		for (const entity of entities) {
+			const rendered = `${formatField(entity.name)}: ${String(entity.value)}`
+			if (entity.provenance.category === 'default') defaults.push(rendered)
+			else resolved.push(rendered)
+		}
 
 		let prompt = `${verb} ${template.name}`
 
-		const resolved = entities.filter((entity) => entity.provenance.category !== 'default')
-		if (resolved.length > 0) prompt += ` with ${render(resolved)}`
+		if (resolved.length > 0) prompt += ` with ${resolved.join(', ')}`
 
-		const defaults = entities.filter((entity) => entity.provenance.category === 'default')
-		if (defaults.length > 0) prompt += ` (defaults: ${render(defaults)})`
+		if (defaults.length > 0) prompt += ` (defaults: ${defaults.join(', ')})`
 
 		if (ambiguities.length > 0) {
 			prompt += ` needed: ${ambiguities.map((ambiguity) => ambiguity.question).join(' ')}`

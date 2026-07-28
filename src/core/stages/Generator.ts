@@ -1,3 +1,4 @@
+import type { FieldPath } from '@orkestrel/contract'
 import type { Subject } from '@orkestrel/reason'
 import type {
 	Entity,
@@ -101,15 +102,17 @@ export class Generator implements GeneratorInterface {
 						confidence: entity.confidence,
 					})
 					const sum = numeric.reduce((total, item) => total + item, 0)
-					const minimum = numeric.reduce((min, item) => (item < min ? item : min), numeric[0])
-					const maximum = numeric.reduce((max, item) => (item > max ? item : max), numeric[0])
-					const aggregates = [
+					const first = numeric[0]
+					if (first === undefined) continue
+					const minimum = numeric.reduce((min, item) => (item < min ? item : min), first)
+					const maximum = numeric.reduce((max, item) => (item > max ? item : max), first)
+					const aggregates: readonly (readonly [FieldPath, number])[] = [
 						[deriveAggregateField(field, 'Sum'), sum],
 						[deriveAggregateField(field, 'Count'), numeric.length],
 						[deriveAggregateField(field, 'Average'), sum / numeric.length],
 						[deriveAggregateField(field, 'Minimum'), minimum],
 						[deriveAggregateField(field, 'Maximum'), maximum],
-					] as const
+					]
 					for (const [aggregateField, aggregateValue] of aggregates) {
 						subject = setField(subject, aggregateField, aggregateValue)
 						mappings.push({

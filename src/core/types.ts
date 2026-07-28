@@ -718,7 +718,7 @@ export interface DefinitionManagerInterface {
  */
 export interface InterpretContextInterface {
 	readonly emitter: EmitterInterface<InterpretContextEventMap>
-	readonly session?: string
+	readonly session: string | undefined
 	readonly subjects: SubjectManagerInterface
 	readonly definitions: DefinitionManagerInterface
 	previous(): readonly Interpretation[]

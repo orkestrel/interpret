@@ -18,7 +18,7 @@ import type { InterpretErrorCode } from './types.js'
  */
 export class InterpretError extends Error {
 	readonly code: InterpretErrorCode
-	readonly context?: Readonly<Record<string, unknown>>
+	declare readonly context?: Readonly<Record<string, unknown>>
 
 	constructor(
 		code: InterpretErrorCode,
@@ -28,7 +28,7 @@ export class InterpretError extends Error {
 		super(message)
 		this.name = 'InterpretError'
 		this.code = code
-		this.context = context
+		if (context !== undefined) this.context = context
 	}
 }
 

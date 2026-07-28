@@ -55,7 +55,10 @@ export class TemplateManager implements TemplateManagerInterface {
 	#destroyed = false
 
 	constructor(options?: TemplateManagerOptions) {
-		this.#emitter = new Emitter<TemplateManagerEventMap>({ on: options?.on, error: options?.error })
+		this.#emitter = new Emitter<TemplateManagerEventMap>({
+			...(options?.on === undefined ? {} : { on: options.on }),
+			...(options?.error === undefined ? {} : { error: options.error }),
+		})
 		for (const template of options?.templates ?? []) this.add(template)
 	}
 

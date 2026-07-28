@@ -122,7 +122,7 @@ than throwing.
 | `TemplateManagerInterface`   | interface | The template registry contract (AGENTS §9) — `emitter` / `size` + `has` / `template` / `templates` / `add` / `remove` / `destroy`.                                                                               |
 | `SubjectManagerInterface`    | interface | The subject registry contract — `emitter` / `size` + `has` / `subject` / `subjects` / `add` / `remove` / `destroy`.                                                                                              |
 | `DefinitionManagerInterface` | interface | The definition registry contract — `emitter` / `size` + `has` / `definition` / `definitions` / `add` / `remove` / `destroy`.                                                                                     |
-| `InterpretContextInterface`  | interface | The cross-turn context contract — `emitter` / `session?` / `subjects` / `definitions` + `previous` / `entities` / `add` / `clear` / `destroy`.                                                                   |
+| `InterpretContextInterface`  | interface | The cross-turn context contract — `emitter` / `session` (`string \| undefined`) / `subjects` / `definitions` + `previous` / `entities` / `add` / `clear` / `destroy`.                                            |
 | `InterpretInterface`         | interface | The interpretation orchestrator contract — `emitter` + `interpret` / `register` / `unregister` / `template` / `templates` / `describe` / `narrate` / `destroy`.                                                  |
 
 ### Constants

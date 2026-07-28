@@ -449,3 +449,9 @@ export function seedInterpretContext(previous: readonly Interpretation[]): Inter
 	for (const interpretation of previous) context.add(interpretation)
 	return context
 }
+
+/** Whether a repository-relative Vue SFC path belongs to the private browser application. */
+export function isBrowserVuePath(path: string): boolean {
+	const normalized = path.replaceAll('\\', '/')
+	return normalized.startsWith('app/browser/')
+}

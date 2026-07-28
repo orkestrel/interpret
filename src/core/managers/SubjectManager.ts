@@ -43,7 +43,10 @@ export class SubjectManager implements SubjectManagerInterface {
 	#destroyed = false
 
 	constructor(options?: SubjectManagerOptions) {
-		this.#emitter = new Emitter<SubjectManagerEventMap>({ on: options?.on, error: options?.error })
+		this.#emitter = new Emitter<SubjectManagerEventMap>({
+			...(options?.on === undefined ? {} : { on: options.on }),
+			...(options?.error === undefined ? {} : { error: options.error }),
+		})
 		for (const subject of options?.subjects ?? []) this.add(subject)
 	}
 

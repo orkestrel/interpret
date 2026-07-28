@@ -39,7 +39,7 @@ import { SubjectManager } from './SubjectManager.js'
  * ```
  */
 export class InterpretContext implements InterpretContextInterface {
-	readonly #session?: string
+	readonly #session: string | undefined
 	readonly #subjects: SubjectManagerInterface
 	readonly #definitions: DefinitionManagerInterface
 	readonly #history: number
@@ -53,8 +53,8 @@ export class InterpretContext implements InterpretContextInterface {
 		this.#subjects = new SubjectManager()
 		this.#definitions = new DefinitionManager()
 		this.#emitter = new Emitter<InterpretContextEventMap>({
-			on: options?.on,
-			error: options?.error,
+			...(options?.on === undefined ? {} : { on: options.on }),
+			...(options?.error === undefined ? {} : { error: options.error }),
 		})
 	}
 

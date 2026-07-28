@@ -107,15 +107,27 @@ export class Interpret implements InterpretInterface {
 	constructor(options?: InterpretOptions) {
 		this.#similarity = options?.similarity ?? DEFAULT_INTERPRET_SIMILARITY
 		this.#floor = options?.floor ?? DEFAULT_INTERPRET_FLOOR
-		this.#templates = new TemplateManager({ templates: options?.templates })
-		this.#context = options?.context ?? new InterpretContext({ history: options?.history })
+		this.#templates = new TemplateManager({
+			...(options?.templates === undefined ? {} : { templates: options.templates }),
+		})
+		this.#context =
+			options?.context ??
+			new InterpretContext(
+				options?.history === undefined ? undefined : { history: options.history },
+			)
 		this.#normalizer = options?.normalizer ?? new Normalizer()
 		this.#extractor = options?.extractor ?? new Extractor()
 		this.#clarifier = options?.clarifier ?? new Clarifier({ floor: this.#floor })
 		this.#formatter = options?.formatter ?? new Formatter()
 		this.#generator = options?.generator ?? new Generator()
-		this.#narrator = new Narrator({ lexicon: options?.lexicon, formatters: options?.formatters })
-		this.#emitter = new Emitter<InterpretEventMap>({ on: options?.on, error: options?.error })
+		this.#narrator = new Narrator({
+			...(options?.lexicon === undefined ? {} : { lexicon: options.lexicon }),
+			...(options?.formatters === undefined ? {} : { formatters: options.formatters }),
+		})
+		this.#emitter = new Emitter<InterpretEventMap>({
+			...(options?.on === undefined ? {} : { on: options.on }),
+			...(options?.error === undefined ? {} : { error: options.error }),
+		})
 	}
 
 	get emitter(): EmitterInterface<InterpretEventMap> {

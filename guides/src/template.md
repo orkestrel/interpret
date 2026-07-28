@@ -16,7 +16,7 @@ Create a template, fill it against a values record, then register it in a
 manager for id-keyed lookup:
 
 ```ts
-import { createTemplate, createTemplateManager } from '@src/core'
+import { createTemplate, createTemplateManager } from '@orkestrel/template'
 
 const greeting = createTemplate({ name: 'greeting', content: 'Hi {{name}}' })
 greeting.fill({ name: 'Ada' }) // 'Hi Ada'
@@ -63,7 +63,7 @@ import {
 	DEFAULT_MISSING_POLICY,
 	FILL_PATTERN,
 	UNSAFE_FIELD_SEGMENTS,
-} from '@src/core'
+} from '@orkestrel/template'
 
 DEFAULT_MISSING_POLICY // 'error'
 DEFAULT_LOCALE // 'en-US'
@@ -79,7 +79,7 @@ FILL_PATTERN.source // the `{{name}}` / `\{{` substitution pattern
 | `isTemplateError` | function | Narrow a caught value to a `TemplateError`.         |
 
 ```ts
-import { isTemplateError, TemplateError } from '@src/core'
+import { isTemplateError, TemplateError } from '@orkestrel/template'
 
 try {
 	throw new TemplateError('NOTFOUND', 'Unknown template id: missing', { id: 'missing' })
@@ -101,7 +101,7 @@ transparent leaves behind `Template#fill` / `#validate`.
 | `placeholderShape` | function | Build the `@orkestrel/contract` object shape describing a template's declared placeholders.                  |
 
 ```ts
-import { fillTemplate, formatValue, placeholderShape, resolveSafeField } from '@src/core'
+import { fillTemplate, formatValue, placeholderShape, resolveSafeField } from '@orkestrel/template'
 
 formatValue(5010, 'en-US') // '5,010'
 formatValue(null, 'en-US') // 'null'
@@ -120,7 +120,7 @@ placeholderShape([{ name: 'city' }]) // an object ContractShape with a `city` st
 | `createTemplateManager` | function | A working `TemplateManagerInterface`, optionally seeded with templates. |
 
 ```ts
-import { createTemplate, createTemplateManager } from '@src/core'
+import { createTemplate, createTemplateManager } from '@orkestrel/template'
 
 const greeting = createTemplate({ name: 'greeting', content: 'Hi {{name}}' })
 greeting.fill({ name: 'Ada' }) // 'Hi Ada'
@@ -157,7 +157,7 @@ this doubles as the per-instance method surface (AGENTS §22).
 | `parameters` | `Record<string, unknown> \| undefined` | Project the declared placeholders to the open tool-parameters record shape.                  |
 
 ```ts
-import { createTemplate } from '@src/core'
+import { createTemplate } from '@orkestrel/template'
 
 const greeting = createTemplate({
 	name: 'greeting',
@@ -193,7 +193,7 @@ throws `TemplateError` coded `NOTFOUND`.
 | `parameters` | `Record<string, unknown> \| undefined` | Project a registered template's parameters by id.                                                                 |
 
 ```ts
-import { createTemplateManager } from '@src/core'
+import { createTemplateManager } from '@orkestrel/template'
 
 const templates = createTemplateManager()
 const greeting = templates.register({ id: 'greeting', name: 'greeting', content: 'Hi {{name}}' })

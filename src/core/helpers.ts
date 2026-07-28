@@ -705,22 +705,22 @@ export function matchTemplate(
 export function variablesOf(expression: SymbolicExpression): readonly string[] {
 	const names: string[] = []
 	const seen = new Set<string>()
-
-	function collect(node: SymbolicExpression): void {
+	const pending = [expression]
+	while (pending.length > 0) {
+		const node = pending.pop()
+		if (node === undefined) continue
 		if (node.form === 'variable') {
 			if (!seen.has(node.name)) {
 				seen.add(node.name)
 				names.push(node.name)
 			}
-			return
+			continue
 		}
 		if (node.form === 'operation') {
-			collect(node.left)
-			if (node.right !== undefined) collect(node.right)
+			if (node.right !== undefined) pending.push(node.right)
+			pending.push(node.left)
 		}
 	}
-
-	collect(expression)
 	return names
 }
 
