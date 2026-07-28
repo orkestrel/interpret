@@ -1,6 +1,6 @@
 {
 	"name": "@orkestrel/interpret",
-	"version": "0.0.6",
+	"version": "0.0.7",
 	"description": "A typed interpretation engine: managers, stages, and a narrator that render reason definitions, subjects, and results as natural language. Part of the @orkestrel line.",
 	"keywords": [
 		"interpret",
@@ -65,18 +65,18 @@
 	},
 	"dependencies": {
 		"@orkestrel/contract": "^0.0.8",
-		"@orkestrel/emitter": "^0.0.3",
-		"@orkestrel/reason": "^0.0.3",
-		"@orkestrel/template": "^0.0.1"
+		"@orkestrel/emitter": "^0.0.4",
+		"@orkestrel/reason": "^0.0.4",
+		"@orkestrel/template": "^0.0.2"
 	},
 	"devDependencies": {
 		"@microsoft/api-extractor": "^7.58.12",
-		"@orkestrel/guide": "^0.0.5",
-		"@orkestrel/scaffold": "^0.0.5",
-		"@types/node": "^26.1.1",
+		"@orkestrel/guide": "^0.0.6",
+		"@orkestrel/scaffold": "^0.0.6",
+		"@types/node": "^26.1.2",
 		"@vitest/browser-playwright": "^4.1.10",
-		"oxfmt": "^0.60.0",
-		"oxlint": "^1.75.0",
+		"oxfmt": "^0.61.0",
+		"oxlint": "^1.76.0",
 		"typescript": "^6.0.3",
 		"vite": "^8.1.5",
 		"vite-plugin-dts": "^5.0.3",
