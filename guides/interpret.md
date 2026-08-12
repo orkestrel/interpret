@@ -15,7 +15,7 @@
 > `prompt` a result carries is FOR an external model, never consumed
 > internally. Every discriminant names its axis, never `kind` / `type`
 > (AGENTS §4.4): `stage` splits the five pipeline phases, `category` splits
-> provenance, `code` splits coded errors. Source: [`src/core`](../../src/core).
+> provenance, `code` splits coded errors. Source: [`src/core`](../src/core).
 > Surfaced through the `@src/core` barrel.
 
 ## Surface

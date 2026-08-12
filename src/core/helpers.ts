@@ -294,12 +294,12 @@ export function assignEntities(
 		positionMatch = positionPattern.exec(text)
 	}
 
-	const keywordMatches: {
+	const keywordMatches: Array<{
 		mapping: EntityMapping
 		position: number
 		confidence: number
 		detail: 'keyword' | 'alias'
-	}[] = []
+	}> = []
 
 	for (const mapping of mappings) {
 		let matchedPosition = -1

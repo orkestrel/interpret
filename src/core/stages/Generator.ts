@@ -106,7 +106,7 @@ export class Generator implements GeneratorInterface {
 					if (first === undefined) continue
 					const minimum = numeric.reduce((min, item) => (item < min ? item : min), first)
 					const maximum = numeric.reduce((max, item) => (item > max ? item : max), first)
-					const aggregates: readonly (readonly [FieldPath, number])[] = [
+					const aggregates: ReadonlyArray<readonly [FieldPath, number]> = [
 						[deriveAggregateField(field, 'Sum'), sum],
 						[deriveAggregateField(field, 'Count'), numeric.length],
 						[deriveAggregateField(field, 'Average'), sum / numeric.length],
