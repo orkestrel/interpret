@@ -7,7 +7,7 @@
 > — a token it reports `missing` is precisely a token that would throw. Every
 > fill lookup is prototype-pollution-safe: any field-path segment in
 > `UNSAFE_FIELD_SEGMENTS` (`__proto__` / `constructor` / `prototype`) is
-> refused before `resolveField` is ever called. Source: [`src/core`](../../src/core).
+> refused before `resolveField` is ever called. Source: [`src/core`](../src/core).
 > Surfaced through the `@src/core` barrel.
 
 ## Surface
@@ -210,23 +210,23 @@ templates.clear()
 
 ## Tests
 
-- [`tests/src/core/Template.test.ts`](../../tests/src/core/Template.test.ts) —
+- [`tests/src/core/Template.test.ts`](../tests/src/core/Template.test.ts) —
   construction validation, `definition` / `fill` / `validate` / `parameters`.
-- [`tests/src/core/TemplateManager.test.ts`](../../tests/src/core/TemplateManager.test.ts) —
+- [`tests/src/core/TemplateManager.test.ts`](../tests/src/core/TemplateManager.test.ts) —
   `register` / `template` / `templates` / `find` / `has` / `remove` / `clear` /
   `fill` / `validate` / `parameters`, including the `CONFLICT` / `NOTFOUND`
   error paths and the all-or-nothing batch `remove`.
-- [`tests/src/core/factories.test.ts`](../../tests/src/core/factories.test.ts) —
+- [`tests/src/core/factories.test.ts`](../tests/src/core/factories.test.ts) —
   `createTemplate` / `createTemplateManager` return working instances backed
   by real `Template` / `TemplateManager`.
-- [`tests/src/core/helpers.test.ts`](../../tests/src/core/helpers.test.ts) —
+- [`tests/src/core/helpers.test.ts`](../tests/src/core/helpers.test.ts) —
   `formatValue` / `resolveSafeField` / `fillTemplate` / `placeholderShape`,
   including the `interpolateMessage` parity and known divergence, missing
   policies, fallback precedence, and prototype-pollution-unsafe paths.
 
 ## See also
 
-- [`AGENTS.md`](../../AGENTS.md) — the rules.
+- [`AGENTS.md`](../AGENTS.md) — the rules.
 - [`guide.md`](guide.md) — the mirrored guide for `@orkestrel/guide`, the
   devDependency powering this repo's guides-parity test suite.
-- [`README.md`](../README.md) — the guides index.
+- [`README.md`](README.md) — the guides index.
