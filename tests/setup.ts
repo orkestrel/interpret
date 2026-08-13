@@ -11,6 +11,7 @@
 
 import type { EmitterInterface, EventMap } from '@orkestrel/emitter'
 import type { ReasonResult, SymbolicResult } from '@orkestrel/reason'
+import type { RecorderInterface } from '@orkestrel/test'
 import type { Interpretation, Template } from '@src/core'
 import { isArray } from '@orkestrel/contract'
 import {
@@ -23,6 +24,7 @@ import {
 	staticFactor,
 	variable,
 } from '@orkestrel/reason'
+import { createRecorder } from '@orkestrel/test'
 import { InterpretContext } from '@src/core'
 import { afterEach, vi } from 'vitest'
 
@@ -31,39 +33,14 @@ afterEach(() => {
 })
 
 // ── Recorders & error capture (generic, environment-agnostic) ─────────────────
-
-// A real callback that records its calls — use instead of a mock when a test
-// only needs to count invocations or inspect arguments.
-export interface TestRecorderInterface<TArgs extends readonly unknown[]> {
-	readonly calls: readonly TArgs[]
-	readonly count: number
-	readonly handler: (...args: TArgs) => void
-	clear(): void
-}
-
-export function createRecorder<
-	TArgs extends readonly unknown[] = readonly unknown[],
->(): TestRecorderInterface<TArgs> {
-	const calls: TArgs[] = []
-	return {
-		get calls() {
-			return calls
-		},
-		get count() {
-			return calls.length
-		},
-		handler: (...args: TArgs) => {
-			calls.push(args)
-		},
-		clear() {
-			calls.length = 0
-		},
-	}
-}
+//
+// The fleet-wide `createRecorder` / `captureError` live in `@orkestrel/test`. What
+// remains here is what is specific to this package: the emitter recorder bundles
+// and the `interprets` fixture builders.
 
 /** A {@link createRecorder} per listed event of an `EmitterInterface`, keyed by event name. */
 export type EmitterRecorders<TMap extends EventMap, TName extends keyof TMap> = {
-	readonly [K in TName]: TestRecorderInterface<TMap[K]>
+	readonly [K in TName]: RecorderInterface<TMap[K]>
 }
 
 /**
@@ -118,25 +95,6 @@ export function isTotal<TMap extends EventMap, TName extends keyof TMap>(
 	events: readonly TName[],
 ): recorders is EmitterRecorders<TMap, TName> {
 	return events.every((name) => recorders[name] !== undefined)
-}
-
-/**
- * Run `thunk` and return the value it threw, or `undefined` if it returned normally — the
- * one shared form of the `try { …; return undefined } catch (error) { return error }` IIFE
- * the error-path tests repeat (AGENTS §16.1). Lets a caller assert on the captured fault
- * unconditionally, never inside a conditional `expect`. For a synchronous throw site; an
- * async rejection is asserted with `await expect(…).rejects` instead.
- *
- * @param thunk - The (synchronous) operation to run and capture the throw of
- * @returns The thrown value, or `undefined` when `thunk` did not throw
- */
-export function captureError(thunk: () => unknown): unknown {
-	try {
-		thunk()
-		return undefined
-	} catch (error) {
-		return error
-	}
 }
 
 /**

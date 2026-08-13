@@ -1,7 +1,8 @@
 import type { SubjectManagerEventMap } from '@src/core'
 import { isInterpretError, SubjectManager } from '@src/core'
 import { describe, expect, it } from 'vitest'
-import { captureError, recordEmitterEvents } from '../../../setup.js'
+import { captureError } from '@orkestrel/test'
+import { recordEmitterEvents } from '../../../setup.js'
 
 // The `SubjectManager` registry — mints its OWN identity per subject (defect 7),
 // content-hashed with content-derived version bumps, all-or-nothing batch

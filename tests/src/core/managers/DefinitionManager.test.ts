@@ -2,7 +2,8 @@ import type { DefinitionManagerEventMap } from '@src/core'
 import { symbolicDefinition } from '@orkestrel/reason'
 import { DefinitionManager, isInterpretError } from '@src/core'
 import { describe, expect, it } from 'vitest'
-import { captureError, recordEmitterEvents } from '../../../setup.js'
+import { captureError } from '@orkestrel/test'
+import { recordEmitterEvents } from '../../../setup.js'
 
 // The `DefinitionManager` registry — versioned/hashed records keyed by the
 // definition id, content-derived version bumps, all-or-nothing batch remove,

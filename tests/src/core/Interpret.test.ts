@@ -17,11 +17,11 @@ import {
 	variable,
 } from '@orkestrel/reason'
 import { createNarrator, Extractor, Interpret, isInterpretError } from '@src/core'
+import { captureError } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import {
 	buildInsuranceTemplate,
 	buildInterpretTemplate,
-	captureError,
 	INTERPRET_ACTIONS,
 	INTERPRET_DOMAINS,
 	recordEmitterEvents,

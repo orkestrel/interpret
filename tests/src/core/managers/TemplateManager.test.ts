@@ -1,7 +1,8 @@
 import type { TemplateManagerEventMap } from '@src/core'
 import { isInterpretError, TemplateManager } from '@src/core'
 import { describe, expect, it } from 'vitest'
-import { buildInterpretTemplate, captureError, recordEmitterEvents } from '../../../setup.js'
+import { captureError } from '@orkestrel/test'
+import { buildInterpretTemplate, recordEmitterEvents } from '../../../setup.js'
 
 // The `TemplateManager` registry — versioned/hashed records, content-derived
 // version bumps (identical re-add keeps its version), all-or-nothing batch

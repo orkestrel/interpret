@@ -1,7 +1,8 @@
 import type { InterpretContextEventMap } from '@src/core'
 import { InterpretContext, isInterpretError } from '@src/core'
 import { describe, expect, it } from 'vitest'
-import { buildInterpretation, captureError, recordEmitterEvents } from '../../../setup.js'
+import { captureError } from '@orkestrel/test'
+import { buildInterpretation, recordEmitterEvents } from '../../../setup.js'
 
 // The `InterpretContext` — capped ring-buffer history (newest-last), flattened
 // entity carry-over source, own subject/definition registries, clear vs.
