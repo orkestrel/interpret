@@ -127,28 +127,31 @@ than throwing.
 
 ### Constants
 
-| API                            | Kind  | Summary                                                                                       |
-| ------------------------------ | ----- | --------------------------------------------------------------------------------------------- |
-| `DEFAULT_INTERPRET_SIMILARITY` | const | `0.8` — default fuzzy alias-match score threshold for `createInterpret` / `matchAlias`.       |
-| `DEFAULT_INTERPRET_FLOOR`      | const | `0.3` — default minimum intent confidence a template match must clear.                        |
-| `DEFAULT_INTERPRET_HISTORY`    | const | `16` — default `history` cap for an `InterpretContext`'s `previous()` ring buffer.            |
-| `INTERPRET_ID`                 | const | `'interpret'` — default id for an `Interpret` orchestrator.                                   |
-| `CONFIDENCE_EXACT`             | const | `1` — confidence for an exact keyword-proximity entity match.                                 |
-| `CONFIDENCE_ALIAS`             | const | `0.9` — confidence for an exact alias-phrase entity match.                                    |
-| `CONFIDENCE_COLLECT`           | const | `0.9` — confidence when a single entity mapping collects every extracted number.              |
-| `CONFIDENCE_POSITIONAL`        | const | `0.7` — confidence for a positional (order-based) entity match fallback.                      |
-| `CONFIDENCE_CARRIED`           | const | `0.7` — confidence for a same-domain carried-over field.                                      |
-| `CONFIDENCE_DEFAULT`           | const | `1` — confidence for a template default fill.                                                 |
-| `CONFIDENCE_COMPUTED`          | const | `0.9` — confidence for a successfully resolved computed field.                                |
-| `NUMBER_PATTERN`               | const | The shared numeric-entity extraction `RegExp` — leading `$`, thousands commas, decimal, `%`.  |
-| `UNSAFE_FIELD_SEGMENTS`        | const | `['__proto__', 'prototype', 'constructor']` — prototype-pollution-unsafe field-path segments. |
-| `DEFAULT_CONTRACTIONS`         | const | Neutral built-in contraction expansions for `Normalizer`.                                     |
-| `DEFAULT_ABBREVIATIONS`        | const | Neutral built-in abbreviation expansions for `Normalizer` — empty by default.                 |
-| `DEFAULT_CORRECTIONS`          | const | Neutral built-in misspelling corrections for `Normalizer` — empty by default.                 |
-| `DEFAULT_ACTIONS`              | const | Neutral built-in action-verb vocabulary for `Extractor#extract` — empty by default.           |
-| `DEFAULT_DOMAINS`              | const | Neutral built-in domain-keyword vocabulary for `Extractor#extract` — empty by default.        |
-| `DEFAULT_VERBS`                | const | Neutral built-in intent-verb phrasing for `Formatter#format` — empty by default.              |
-| `DEFAULT_LEXICON`              | const | The neutral default `Lexicon` a `Narrator` merges caller data over.                           |
+| API                            | Kind  | Summary                                                                                              |
+| ------------------------------ | ----- | ---------------------------------------------------------------------------------------------------- |
+| `DEFAULT_INTERPRET_SIMILARITY` | const | `0.8` — default fuzzy alias-match score threshold for `createInterpret` / `matchAlias`.              |
+| `DEFAULT_INTERPRET_FLOOR`      | const | `0.3` — default minimum intent confidence a template match must clear.                               |
+| `DEFAULT_INTERPRET_HISTORY`    | const | `16` — default `history` cap for an `InterpretContext`'s `previous()` ring buffer.                   |
+| `INTERPRET_ID`                 | const | `'interpret'` — default id for an `Interpret` orchestrator.                                          |
+| `PROVENANCE_CATEGORIES`        | const | Every `ProvenanceCategory` literal, frozen — the one home `isProvenance` checks the union from.      |
+| `INTERPRET_STAGES`             | const | Every `InterpretStage` literal in pipeline order, frozen — the one home the stage guards check from. |
+| `INTERPRET_ERROR_CODES`        | const | Every `InterpretErrorCode` literal, frozen — the one home `isStageFailure` checks the union from.    |
+| `CONFIDENCE_EXACT`             | const | `1` — confidence for an exact keyword-proximity entity match.                                        |
+| `CONFIDENCE_ALIAS`             | const | `0.9` — confidence for an exact alias-phrase entity match.                                           |
+| `CONFIDENCE_COLLECT`           | const | `0.9` — confidence when a single entity mapping collects every extracted number.                     |
+| `CONFIDENCE_POSITIONAL`        | const | `0.7` — confidence for a positional (order-based) entity match fallback.                             |
+| `CONFIDENCE_CARRIED`           | const | `0.7` — confidence for a same-domain carried-over field.                                             |
+| `CONFIDENCE_DEFAULT`           | const | `1` — confidence for a template default fill.                                                        |
+| `CONFIDENCE_COMPUTED`          | const | `0.9` — confidence for a successfully resolved computed field.                                       |
+| `NUMBER_PATTERN`               | const | The shared numeric-entity extraction `RegExp` — leading `$`, thousands commas, decimal, `%`.         |
+| `UNSAFE_FIELD_SEGMENTS`        | const | `['__proto__', 'prototype', 'constructor']` — prototype-pollution-unsafe field-path segments.        |
+| `DEFAULT_CONTRACTIONS`         | const | Neutral built-in contraction expansions for `Normalizer`.                                            |
+| `DEFAULT_ABBREVIATIONS`        | const | Neutral built-in abbreviation expansions for `Normalizer` — empty by default.                        |
+| `DEFAULT_CORRECTIONS`          | const | Neutral built-in misspelling corrections for `Normalizer` — empty by default.                        |
+| `DEFAULT_ACTIONS`              | const | Neutral built-in action-verb vocabulary for `Extractor#extract` — empty by default.                  |
+| `DEFAULT_DOMAINS`              | const | Neutral built-in domain-keyword vocabulary for `Extractor#extract` — empty by default.               |
+| `DEFAULT_VERBS`                | const | Neutral built-in intent-verb phrasing for `Formatter#format` — empty by default.                     |
+| `DEFAULT_LEXICON`              | const | The neutral default `Lexicon` a `Narrator` merges caller data over.                                  |
 
 ```ts
 import {
@@ -219,15 +222,47 @@ Total guards (AGENTS §14) composed from `@orkestrel/contract` combinators and
 `@orkestrel/reason` guards — adversarial input (junk, cycles, hostile
 prototypes) returns `false`, never throws.
 
-| API               | Kind     | Narrows to                                                                |
-| ----------------- | -------- | ------------------------------------------------------------------------- |
-| `isEntityMapping` | function | `EntityMapping`.                                                          |
-| `isFieldDefault`  | function | `FieldDefault`.                                                           |
-| `isComputedField` | function | `ComputedField`.                                                          |
-| `isTemplate`      | function | `Template` — composes reasons' `isDefinition` and `isSymbolicExpression`. |
+Two postures, split by who produces the value. Input-record guards are EXACT:
+an extra key fails, because an input this package owns that drifted from its
+declared shape should be rejected loudly. Result guards are OPEN: unknown
+members and class instances pass when every published member conforms, because
+a foreign engine's return is not this package's to narrow — `InterpretInterface`
+is borrowable, and a consumer holding a borrowed engine guards its `interpret`
+return with `isInterpretation` before dereferencing `intent`, `entities`, or
+`ambiguities`. Rows below labeled "Open" hold the result posture; unlabeled
+record guards are exact.
+
+| API                | Kind     | Narrows to                                                                                                                                                                                  |
+| ------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `isEntityMapping`  | function | `EntityMapping`.                                                                                                                                                                            |
+| `isFieldDefault`   | function | `FieldDefault`.                                                                                                                                                                             |
+| `isComputedField`  | function | `ComputedField`.                                                                                                                                                                            |
+| `isTemplate`       | function | `Template` — composes reasons' `isDefinition` and `isSymbolicExpression`.                                                                                                                   |
+| `isProvenance`     | function | Open `Provenance`; checks `category` and optional `detail`.                                                                                                                                 |
+| `isIntent`         | function | Open `Intent`; checks `action`, `domain`, and numeric `confidence`.                                                                                                                         |
+| `isEntity`         | function | Open `Entity`; checks `name`, `provenance`, and numeric `confidence`; leaves `value: unknown` unchecked — an absent `value` also passes, since members are read rather than own-key-tested. |
+| `isFieldMapping`   | function | Open `FieldMapping`; checks `field`, optional `entity`, `provenance`, and numeric `confidence`; leaves `value` unchecked — an absent `value` also passes.                                   |
+| `isAmbiguity`      | function | Open `Ambiguity`; checks `field`, `question`, string `candidates`, and `required`.                                                                                                          |
+| `isStageRecord`    | function | Open `StageRecord`; checks `stage`, `failed`, and optional `error`; leaves `input` and `output` unchecked — absent ones also pass.                                                          |
+| `isStageFailure`   | function | Open `StageFailure`; checks `stage`, `code`, and `message`.                                                                                                                                 |
+| `isInterpretation` | function | Open `Interpretation`; composes the result guards and shallow-checks optional `subject` / `definition` as non-array objects.                                                                |
 
 ```ts
-import { isComputedField, isEntityMapping, isFieldDefault, isTemplate } from '@orkestrel/interpret'
+import {
+	createInterpret,
+	isAmbiguity,
+	isComputedField,
+	isEntity,
+	isEntityMapping,
+	isFieldDefault,
+	isFieldMapping,
+	isIntent,
+	isInterpretation,
+	isProvenance,
+	isStageFailure,
+	isStageRecord,
+	isTemplate,
+} from '@orkestrel/interpret'
 import { factorGroup, fieldFactor, quantitativeDefinition } from '@orkestrel/reason'
 
 isEntityMapping({ entity: 'age', aliases: ['years old'], field: 'age' }) // true
@@ -253,6 +288,17 @@ isTemplate({
 		factorGroup('total', 'sum', [fieldFactor('value', 'value')]),
 	]),
 }) // true
+isProvenance({ category: 'extracted', detail: 'alias', metadata: true }) // true — open
+isIntent({ action: 'calculate', domain: 'arithmetic', confidence: 1 }) // true
+isEntity({ name: 'value', value: 42, provenance: { category: 'extracted' }, confidence: 1 }) // true
+isFieldMapping({ field: 'value', provenance: { category: 'extracted' }, confidence: 1 }) // true
+isAmbiguity({ field: 'value', question: 'Which value?', candidates: ['42'], required: true }) // true
+isStageRecord({ stage: 'normalize', input: 'raw', output: 'clean', failed: false }) // true
+isStageFailure({ stage: 'format', code: 'FORMAT_FAILED', message: 'failed' }) // true
+
+const guardEngine = createInterpret()
+isInterpretation(guardEngine.interpret('unmatched text')) // true
+guardEngine.destroy()
 ```
 
 ### Helpers

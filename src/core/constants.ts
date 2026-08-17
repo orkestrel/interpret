@@ -1,4 +1,4 @@
-import type { Lexicon } from './types.js'
+import type { InterpretErrorCode, InterpretStage, Lexicon, ProvenanceCategory } from './types.js'
 
 // Frozen default data for the interprets module (AGENTS §5 — constants are
 // UPPER_SNAKE_CASE data, the sole home for module-scope literal defaults).
@@ -132,3 +132,44 @@ export const DEFAULT_LEXICON: Lexicon = Object.freeze({
 		'subject.empty': 'with no fields',
 	}),
 })
+
+/**
+ * Every `ProvenanceCategory` literal, frozen — the one home the result guards
+ * check the union from, so a new category added to `types.ts` is added here
+ * rather than silently rejected by `isProvenance`.
+ */
+export const PROVENANCE_CATEGORIES: readonly ProvenanceCategory[] = Object.freeze([
+	'extracted',
+	'carried',
+	'default',
+	'computed',
+	'subject',
+])
+
+/**
+ * Every `InterpretStage` literal in pipeline order, frozen — the one home the
+ * result guards check the union from.
+ */
+export const INTERPRET_STAGES: readonly InterpretStage[] = Object.freeze([
+	'normalize',
+	'extract',
+	'clarify',
+	'format',
+	'generate',
+])
+
+/**
+ * Every `InterpretErrorCode` literal, frozen — the one home the result guards
+ * check the union from.
+ */
+export const INTERPRET_ERROR_CODES: readonly InterpretErrorCode[] = Object.freeze([
+	'NORMALIZE_FAILED',
+	'EXTRACT_FAILED',
+	'CLARIFY_FAILED',
+	'FORMAT_FAILED',
+	'GENERATE_FAILED',
+	'NO_TEMPLATE',
+	'LOW_CONFIDENCE',
+	'INVALID_TEMPLATE',
+	'DESTROYED',
+])
