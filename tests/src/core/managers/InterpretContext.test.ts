@@ -1,8 +1,8 @@
 import type { InterpretContextEventMap } from '@src/core'
 import { InterpretContext, isInterpretError } from '@src/core'
 import { describe, expect, it } from 'vitest'
-import { captureError } from '@orkestrel/test'
-import { buildInterpretation, recordEmitterEvents } from '../../../setup.js'
+import { captureError, createRecorders } from '@orkestrel/test'
+import { buildInterpretation } from '../../../setup.js'
 
 // The `InterpretContext` — capped ring-buffer history (newest-last), flattened
 // entity carry-over source, own subject/definition registries, clear vs.
@@ -110,7 +110,7 @@ describe('InterpretContext', () => {
 	describe('emitter events', () => {
 		it('fires add with the entry digest, once per add call', () => {
 			const context = new InterpretContext()
-			const events = recordEmitterEvents<InterpretContextEventMap, 'add'>(context.emitter, ['add'])
+			const events = createRecorders<InterpretContextEventMap, 'add'>(context.emitter, ['add'])
 			context.add(buildInterpretation({ digest: 'digest-1' }))
 			context.add(buildInterpretation({ digest: 'digest-2' }))
 			expect(events.add.calls).toEqual([['digest-1'], ['digest-2']])
@@ -119,9 +119,7 @@ describe('InterpretContext', () => {
 		it('fires clear with no payload on clear()', () => {
 			const context = new InterpretContext()
 			context.add(buildInterpretation())
-			const events = recordEmitterEvents<InterpretContextEventMap, 'clear'>(context.emitter, [
-				'clear',
-			])
+			const events = createRecorders<InterpretContextEventMap, 'clear'>(context.emitter, ['clear'])
 			context.clear()
 			expect(events.clear.calls).toEqual([[]])
 		})
@@ -129,7 +127,7 @@ describe('InterpretContext', () => {
 		it('fires destroy exactly once, and every method after destroy throws DESTROYED', () => {
 			const context = new InterpretContext()
 			context.add(buildInterpretation())
-			const events = recordEmitterEvents<InterpretContextEventMap, 'destroy'>(context.emitter, [
+			const events = createRecorders<InterpretContextEventMap, 'destroy'>(context.emitter, [
 				'destroy',
 			])
 			context.destroy()

@@ -1,8 +1,8 @@
 import type { TemplateManagerEventMap } from '@src/core'
 import { isInterpretError, TemplateManager } from '@src/core'
 import { describe, expect, it } from 'vitest'
-import { captureError } from '@orkestrel/test'
-import { buildInterpretTemplate, recordEmitterEvents } from '../../../setup.js'
+import { captureError, createRecorders } from '@orkestrel/test'
+import { buildInterpretTemplate } from '../../../setup.js'
 
 // The `TemplateManager` registry — versioned/hashed records, content-derived
 // version bumps (identical re-add keeps its version), all-or-nothing batch
@@ -79,7 +79,7 @@ describe('TemplateManager', () => {
 	describe('emitter events', () => {
 		it('fires add with the record id, once per add call', () => {
 			const manager = new TemplateManager()
-			const events = recordEmitterEvents<TemplateManagerEventMap, 'add'>(manager.emitter, ['add'])
+			const events = createRecorders<TemplateManagerEventMap, 'add'>(manager.emitter, ['add'])
 			manager.add(buildInterpretTemplate({ id: 'a' }))
 			manager.add(buildInterpretTemplate({ id: 'b' }))
 			expect(events.add.calls).toEqual([['a'], ['b']])
@@ -89,9 +89,7 @@ describe('TemplateManager', () => {
 			const manager = new TemplateManager({
 				templates: [buildInterpretTemplate({ id: 'a' }), buildInterpretTemplate({ id: 'b' })],
 			})
-			const events = recordEmitterEvents<TemplateManagerEventMap, 'remove'>(manager.emitter, [
-				'remove',
-			])
+			const events = createRecorders<TemplateManagerEventMap, 'remove'>(manager.emitter, ['remove'])
 			manager.remove('a')
 			expect(events.remove.calls).toEqual([['a']])
 			manager.remove(['b'])
@@ -102,9 +100,7 @@ describe('TemplateManager', () => {
 			const manager = new TemplateManager({
 				templates: [buildInterpretTemplate({ id: 'a' }), buildInterpretTemplate({ id: 'b' })],
 			})
-			const events = recordEmitterEvents<TemplateManagerEventMap, 'remove'>(manager.emitter, [
-				'remove',
-			])
+			const events = createRecorders<TemplateManagerEventMap, 'remove'>(manager.emitter, ['remove'])
 			expect(manager.remove(['a', 'missing'])).toBe(false)
 			expect(events.remove.count).toBe(0)
 			manager.remove()
@@ -113,7 +109,7 @@ describe('TemplateManager', () => {
 
 		it('fires destroy exactly once, and every method after destroy throws DESTROYED', () => {
 			const manager = new TemplateManager({ templates: [buildInterpretTemplate()] })
-			const events = recordEmitterEvents<TemplateManagerEventMap, 'destroy'>(manager.emitter, [
+			const events = createRecorders<TemplateManagerEventMap, 'destroy'>(manager.emitter, [
 				'destroy',
 			])
 			manager.destroy()

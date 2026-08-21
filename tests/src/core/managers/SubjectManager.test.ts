@@ -1,8 +1,7 @@
 import type { SubjectManagerEventMap } from '@src/core'
 import { isInterpretError, SubjectManager } from '@src/core'
 import { describe, expect, it } from 'vitest'
-import { captureError } from '@orkestrel/test'
-import { recordEmitterEvents } from '../../../setup.js'
+import { captureError, createRecorders } from '@orkestrel/test'
 
 // The `SubjectManager` registry — mints its OWN identity per subject (defect 7),
 // content-hashed with content-derived version bumps, all-or-nothing batch
@@ -57,7 +56,7 @@ describe('SubjectManager', () => {
 	describe('emitter events', () => {
 		it('fires add with the minted record id, once per add call', () => {
 			const manager = new SubjectManager()
-			const events = recordEmitterEvents<SubjectManagerEventMap, 'add'>(manager.emitter, ['add'])
+			const events = createRecorders<SubjectManagerEventMap, 'add'>(manager.emitter, ['add'])
 			const first = manager.add({ age: 25 })
 			const second = manager.add({ age: 30 })
 			expect(events.add.calls).toEqual([[first.id], [second.id]])
@@ -67,9 +66,7 @@ describe('SubjectManager', () => {
 			const manager = new SubjectManager()
 			manager.add({ v: 1 }, { id: 'a' })
 			manager.add({ v: 2 }, { id: 'b' })
-			const events = recordEmitterEvents<SubjectManagerEventMap, 'remove'>(manager.emitter, [
-				'remove',
-			])
+			const events = createRecorders<SubjectManagerEventMap, 'remove'>(manager.emitter, ['remove'])
 			manager.remove('a')
 			expect(events.remove.calls).toEqual([['a']])
 			manager.remove(['b'])
@@ -79,7 +76,7 @@ describe('SubjectManager', () => {
 		it('fires destroy exactly once, and every method after destroy throws DESTROYED', () => {
 			const manager = new SubjectManager()
 			manager.add({ v: 1 })
-			const events = recordEmitterEvents<SubjectManagerEventMap, 'destroy'>(manager.emitter, [
+			const events = createRecorders<SubjectManagerEventMap, 'destroy'>(manager.emitter, [
 				'destroy',
 			])
 			manager.destroy()

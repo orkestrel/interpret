@@ -2,8 +2,7 @@ import type { DefinitionManagerEventMap } from '@src/core'
 import { symbolicDefinition } from '@orkestrel/reason'
 import { DefinitionManager, isInterpretError } from '@src/core'
 import { describe, expect, it } from 'vitest'
-import { captureError } from '@orkestrel/test'
-import { recordEmitterEvents } from '../../../setup.js'
+import { captureError, createRecorders } from '@orkestrel/test'
 
 // The `DefinitionManager` registry — versioned/hashed records keyed by the
 // definition id, content-derived version bumps, all-or-nothing batch remove,
@@ -58,7 +57,7 @@ describe('DefinitionManager', () => {
 	describe('emitter events', () => {
 		it('fires add with the record id, once per add call', () => {
 			const manager = new DefinitionManager()
-			const events = recordEmitterEvents<DefinitionManagerEventMap, 'add'>(manager.emitter, ['add'])
+			const events = createRecorders<DefinitionManagerEventMap, 'add'>(manager.emitter, ['add'])
 			manager.add(symbolicDefinition('a', 'A', []))
 			manager.add(symbolicDefinition('b', 'B', []))
 			expect(events.add.calls).toEqual([['a'], ['b']])
@@ -68,7 +67,7 @@ describe('DefinitionManager', () => {
 			const manager = new DefinitionManager({
 				definitions: [symbolicDefinition('a', 'A', []), symbolicDefinition('b', 'B', [])],
 			})
-			const events = recordEmitterEvents<DefinitionManagerEventMap, 'remove'>(manager.emitter, [
+			const events = createRecorders<DefinitionManagerEventMap, 'remove'>(manager.emitter, [
 				'remove',
 			])
 			manager.remove('a')
@@ -79,7 +78,7 @@ describe('DefinitionManager', () => {
 
 		it('fires destroy exactly once, and every method after destroy throws DESTROYED', () => {
 			const manager = new DefinitionManager()
-			const events = recordEmitterEvents<DefinitionManagerEventMap, 'destroy'>(manager.emitter, [
+			const events = createRecorders<DefinitionManagerEventMap, 'destroy'>(manager.emitter, [
 				'destroy',
 			])
 			manager.destroy()

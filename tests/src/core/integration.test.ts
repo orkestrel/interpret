@@ -1,5 +1,6 @@
 import type { InterpretEventMap } from '@src/core'
 import { Extractor, Interpret } from '@src/core'
+import { createRecorders } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import {
 	buildEligibilityTemplate,
@@ -9,7 +10,6 @@ import {
 	buildStatisticsTemplate,
 	INTERPRET_ACTIONS,
 	INTERPRET_DOMAINS,
-	recordEmitterEvents,
 } from '../../setup.js'
 
 // The interprets integration corpus — the terrain-vocabulary redesign of scsr's
@@ -129,10 +129,10 @@ describe('interprets integration', () => {
 
 	it('event pins: interpret once, error zero on a happy turn', () => {
 		const interpret = build()
-		const events = recordEmitterEvents<InterpretEventMap, 'interpret' | 'error'>(
-			interpret.emitter,
-			['interpret', 'error'],
-		)
+		const events = createRecorders<InterpretEventMap, 'interpret' | 'error'>(interpret.emitter, [
+			'interpret',
+			'error',
+		])
 		interpret.interpret('calculate insurance age 25')
 		expect(events.interpret.count).toBe(1)
 		expect(events.error.count).toBe(0)

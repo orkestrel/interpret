@@ -17,14 +17,13 @@ import {
 	variable,
 } from '@orkestrel/reason'
 import { createNarrator, Extractor, Interpret, isInterpretError } from '@src/core'
-import { captureError } from '@orkestrel/test'
+import { captureError, createRecorders } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import {
 	buildInsuranceTemplate,
 	buildInterpretTemplate,
 	INTERPRET_ACTIONS,
 	INTERPRET_DOMAINS,
-	recordEmitterEvents,
 } from '../../setup.js'
 
 // The `Interpret` orchestrator — registry, synchronous five-stage pipeline,
@@ -50,9 +49,7 @@ describe('Interpret', () => {
 
 		it('emits register with the template id', () => {
 			const interpret = new Interpret()
-			const events = recordEmitterEvents<InterpretEventMap, 'register'>(interpret.emitter, [
-				'register',
-			])
+			const events = createRecorders<InterpretEventMap, 'register'>(interpret.emitter, ['register'])
 			interpret.register(buildInterpretTemplate())
 			expect(events.register.calls).toEqual([['template-1']])
 			interpret.destroy()
@@ -105,10 +102,10 @@ describe('Interpret', () => {
 				templates: [buildInsuranceTemplate()],
 				extractor: corpusExtractor(),
 			})
-			const events = recordEmitterEvents<InterpretEventMap, 'interpret' | 'error'>(
-				interpret.emitter,
-				['interpret', 'error'],
-			)
+			const events = createRecorders<InterpretEventMap, 'interpret' | 'error'>(interpret.emitter, [
+				'interpret',
+				'error',
+			])
 			interpret.interpret('calculate insurance age 25')
 			expect(events.interpret.count).toBe(1)
 			expect(events.error.count).toBe(0)
@@ -185,10 +182,10 @@ describe('Interpret', () => {
 				extractor: corpusExtractor(),
 				normalizer: throwingNormalizer,
 			})
-			const events = recordEmitterEvents<InterpretEventMap, 'interpret' | 'error'>(
-				interpret.emitter,
-				['interpret', 'error'],
-			)
+			const events = createRecorders<InterpretEventMap, 'interpret' | 'error'>(interpret.emitter, [
+				'interpret',
+				'error',
+			])
 			const result = interpret.interpret('calculate insurance age 25')
 			expect(result.stages[0]?.failed).toBe(true)
 			expect(result.stages[0]?.error).toBe('boom')
@@ -313,9 +310,7 @@ describe('Interpret', () => {
 	describe('teardown', () => {
 		it('emits destroy once and throws DESTROYED afterwards, keeping the emitter getter alive', () => {
 			const interpret = new Interpret()
-			const events = recordEmitterEvents<InterpretEventMap, 'destroy'>(interpret.emitter, [
-				'destroy',
-			])
+			const events = createRecorders<InterpretEventMap, 'destroy'>(interpret.emitter, ['destroy'])
 			interpret.destroy()
 			interpret.destroy()
 			expect(events.destroy.count).toBe(1)

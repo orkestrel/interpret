@@ -28,15 +28,13 @@ import {
 	SubjectManager,
 	TemplateManager,
 } from '@src/core'
-import { captureError, createRecorder } from '@orkestrel/test'
+import { captureError, createRecorder, createRecorders, invokeUnchecked } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import {
 	buildInterpretTemplate,
 	buildInterpretation,
 	INTERPRET_ACTIONS,
 	INTERPRET_DOMAINS,
-	invokeRaw,
-	recordEmitterEvents,
 } from '../../setup.js'
 
 // This file also verifies the aggregate `@src/core` barrel drops nothing for
@@ -94,7 +92,10 @@ describe('createInterpret', () => {
 			extractor: createExtractor({ actions: INTERPRET_ACTIONS, domains: INTERPRET_DOMAINS }),
 			on: { interpret: interpretEvents.handler },
 		})
-		const events = recordEmitterEvents(interpret.emitter, ['interpret', 'register', 'destroy'])
+		const events = createRecorders<InterpretEventMap, 'interpret' | 'register' | 'destroy'>(
+			interpret.emitter,
+			['interpret', 'register', 'destroy'],
+		)
 		interpret.interpret('calculate arithmetic 42')
 		expect(interpretEvents.count).toBe(1)
 		expect(events.interpret.count).toBe(1)
@@ -240,7 +241,7 @@ describe('createTemplate — validation', () => {
 
 	it('throws InterpretError INVALID_TEMPLATE for malformed data', () => {
 		const bad: unknown = { ...buildInterpretTemplate(), mappings: 'not-an-array' }
-		const error = captureError(() => invokeRaw<Template>(undefined, createTemplate, [bad]))
+		const error = captureError(() => invokeUnchecked<Template>(undefined, createTemplate, [bad]))
 		if (!isInterpretError(error)) throw new Error('expected an InterpretError')
 		expect(error.code).toBe('INVALID_TEMPLATE')
 	})
