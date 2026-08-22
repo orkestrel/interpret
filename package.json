@@ -1,6 +1,6 @@
 {
 	"name": "@orkestrel/interpret",
-	"version": "0.0.10",
+	"version": "0.0.11",
 	"description": "A typed interpretation engine: managers, stages, and a narrator that render reason definitions, subjects, and results as natural language. Part of the @orkestrel line.",
 	"keywords": [
 		"interpret",
@@ -65,7 +65,7 @@
 		"prepublishOnly": "npm run format:check && npm run lint:check && npm run check && npm run build && npm test"
 	},
 	"dependencies": {
-		"@orkestrel/contract": "^0.0.12",
+		"@orkestrel/contract": "^0.0.13",
 		"@orkestrel/emitter": "^0.0.7",
 		"@orkestrel/reason": "^0.0.7",
 		"@orkestrel/template": "^0.0.4"
