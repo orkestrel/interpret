@@ -38,7 +38,6 @@ import {
 	expectSymbolic,
 	INTERPRET_ACTIONS,
 	INTERPRET_DOMAINS,
-	isBrowserVuePath,
 	seedInterpretContext,
 	TRICKY_KEYS,
 } from './setup.js'
@@ -309,18 +308,5 @@ describe('seedInterpretContext', () => {
 
 		expect(context.previous()).toEqual([])
 		expect(context).not.toBe(seedInterpretContext([]))
-	})
-})
-
-describe('isBrowserVuePath', () => {
-	it('accepts a browser component path written with either separator family', () => {
-		expect(isBrowserVuePath('app/browser/views/Home.vue')).toBe(true)
-		expect(isBrowserVuePath('app\\browser\\views\\Home.vue')).toBe(true)
-	})
-
-	it('refuses a sibling environment, a prefix lookalike, and a nested repeat', () => {
-		expect(isBrowserVuePath('app/server/views/Home.vue')).toBe(false)
-		expect(isBrowserVuePath('app/browserless/views/Home.vue')).toBe(false)
-		expect(isBrowserVuePath('src/app/browser/views/Home.vue')).toBe(false)
 	})
 })

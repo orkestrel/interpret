@@ -78,10 +78,11 @@ export const EXTREME_NUMBERS: readonly number[] = Object.freeze([
 /**
  * The curated adversarial / unicode object keys the field-path, subject-key, id, and
  * lookup-table tests probe — the `Object.prototype` / prototype-pollution names, an empty
- * key, a surrogate-pair (astral) key, a combining-sequence key, an NFC-labile key (`Å`
- * ANGSTROM SIGN, which NFC-normalizes to `Å`), and a DOTTED key (`'a.b'`) that proves a
- * single-string `FieldPath` is ONE key, never dot-split. Frozen so a test can share it
- * without risk of mutation.
+ * key, a surrogate-pair (astral) key, and two precomposed accented keys (`é` LATIN SMALL
+ * LETTER E WITH ACUTE, `Å` LATIN CAPITAL LETTER A WITH RING ABOVE) that are NFC-stable but
+ * NFD-labile — decomposing either produces a key the table never wrote — plus a DOTTED key
+ * (`'a.b'`) that proves a single-string `FieldPath` is ONE key, never dot-split. Frozen so a
+ * test can share it without risk of mutation.
  */
 export const TRICKY_KEYS: readonly string[] = Object.freeze([
 	'__proto__',
@@ -319,10 +320,4 @@ export function seedInterpretContext(previous: readonly Interpretation[]): Inter
 	const context = new InterpretContext()
 	for (const interpretation of previous) context.add(interpretation)
 	return context
-}
-
-/** Whether a repository-relative Vue SFC path belongs to the private browser application. */
-export function isBrowserVuePath(path: string): boolean {
-	const normalized = path.replaceAll('\\', '/')
-	return normalized.startsWith('app/browser/')
 }
