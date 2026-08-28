@@ -133,6 +133,17 @@ describe('Interpret', () => {
 			interpret.destroy()
 		})
 
+		it('renders the gate question through the lexicon, so a caller rewords it', () => {
+			const interpret = new Interpret({
+				templates: [buildInsuranceTemplate()],
+				extractor: corpusExtractor(),
+				lexicon: { templates: { 'ambiguity.intent': 'Which domain?' } },
+			})
+			const result = interpret.interpret('what is the meaning of life')
+			expect(result.ambiguities[0]?.question).toBe('Which domain?')
+			interpret.destroy()
+		})
+
 		it('fires NO_TEMPLATE even against a non-empty registry (no templates[0] fallback)', () => {
 			const interpret = new Interpret({
 				templates: [buildInsuranceTemplate()],

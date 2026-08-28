@@ -7,12 +7,12 @@ import type {
 	InterpretContextOptions,
 	Interpretation,
 	SubjectManagerInterface,
-} from '../types.js'
+} from './types.js'
 import { Emitter } from '@orkestrel/emitter'
-import { DEFAULT_INTERPRET_HISTORY } from '../constants.js'
-import { InterpretError } from '../errors.js'
-import { DefinitionManager } from './DefinitionManager.js'
-import { SubjectManager } from './SubjectManager.js'
+import { DEFAULT_INTERPRET_HISTORY } from './constants.js'
+import { InterpretError } from './errors.js'
+import { DefinitionManager } from './managers/DefinitionManager.js'
+import { SubjectManager } from './managers/SubjectManager.js'
 
 /**
  * Cross-turn interpretation context — a capped, replayable history of
@@ -22,7 +22,7 @@ import { SubjectManager } from './SubjectManager.js'
  * @remarks
  * `previous()` is a capped ring buffer (newest-last, oldest dropped once the
  * `history` cap is reached — `DEFAULT_INTERPRET_HISTORY` by default, ≥ 3
- * preserves the carry-over pin) rather than scsr's unbounded `previous` array.
+ * preserves the carry-over pin), never an unbounded array.
  * `entities()` flattens every entity across the buffered history, most recent
  * last — the read a `Clarifier`'s same-domain carry-over consults. `add` pushes
  * one result and trims to the cap; `clear` resets the history and both

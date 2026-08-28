@@ -1,11 +1,10 @@
 import type { InterpretErrorCode, InterpretStage, Lexicon, ProvenanceCategory } from './types.js'
 
-// Frozen default data for the interprets module (AGENTS §5 — constants are
-// UPPER_SNAKE_CASE data, the sole home for module-scope literal defaults).
-// Every vocabulary map here is intentionally NEUTRAL and small — domain
-// worldview (insurance verbs, en-US misspelling corrections, business
-// domains) is the caller's business, supplied via options (AGENTS-flagged
-// scsr defect: a "generic" core module baked in ~100 hardcoded corrections).
+// Frozen default data for the interprets module — the sole home for its
+// module-scope literal defaults. Every vocabulary map here is intentionally
+// NEUTRAL and small: domain worldview (insurance verbs, en-US misspelling
+// corrections, business domains) is the caller's business, supplied through
+// options rather than baked in here.
 
 /**
  * Default `similarity` for `createInterpret` / `matchAlias` — the fuzzy
@@ -104,15 +103,18 @@ export const DEFAULT_VERBS: Readonly<Record<string, string>> = Object.freeze({})
  * The neutral default `Lexicon` a `Narrator` merges caller data over.
  *
  * @remarks
- * `phrases` and `labels` are empty — there is no built-in vocabulary or
- * label overrides (AGENTS §21 mechanism-never-policy). `templates` carries
- * the structural, display-neutral strings the reverse helpers formerly
- * hardcoded, keyed by
- * `{table}.{reasoning}` for the four reasons kinds, `result.quantitative.failed`
- * for the quantitative-result failure suffix, and `subject.fields` /
- * `subject.empty` for `describeSubject`. Every string is a plain
- * @orkestrel/template `fillTemplate` template — `{{name}}`-style placeholders
- * resolved against the caller-supplied `values` record.
+ * `phrases` and `labels` are empty — there is no built-in vocabulary and no
+ * label override, because wording is mechanism rather than policy.
+ * `templates` carries the structural, display-neutral strings both directions
+ * would otherwise hardcode. The reverse direction is keyed by
+ * `{table}.{reasoning}` per reasons kind, plus `result.quantitative.failed`
+ * for the quantitative-result failure suffix and `subject.fields` /
+ * `subject.empty` for `describeSubject`. The forward direction is keyed by
+ * `prompt.*` for the `Formatter`'s clause assembly and `ambiguity.*` for the
+ * questions a `Clarifier` and the orchestrator's match gates raise. Every
+ * string is a plain @orkestrel/template `fillTemplate` template —
+ * `{{name}}`-style placeholders resolved against the caller-supplied `values`
+ * record, so a caller reworded any line by overriding its key.
  */
 export const DEFAULT_LEXICON: Lexicon = Object.freeze({
 	phrases: Object.freeze({}),
@@ -130,6 +132,13 @@ export const DEFAULT_LEXICON: Lexicon = Object.freeze({
 		'result.inferential': 'derived {{count}} fact(s)',
 		'subject.fields': 'with {{fields}}',
 		'subject.empty': 'with no fields',
+		'prompt.base': '{{verb}} {{name}}',
+		'prompt.entities': ' with {{fields}}',
+		'prompt.defaults': ' (defaults: {{fields}})',
+		'prompt.ambiguities': ' needed: {{questions}}',
+		'ambiguity.entity': 'What is your {{entity}}?',
+		'ambiguity.intent': 'Which domain and action did you mean?',
+		'ambiguity.confidence': 'Which did you mean? The intent was too weak to act on.',
 	}),
 })
 

@@ -8,7 +8,7 @@ import { DEFAULT_LEXICON } from './constants.js'
 /**
  * A stateless, TOTAL, lexicon-driven rendering engine for the reverse
  * direction — the reverse-direction mirror of the forward `Formatter`'s
- * `verbs` seam (AGENTS §21 mechanism-never-policy).
+ * `verbs` seam, supplying mechanism rather than wording policy.
  *
  * @remarks
  * Every wording decision is DATA — a caller-supplied `Lexicon` merged, per

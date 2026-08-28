@@ -26,8 +26,8 @@ import {
 import { isDefinition, isFieldPath, isSymbolicExpression } from '@orkestrel/reason'
 import { INTERPRET_ERROR_CODES, INTERPRET_STAGES, PROVENANCE_CATEGORIES } from './constants.js'
 
-// AGENTS §14: every guard here is a TOTAL function — adversarial input (junk,
-// hostile prototypes, cyclic/deep nesting) returns `false`, never throws.
+// Every guard here is a TOTAL function — adversarial input (junk, hostile
+// prototypes, cyclic/deep nesting) returns `false`, never throws.
 // Input-record guards are EXACT (`recordOf`): an extra key fails. Foreign
 // result guards are OPEN (`objectOf`): unknown members, class instances, and
 // prototype accessors pass when the published members conform. `isTemplate`
@@ -35,7 +35,7 @@ import { INTERPRET_ERROR_CODES, INTERPRET_STAGES, PROVENANCE_CATEGORIES } from '
 // through `lazyOf`) and `isDefinition` rather than minting local duplicates —
 // a second `isSymbolicExpression` would collide under the shared `@src/core`
 // barrel's `export *` (TypeScript silently drops BOTH conflicting star
-// re-exports), breaking reasons' own guard and failing the AGENTS §22 parity
+// re-exports), breaking reasons' own guard and failing the guides-parity
 // gate. `interprets` therefore owns no recursive expression guard of its own.
 
 /**

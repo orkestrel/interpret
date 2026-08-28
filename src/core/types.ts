@@ -12,10 +12,10 @@ import type { Definition, ReasonResult, Subject, SymbolicExpression } from '@ork
 // `Subject` / `ReasonResult` render to display-neutral prose, complementing
 // (never duplicating) raters' `describe*` family. Nothing here is an LLM,
 // provider, or agent — the `prompt` a result carries is FOR an external
-// model, never consumed internally. Types are the source of truth (AGENTS
-// §2); every discriminant names its axis, never `kind` / `type` (AGENTS
-// §4.4): `stage` splits pipeline phases, `category` splits provenance,
-// `code` splits coded errors.
+// model, never consumed internally. Types are the source of truth
+// (`AGENTS.md` § Design laws); every discriminant names its axis, never
+// `kind` / `type`: `stage` splits pipeline phases, `category` splits
+// provenance, `code` splits coded errors.
 
 // === Vocabulary
 
@@ -96,13 +96,13 @@ export interface FieldDefault {
  * already resolved for this interpretation, and land the result on `field`.
  *
  * @remarks
- * Renamed from scsr's `InferenceRule` — the reasons engine already owns
+ * Named `ComputedField` rather than a rule: `@orkestrel/reason` already owns
  * `Inference` for fact derivation, a different concept. `expression` is a
  * reasons {@link SymbolicExpression} tree (pure JSON `Variable` / `Constant`
  * / `Operation`), evaluated by the pure `resolveExpression` helper rather
- * than a closure, so a `Template` stays JSON-serializable end to end.
- * Dependencies are derived from the tree (`variablesOf`) — scsr's explicit
- * `from: string[]` list is gone.
+ * than a closure, so a `Template` stays JSON-serializable end to end. A
+ * `ComputedField` declares no dependency list of its own — `variablesOf`
+ * derives every dependency from the tree.
  */
 export interface ComputedField {
 	readonly field: FieldPath
@@ -115,11 +115,11 @@ export interface ComputedField {
  * the reasons `Definition` it ultimately produces a `Subject` for.
  *
  * @remarks
- * `definition` is inline and already expressed in terrain reasons vocabulary
- * (`reasoning` / `Check` / `terms` / `form` / `origin`) — there is no
- * scsr-era `template.id === definition.id` invariant; a `Template` and its
- * `Definition` are simply the same authored record. `intents` lists the
- * `Intent.action` values this template answers.
+ * `definition` is inline and already expressed in `@orkestrel/reason`
+ * vocabulary (`reasoning` / `Check` / `terms` / `form` / `origin`). A
+ * `Template` and its `Definition` are one authored record, and their ids stay
+ * independent: nothing requires `template.id` to equal `definition.id`.
+ * `intents` lists the `Intent.action` values this template answers.
  */
 export interface Template {
 	readonly id: string
@@ -177,8 +177,7 @@ export interface Ambiguity {
  *
  * @remarks
  * Emitted for EVERY field that lands in the generated subject, including
- * defaults and computed fields (scsr silently omitted those from its audit
- * trail; this closes that gap).
+ * defaults and computed fields.
  */
 export interface FieldMapping {
 	readonly field: FieldPath
@@ -201,8 +200,8 @@ export interface TextChange {
  *
  * @remarks
  * `input` / `output` are live structured values, never a stringified JSON
- * blob. No `duration` field — strict core forbids wall-clock timing
- * (AGENTS §17.7); the audit story here is structural, not temporal.
+ * blob. No `duration` field — strict core reads no wall clock; the audit
+ * story here is structural, not temporal.
  */
 export interface StageRecord {
 	readonly stage: InterpretStage
@@ -269,8 +268,8 @@ export interface GenerateResult {
  *
  * @remarks
  * `subject` / `definition` are absent on an incomplete `NO_TEMPLATE` /
- * `LOW_CONFIDENCE` result — there is never a fabricated fallback template
- * (scsr's `templates[0]` double-fallback defect). `stages` always holds
+ * `LOW_CONFIDENCE` result — there is never a fabricated fallback template.
+ * `stages` always holds
  * exactly five records, `[normalize, extract, clarify, format, generate]`,
  * in order. `digest` is `digestValue` over `{text, templateId,
  * templateVersion, subject, definition}` — re-running the same original text
@@ -302,8 +301,7 @@ export interface Interpretation {
  *
  * @remarks
  * `version` bumps only when `hash` (derived from `template`'s content, not
- * `id`) actually changes — an identical re-add keeps the same version,
- * unlike scsr's version-bumps-on-every-add defect.
+ * `id`) actually changes — an identical re-add keeps the same version.
  */
 export interface TemplateRecord {
 	readonly id: string
@@ -318,8 +316,7 @@ export interface TemplateRecord {
  *
  * @remarks
  * `id` is the manager's OWN minted identity — never `definition.id` — so
- * successive turns never silently overwrite one shared subject (scsr's
- * defect).
+ * successive turns never silently overwrite one shared subject.
  */
 export interface SubjectRecord {
 	readonly id: string
@@ -336,18 +333,17 @@ export interface DefinitionRecord {
 	readonly hash: string
 }
 
-// === Event map (AGENTS §13)
+// === Event maps
 
 /**
- * The push observation surface of an {@link InterpretInterface} (AGENTS §13).
+ * The push observation surface of an {@link InterpretInterface}.
  *
  * @remarks
- * `interpret` fires once per completed `interpret()` call (complete OR
- * incomplete — visibility is the point, unlike scsr's silent fallbacks).
- * `register` fires when a template is registered, carrying its id. `error`
- * fires with the raw thrown value when an injected stage implementation
- * throws. `destroy` fires once on teardown. Listener isolation is the
- * emitter's own (AGENTS §13) — never routed onto this map.
+ * `interpret` fires once per completed `interpret()` call, complete OR
+ * incomplete — visibility is the point. `register` fires when a template is
+ * registered, carrying its id. `error` fires with the raw thrown value when
+ * an injected stage implementation throws. `destroy` fires once on teardown.
+ * Listener isolation is the emitter's own — never routed onto this map.
  */
 export type InterpretEventMap = {
 	/** An `interpret()` call completed — carries the full result. */
@@ -361,42 +357,30 @@ export type InterpretEventMap = {
 }
 
 /**
- * The push observation surface of a {@link TemplateManagerInterface} (AGENTS
- * §13) — an id-keyed registry, so `add` / `remove` are the events (never
- * ordered-list `append`/`prepend`).
+ * The push observation surface shared by every record registry — an id-keyed
+ * collection, so `add` / `remove` are the events (never ordered-list
+ * `append`/`prepend`).
  */
-export type TemplateManagerEventMap = {
-	/** A template record was added — carries its record id. */
+export type RecordEventMap = {
+	/** A record was added — carries its record id. */
 	readonly add: readonly [id: string]
-	/** A template record was removed — carries its record id. */
+	/** A record was removed — carries its record id. */
 	readonly remove: readonly [id: string]
-	/** The manager was destroyed. */
+	/** The registry was destroyed. */
 	readonly destroy: readonly []
 }
 
-/** The push observation surface of a {@link SubjectManagerInterface} (AGENTS §13). */
-export type SubjectManagerEventMap = {
-	/** A subject record was added — carries its (own-minted) record id. */
-	readonly add: readonly [id: string]
-	/** A subject record was removed — carries its record id. */
-	readonly remove: readonly [id: string]
-	/** The manager was destroyed. */
-	readonly destroy: readonly []
-}
+/** The push observation surface of a {@link TemplateManagerInterface}. */
+export type TemplateManagerEventMap = RecordEventMap
 
-/** The push observation surface of a {@link DefinitionManagerInterface} (AGENTS §13). */
-export type DefinitionManagerEventMap = {
-	/** A definition record was added — carries its record id. */
-	readonly add: readonly [id: string]
-	/** A definition record was removed — carries its record id. */
-	readonly remove: readonly [id: string]
-	/** The manager was destroyed. */
-	readonly destroy: readonly []
-}
+/** The push observation surface of a {@link SubjectManagerInterface}, whose `add` carries the own-minted record id. */
+export type SubjectManagerEventMap = RecordEventMap
+
+/** The push observation surface of a {@link DefinitionManagerInterface}. */
+export type DefinitionManagerEventMap = RecordEventMap
 
 /**
- * The push observation surface of an {@link InterpretContextInterface} (AGENTS
- * §13).
+ * The push observation surface of an {@link InterpretContextInterface}.
  *
  * @remarks
  * An {@link Interpretation} carries no `id` of its own — `add` carries the
@@ -417,16 +401,16 @@ export type InterpretContextEventMap = {
  * A pure formatting function for one lexicon `value()` unit.
  *
  * @remarks
- * A `Narrator` calls this from `value()` inside a `try`/`catch` (AGENTS §21 —
- * a wording engine must never crash a render) — a throwing formatter is
- * caught and the raw value falls back to `String(raw)`.
+ * A `Narrator` calls this from `value()` inside a `try`/`catch`, because a
+ * wording engine must never crash a render — a throwing formatter is caught
+ * and the raw value falls back to `String(raw)`.
  */
 export type NarratorFormatter = (value: unknown) => string
 
 /**
  * Caller-injected wording data for the reverse direction — mechanism, never
- * policy (AGENTS §21). Every phrase, label, and template string a `Narrator`
- * renders is DATA supplied here, never a core literal.
+ * policy. Every phrase, label, and template string a `Narrator` renders is
+ * DATA supplied here, never a core literal.
  *
  * @remarks
  * `phrases` is a two-level lookup (`table` → `key` → phrase) for domain
@@ -472,7 +456,7 @@ export interface NormalizerOptions {
  *
  * @remarks
  * `actions` / `domains` are the caller's intent vocabulary — there is no
- * built-in worldview (AGENTS-flagged scsr defect). Neither `floor` nor
+ * built-in worldview. Neither `floor` nor
  * `similarity` lives here: the confidence floor gate is the orchestrator's
  * `matchTemplate` step, never the classifier itself.
  */
@@ -485,17 +469,31 @@ export interface ExtractorOptions {
  * Options for `createClarifier` / the `Clarifier` constructor.
  *
  * @remarks
- * `floor` is the confidence axis honored when raising ambiguities — never
- * hardcoded (scsr hardcoded its confidence constant instead of honoring the
- * configured value).
+ * `floor` is the confidence axis honored when raising ambiguities — the
+ * configured value, never a hardcoded constant. `narrator` supplies the
+ * wording seam: every {@link Ambiguity} question renders through
+ * `narrator.line('ambiguity.entity', …)`, so a caller rewords the question by
+ * overriding that key in a {@link Lexicon}. A fresh `Narrator` over
+ * `DEFAULT_LEXICON` is constructed when omitted.
  */
 export interface ClarifierOptions {
 	readonly floor?: number
+	readonly narrator?: NarratorInterface
 }
 
-/** Options for `createFormatter` / the `Formatter` constructor — caller-supplied intent-verb phrasing. */
+/**
+ * Options for `createFormatter` / the `Formatter` constructor.
+ *
+ * @remarks
+ * `verbs` maps an `Intent.action` to its display verb. `narrator` supplies the
+ * rest of the wording seam: every prompt clause renders through
+ * `narrator.line('prompt.…', …)`, so a caller rewords the clause assembly by
+ * overriding those keys in a {@link Lexicon}. A fresh `Narrator` over
+ * `DEFAULT_LEXICON` is constructed when omitted.
+ */
 export interface FormatterOptions {
 	readonly verbs?: Readonly<Record<string, string>>
+	readonly narrator?: NarratorInterface
 }
 
 /**
@@ -530,6 +528,79 @@ export interface DefinitionManagerOptions {
 }
 
 /**
+ * The identity, version, and content hash a {@link RecordManagerInterface}
+ * derives for one record before its concrete shape is built.
+ *
+ * @remarks
+ * `hash` is derived from the held value's CONTENT alone (id-independent), and
+ * `version` bumps only when that hash changes at a reused id — so an
+ * identical re-add keeps its version. Every record type in this module
+ * (`TemplateRecord` / `SubjectRecord` / `DefinitionRecord`) carries `id`,
+ * `version`, and `hash` plus its own value field.
+ */
+export interface RecordStamp {
+	readonly id: string
+	readonly version: number
+	readonly hash: string
+}
+
+/**
+ * Builds one concrete record from the {@link RecordStamp} its registry derived
+ * and the value that record holds.
+ *
+ * @remarks
+ * The one place a concrete manager decides its record's own value field, so
+ * `TemplateManager` names it `template`, `SubjectManager` names it `subject`,
+ * and `DefinitionManager` names it `definition` while every registry shares
+ * one engine.
+ */
+export type RecordFunction<TValue, TRecord extends RecordStamp> = (
+	stamp: RecordStamp,
+	value: TValue,
+) => TRecord
+
+/**
+ * Options for the `RecordManager` constructor.
+ *
+ * @remarks
+ * `entity` names what the registry holds, and is the only wording the engine
+ * emits: a call after `destroy()` throws
+ * `InterpretError('DESTROYED', '{entity} manager has been destroyed')`.
+ */
+export interface RecordManagerOptions {
+	readonly entity: string
+	readonly on?: EmitterHooks<RecordEventMap>
+	readonly error?: EmitterErrorHandler
+}
+
+/**
+ * The shared registry engine every record manager composes — the `Map`, the
+ * content-hash and version rule, the batch `remove` overloads, and teardown.
+ *
+ * @remarks
+ * Generic over the value it holds and the record it mints, so one
+ * implementation serves `TemplateManagerInterface`,
+ * `SubjectManagerInterface`, and `DefinitionManagerInterface`. Each concrete
+ * manager keeps its own accessor noun pair, its own id source, and its own
+ * {@link RecordFunction}; everything else lives here. `remove`'s batch form is
+ * all-or-nothing: any missing id in the list leaves the collection untouched
+ * and returns `false`. `destroy()` is idempotent and tears the emitter down
+ * LAST; every method afterwards throws `InterpretError('DESTROYED', …)`.
+ */
+export interface RecordManagerInterface<TValue, TRecord extends RecordStamp> {
+	readonly emitter: EmitterInterface<RecordEventMap>
+	readonly size: number
+	has(id: string): boolean
+	record(id: string): TRecord | undefined
+	records(): readonly TRecord[]
+	add(id: string, value: TValue, build: RecordFunction<TValue, TRecord>): TRecord
+	remove(ids: readonly string[]): boolean
+	remove(id: string): boolean
+	remove(): void
+	destroy(): void
+}
+
+/**
  * Per-call options shared by every manager's `add` method.
  *
  * @remarks
@@ -557,14 +628,16 @@ export interface InterpretContextOptions {
  * `templates` seeds the registry. `context` supplies a shared
  * {@link InterpretContextInterface} (a fresh one is constructed when
  * omitted). Each stage slot is BRING-YOUR-OWN — a supplied implementation is
- * used as-is, else the built-in stage is constructed from the matching
- * per-stage options. `similarity` (fuzzy alias-match threshold, default
+ * used as-is, else the built-in stage is constructed with its own defaults,
+ * so a caller who wants a configured stage constructs that stage and supplies
+ * the instance. There are no per-stage option keys here: `floor` is the one
+ * value threaded into a built-in stage, reaching the `Clarifier`.
+ * `similarity` (fuzzy alias-match threshold, default
  * `DEFAULT_INTERPRET_SIMILARITY`) and `floor` (intent confidence floor,
  * default `DEFAULT_INTERPRET_FLOOR`) are two distinct, clearly named axes —
- * both honored wherever they apply, never a single overloaded `threshold`
- * (scsr's defect). `history` caps the context's `previous()` ring buffer.
- * `on` — initial event listeners (AGENTS §8). `error` — the emitter's
- * listener-error handler (AGENTS §13).
+ * each honored wherever it applies, never a single overloaded `threshold`.
+ * `history` caps the context's `previous()` ring buffer. `on` — initial event
+ * listeners. `error` — the emitter's listener-error handler.
  */
 export interface InterpretOptions {
 	readonly templates?: readonly Template[]
@@ -583,7 +656,7 @@ export interface InterpretOptions {
 	readonly error?: EmitterErrorHandler
 }
 
-// === Class interfaces (AGENTS §22 — exact bijection with the implementing class)
+// === Class interfaces — an exact bijection with the implementing class
 
 /** The `Normalizer` stage contract: raw text in, cleaned text + applied changes out. */
 export interface NormalizerInterface {
@@ -652,8 +725,8 @@ export interface NarratorInterface {
 }
 
 /**
- * The template registry — a self-owning, versioned/hashed record-holder
- * (AGENTS §9.1 singular/plural accessors, §9.2 batch overloads).
+ * The template registry — a self-owning, versioned/hashed record-holder with
+ * the singular/plural accessor pair and the batch `remove` overloads.
  *
  * @remarks
  * `size` (never `count` — this is the sole tally in scope) mirrors the
@@ -733,8 +806,9 @@ export interface InterpretContextInterface {
  * `reasons`' `Reason` orchestrator shape.
  *
  * @remarks
- * `interpret` is genuinely SYNCHRONOUS (scsr's `interpret()` was fake-async
- * with zero `await`s). `register` / `unregister` / `template` / `templates`
+ * `interpret` is genuinely SYNCHRONOUS — it returns its
+ * {@link Interpretation} directly, never a `Promise`. `register` /
+ * `unregister` / `template` / `templates`
  * delegate to an internal {@link TemplateManagerInterface} but expose plain
  * {@link Template} data, not the richer versioned record. `describe` /
  * `narrate` are the reverse direction — structure-to-prose, complementing

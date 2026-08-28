@@ -7,9 +7,7 @@ import type {
 	TemplateManagerOptions,
 	TemplateRecord,
 } from '../types.js'
-import { Emitter } from '@orkestrel/emitter'
-import { InterpretError } from '../errors.js'
-import { digestValue } from '../helpers.js'
+import { RecordManager } from './RecordManager.js'
 
 /**
  * The template registry — a self-owning, versioned and content-hashed
@@ -17,14 +15,13 @@ import { digestValue } from '../helpers.js'
  * against.
  *
  * @remarks
- * `size` (never `count` — the sole tally in scope) plus the AGENTS §9.1
- * singular/plural accessors (`template` / `templates`) and the §9.2 batch
- * `remove` overloads. `add` derives each record's `hash` from the template's
- * CONTENT (id-independent — the same template data hashes identically under
- * any record id) and bumps `version` ONLY when that hash changes: an identical
- * re-add keeps its version (unlike scsr, which bumped on every add). The
- * batch `remove(ids)` form is ALL-OR-NOTHING — any id absent from the registry
- * leaves the collection untouched and returns `false`. `destroy()` is
+ * `size` (never `count` — the sole tally in scope) plus the singular/plural
+ * accessor pair (`template` / `templates`) and the batch `remove` overloads.
+ * A composed {@link RecordManager} owns the collection, the content-derived
+ * `hash`, and the version rule, so an identical re-add keeps its version and
+ * the batch `remove(ids)` form stays ALL-OR-NOTHING. This class adds what is
+ * template-specific: the accessor nouns, the record id defaulting to
+ * `template.id`, and the `template` field on each record. `destroy()` is
  * idempotent; every method afterwards throws `InterpretError('DESTROYED', …)`.
  *
  * @example
@@ -50,12 +47,11 @@ import { digestValue } from '../helpers.js'
  * ```
  */
 export class TemplateManager implements TemplateManagerInterface {
-	readonly #records = new Map<string, TemplateRecord>()
-	readonly #emitter: Emitter<TemplateManagerEventMap>
-	#destroyed = false
+	readonly #records: RecordManager<Template, TemplateRecord>
 
 	constructor(options?: TemplateManagerOptions) {
-		this.#emitter = new Emitter<TemplateManagerEventMap>({
+		this.#records = new RecordManager<Template, TemplateRecord>({
+			entity: 'Template',
 			...(options?.on === undefined ? {} : { on: options.on }),
 			...(options?.error === undefined ? {} : { error: options.error }),
 		})
@@ -63,76 +59,44 @@ export class TemplateManager implements TemplateManagerInterface {
 	}
 
 	get emitter(): EmitterInterface<TemplateManagerEventMap> {
-		return this.#emitter
+		return this.#records.emitter
 	}
 
 	get size(): number {
-		this.#ensureAlive()
 		return this.#records.size
 	}
 
 	has(id: string): boolean {
-		this.#ensureAlive()
 		return this.#records.has(id)
 	}
 
 	template(id: string): TemplateRecord | undefined {
-		this.#ensureAlive()
-		return this.#records.get(id)
+		return this.#records.record(id)
 	}
 
 	templates(): readonly TemplateRecord[] {
-		this.#ensureAlive()
-		return [...this.#records.values()]
+		return this.#records.records()
 	}
 
 	add(template: Template, options?: ManagerAddOptions): TemplateRecord {
-		this.#ensureAlive()
-		const id = options?.id ?? template.id
-		const hash = digestValue(template)
-		const existing = this.#records.get(id)
-		const version =
-			existing === undefined ? 1 : existing.hash === hash ? existing.version : existing.version + 1
-		const record: TemplateRecord = { id, template, version, hash }
-		this.#records.set(id, record)
-		this.#emitter.emit('add', id)
-		return record
+		return this.#records.add(options?.id ?? template.id, template, (stamp, value) => ({
+			id: stamp.id,
+			template: value,
+			version: stamp.version,
+			hash: stamp.hash,
+		}))
 	}
 
-	// Array overload first (AGENTS §9.2); the batch form is all-or-nothing.
 	remove(ids: readonly string[]): boolean
 	remove(id: string): boolean
 	remove(): void
 	remove(target?: string | readonly string[]): boolean | void {
-		this.#ensureAlive()
-		if (target === undefined) {
-			for (const id of this.#records.keys()) this.#emitter.emit('remove', id)
-			this.#records.clear()
-			return
-		}
-		if (typeof target === 'string') {
-			const removed = this.#records.delete(target)
-			if (removed) this.#emitter.emit('remove', target)
-			return removed
-		}
-		for (const id of target) if (!this.#records.has(id)) return false
-		for (const id of target) {
-			this.#records.delete(id)
-			this.#emitter.emit('remove', id)
-		}
-		return true
+		if (target === undefined) return this.#records.remove()
+		if (typeof target === 'string') return this.#records.remove(target)
+		return this.#records.remove(target)
 	}
 
 	destroy(): void {
-		if (this.#destroyed) return
-		this.#records.clear()
-		this.#destroyed = true
-		this.#emitter.emit('destroy')
-		this.#emitter.destroy()
-	}
-
-	#ensureAlive(): void {
-		if (this.#destroyed)
-			throw new InterpretError('DESTROYED', 'Template manager has been destroyed')
+		this.#records.destroy()
 	}
 }

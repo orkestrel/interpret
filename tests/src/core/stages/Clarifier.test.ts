@@ -1,6 +1,6 @@
 import type { Entity, Intent } from '@src/core'
 import { constant, operation, variable } from '@orkestrel/reason'
-import { Clarifier } from '@src/core'
+import { Clarifier, Narrator } from '@src/core'
 import { describe, expect, it } from 'vitest'
 import {
 	buildInterpretation,
@@ -206,6 +206,21 @@ describe('Clarifier', () => {
 				{ field: 'value', question: 'What is your value?', candidates: [], required: true },
 			])
 			expect(result.complete).toBe(false)
+		})
+
+		it('renders the question through the injected narrator, so a lexicon rewords it', () => {
+			const clarifier = new Clarifier({
+				narrator: new Narrator({
+					lexicon: { templates: { 'ambiguity.entity': 'Which {{entity}}?' } },
+				}),
+			})
+			const template = buildInterpretTemplate({
+				mappings: [{ entity: 'value', aliases: [], field: 'value', required: true }],
+			})
+			const result = clarifier.clarify([], template, undefined, intent)
+			expect(result.ambiguities).toEqual([
+				{ field: 'value', question: 'Which value?', candidates: [], required: true },
+			])
 		})
 
 		it('never raises an ambiguity for a non-required mapping', () => {

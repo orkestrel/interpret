@@ -1,7 +1,7 @@
 import type { FieldPath } from '@orkestrel/contract'
 import type { Subject, SymbolicExpression } from '@orkestrel/reason'
 import type { Entity, EntityMapping, Intent, NarratorInterface, Template } from './types.js'
-import { isFiniteNumber, isRecord, parseJSONAs } from '@orkestrel/contract'
+import { isFiniteNumber, isRecord } from '@orkestrel/contract'
 import { applyOperation } from '@orkestrel/reason'
 import {
 	CONFIDENCE_ALIAS,
@@ -11,9 +11,8 @@ import {
 	NUMBER_PATTERN,
 	UNSAFE_FIELD_SEGMENTS,
 } from './constants.js'
-import { isTemplate } from './validators.js'
 
-// The interprets pure-leaf inventory (AGENTS §5/§7) — every function here is
+// The interprets pure-leaf inventory — every function here is
 // a referentially-transparent computation with no instance state, exported
 // and independently unit-testable. Stateful orchestration (the five-stage
 // pipeline, entity assignment sequencing, template registration) lives on the
@@ -42,33 +41,6 @@ export function escapeRegExp(text: string): string {
 
 // === Field paths — safe copy-on-write writes
 
-/**
- * Copy-on-write write a value at a (possibly nested) field path on a subject.
- *
- * @remarks
- * Never mutates `subject` — every level a `field` array descends through is
- * freshly copied, so the input and every intermediate record stay untouched
- * (AGENTS §11). Prototype-pollution-safe: a `field` containing `__proto__`,
- * `prototype`, or `constructor` at ANY segment (checked against
- * `UNSAFE_FIELD_SEGMENTS`) is refused as a no-op, returning `subject`
- * unchanged. A non-record value already sitting at an intermediate segment is
- * replaced by a fresh record rather than descended into.
- *
- * @param subject - The subject to derive from
- * @param field - The (possibly nested) field path to write
- * @param value - The value to write
- * @returns A fresh subject with `value` written at `field`, or `subject`
- * unchanged when `field` carries an unsafe segment
- *
- * @example
- * ```ts
- * import { setField } from '@src/core'
- *
- * setField({ age: 25 }, 'age', 30)               // { age: 30 }
- * setField({}, ['address', 'city'], 'Reno')      // { address: { city: 'Reno' } }
- * setField({}, ['__proto__', 'polluted'], true)  // {} — refused, unchanged
- * ```
- */
 /**
  * Derive the sibling field path for a computed aggregate of `field` — the
  * suffix is appended to `field`'s OWN last segment, so the aggregate nests
@@ -100,6 +72,33 @@ export function deriveAggregateField(field: FieldPath, suffix: string): FieldPat
 	return `${field}${suffix}`
 }
 
+/**
+ * Copy-on-write write a value at a (possibly nested) field path on a subject.
+ *
+ * @remarks
+ * Never mutates `subject` — every level a `field` array descends through is
+ * freshly copied, so the input and every intermediate record stay untouched.
+ * Prototype-pollution-safe: a `field` containing `__proto__`,
+ * `prototype`, or `constructor` at ANY segment (checked against
+ * `UNSAFE_FIELD_SEGMENTS`) is refused as a no-op, returning `subject`
+ * unchanged. A non-record value already sitting at an intermediate segment is
+ * replaced by a fresh record rather than descended into.
+ *
+ * @param subject - The subject to derive from
+ * @param field - The (possibly nested) field path to write
+ * @param value - The value to write
+ * @returns A fresh subject with `value` written at `field`, or `subject`
+ * unchanged when `field` carries an unsafe segment
+ *
+ * @example
+ * ```ts
+ * import { setField } from '@src/core'
+ *
+ * setField({ age: 25 }, 'age', 30)               // { age: 30 }
+ * setField({}, ['address', 'city'], 'Reno')      // { address: { city: 'Reno' } }
+ * setField({}, ['__proto__', 'polluted'], true)  // {} — refused, unchanged
+ * ```
+ */
 export function setField(subject: Subject, field: FieldPath, value: unknown): Subject {
 	const path = Array.isArray(field) ? field : [field]
 	if (path.length === 0) return subject
@@ -553,7 +552,7 @@ export function matchAlias(token: string, aliases: readonly string[], threshold:
  * Ported from the app's `raters` digest machinery (`app/core/raters/helpers.ts`)
  * — record keys sort before serialization so a re-ordered object canonicalizes
  * identically; arrays keep position order (position is meaningful).
- * Cycle-safe and total (AGENTS §14): `visited` tracks the object ancestors
+ * Cycle-safe and total: `visited` tracks the object ancestors
  * along the CURRENT recursion path (not a global "seen" set, so the same
  * object reachable twice via non-cyclic sibling branches still canonicalizes
  * normally); revisiting an ancestor renders that node as the literal string
@@ -593,7 +592,7 @@ export function canonicalize(value: unknown, visited: ReadonlySet<object> = new 
  * stable FNV-1a hash rendered as an 8-hex-digit string.
  *
  * @remarks
- * Pure ECMAScript, no host crypto (AGENTS §17.7) — the same algorithm as the
+ * Pure ECMAScript, no host crypto — the same algorithm as the
  * app's `digest`, ported into core so `Interpretation.digest` and the
  * versioned managers can hash without leaving strict core.
  *
@@ -652,9 +651,8 @@ export function scoreTemplate(intent: Intent, template: Template): number {
  * by a confidence floor.
  *
  * @remarks
- * Explicit no-match (AGENTS-flagged scsr defect 2 — never an arbitrary
- * `templates[0]` fallback): an empty registry, or a best score strictly below
- * `floor`, both return `undefined`.
+ * Explicit no-match, never an arbitrary fallback template: an empty registry,
+ * and a best score strictly below `floor`, each return `undefined`.
  *
  * @param intent - The classified intent
  * @param templates - The registered templates to score
@@ -781,7 +779,7 @@ export function resolveExpression(
  * describes RATERS artifacts); this describes REASONS artifacts. Every field
  * renders via `narrator.label` + `narrator.value` (looked up under the
  * `'units'` phrase table, falling back to `'plain'`) — the wording is fully
- * lexicon-driven (AGENTS §21 mechanism-never-policy); `Definition` /
+ * lexicon-driven, mechanism rather than policy; `Definition` /
  * `ReasonResult` narration lives on `Narrator#describe` / `Narrator#narrate`
  * directly.
  *
@@ -804,30 +802,4 @@ export function describeSubject(subject: Subject, narrator: NarratorInterface): 
 		return `${narrator.label(key)}: ${narrator.value(unit, subject[key])}`
 	})
 	return narrator.line('subject.fields', { fields: parts.join(', ') })
-}
-
-// === JSON intake
-
-/**
- * Parse a JSON string into a `Template`, or `undefined` on invalid JSON or a
- * shape that fails `isTemplate`.
- *
- * @remarks
- * The module's sole JSON boundary (design §4) — an `Interpretation` and the
- * versioned records are produced internally, never deserialized from
- * untrusted JSON; replay re-runs `interpret`, it does not deserialize a
- * stored result.
- *
- * @param value - The JSON text to parse
- * @returns The parsed template, or `undefined`
- *
- * @example
- * ```ts
- * import { parseTemplate } from '@src/core'
- *
- * parseTemplate('not json') // undefined
- * ```
- */
-export function parseTemplate(value: string): Template | undefined {
-	return parseJSONAs(value, isTemplate)
 }

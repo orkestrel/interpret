@@ -7,6 +7,7 @@ import type {
 	Entity,
 	Intent,
 	InterpretContextInterface,
+	NarratorInterface,
 	Template,
 } from '../types.js'
 import { isFiniteNumber } from '@orkestrel/contract'
@@ -18,6 +19,7 @@ import {
 	DEFAULT_INTERPRET_FLOOR,
 } from '../constants.js'
 import { resolveExpression, variablesOf } from '../helpers.js'
+import { Narrator } from '../Narrator.js'
 
 /**
  * The `Clarifier` stage: resolves same-domain carry-over, template defaults,
@@ -33,10 +35,12 @@ import { resolveExpression, variablesOf } from '../helpers.js'
  * computed fields resolve in dependency (topological) order via
  * `resolveExpression` — an unresolved input, a non-finite result, or a
  * dependency cycle leaves the field a gap, never landing an entity. `floor`
- * (from {@link ClarifierOptions}, never hardcoded — AGENTS-flagged scsr
- * defect 4) gates whether a resolved entity's confidence counts as
- * "resolved enough" when raising ambiguities — a field with a value below
- * `floor` still raises its ambiguity.
+ * comes from {@link ClarifierOptions} rather than a hardcoded constant, and
+ * gates whether a resolved entity's confidence counts as "resolved enough"
+ * when raising ambiguities — a field with a value below `floor` still raises
+ * its ambiguity. Every question is rendered through the injected
+ * {@link NarratorInterface}'s `ambiguity.entity` line rather than minted from
+ * a literal here, so wording stays caller data.
  *
  * @example
  * ```ts
@@ -62,9 +66,11 @@ import { resolveExpression, variablesOf } from '../helpers.js'
  */
 export class Clarifier implements ClarifierInterface {
 	readonly #floor: number
+	readonly #narrator: NarratorInterface
 
 	constructor(options?: ClarifierOptions) {
 		this.#floor = options?.floor ?? DEFAULT_INTERPRET_FLOOR
+		this.#narrator = options?.narrator ?? new Narrator()
 	}
 
 	clarify(
@@ -92,8 +98,8 @@ export class Clarifier implements ClarifierInterface {
 	}
 
 	// Same-domain-only carry-over — a chaining pass over `context.previous()`
-	// mutating the shared `resolved` accumulator (AGENTS §7: an algorithm step,
-	// not a leaf).
+	// mutating the shared `resolved` accumulator — an algorithm step, not a
+	// leaf.
 	#carryOver(
 		template: Template,
 		context: InterpretContextInterface | undefined,
@@ -172,8 +178,7 @@ export class Clarifier implements ClarifierInterface {
 	// excludes every field it involves from the returned order, so a cyclic
 	// field (and anything depending on it) resolves to a gap rather than an
 	// arbitrary evaluation order. A compositional graph traversal, so it stays
-	// a private orchestration step rather than a leaf (AGENTS §7 — mirrors the
-	// `SymbolicReasoner#solve`/`#isolate` precedent).
+	// a private orchestration step rather than a leaf.
 	#orderComputations(computations: readonly ComputedField[]): readonly ComputedField[] {
 		const byField = new Map<string, ComputedField>()
 		for (const computation of computations) byField.set(formatField(computation.field), computation)
@@ -223,7 +228,7 @@ export class Clarifier implements ClarifierInterface {
 			if (resolvedEnough) continue
 			ambiguities.push({
 				field: mapping.field,
-				question: `What is your ${mapping.entity}?`,
+				question: this.#narrator.line('ambiguity.entity', { entity: mapping.entity }),
 				candidates: [],
 				required: true,
 			})

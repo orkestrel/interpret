@@ -7,21 +7,20 @@ import type {
 	DefinitionRecord,
 	ManagerAddOptions,
 } from '../types.js'
-import { Emitter } from '@orkestrel/emitter'
-import { InterpretError } from '../errors.js'
-import { digestValue } from '../helpers.js'
+import { RecordManager } from './RecordManager.js'
 
 /**
  * The definition registry — a self-owning, versioned and content-hashed
  * record-holder for the reasons {@link Definition}s an interpretation produces.
  *
  * @remarks
- * Mirrors {@link TemplateManager}: `add` defaults each record id to the
- * definition's own `id`, derives `hash` from the definition CONTENT
- * (id-independent), and bumps `version` ONLY when that hash changes at a reused
- * id — an identical re-add keeps its version. The batch `remove(ids)` form is
- * all-or-nothing; `destroy()` is idempotent and every method afterwards throws
- * `InterpretError('DESTROYED', …)`.
+ * Mirrors {@link TemplateManager}: a composed {@link RecordManager} owns the
+ * collection, the content-derived `hash` (id-independent), and the version
+ * rule, so an identical re-add keeps its version and the batch `remove(ids)`
+ * form stays all-or-nothing. This class adds what is definition-specific: the
+ * accessor nouns, the record id defaulting to the definition's own `id`, and
+ * the `definition` field on each record. `destroy()` is idempotent and every
+ * method afterwards throws `InterpretError('DESTROYED', …)`.
  *
  * @example
  * ```ts
@@ -35,12 +34,11 @@ import { digestValue } from '../helpers.js'
  * ```
  */
 export class DefinitionManager implements DefinitionManagerInterface {
-	readonly #records = new Map<string, DefinitionRecord>()
-	readonly #emitter: Emitter<DefinitionManagerEventMap>
-	#destroyed = false
+	readonly #records: RecordManager<Definition, DefinitionRecord>
 
 	constructor(options?: DefinitionManagerOptions) {
-		this.#emitter = new Emitter<DefinitionManagerEventMap>({
+		this.#records = new RecordManager<Definition, DefinitionRecord>({
+			entity: 'Definition',
 			...(options?.on === undefined ? {} : { on: options.on }),
 			...(options?.error === undefined ? {} : { error: options.error }),
 		})
@@ -48,77 +46,44 @@ export class DefinitionManager implements DefinitionManagerInterface {
 	}
 
 	get emitter(): EmitterInterface<DefinitionManagerEventMap> {
-		return this.#emitter
+		return this.#records.emitter
 	}
 
 	get size(): number {
-		this.#ensureAlive()
 		return this.#records.size
 	}
 
 	has(id: string): boolean {
-		this.#ensureAlive()
 		return this.#records.has(id)
 	}
 
 	definition(id: string): DefinitionRecord | undefined {
-		this.#ensureAlive()
-		return this.#records.get(id)
+		return this.#records.record(id)
 	}
 
 	definitions(): readonly DefinitionRecord[] {
-		this.#ensureAlive()
-		return [...this.#records.values()]
+		return this.#records.records()
 	}
 
 	add(definition: Definition, options?: ManagerAddOptions): DefinitionRecord {
-		this.#ensureAlive()
-		const id = options?.id ?? definition.id
-		const hash = digestValue(definition)
-		const existing = this.#records.get(id)
-		const version =
-			existing === undefined ? 1 : existing.hash === hash ? existing.version : existing.version + 1
-		const record: DefinitionRecord = { id, definition, version, hash }
-		this.#records.set(id, record)
-		this.#emitter.emit('add', id)
-		return record
+		return this.#records.add(options?.id ?? definition.id, definition, (stamp, value) => ({
+			id: stamp.id,
+			definition: value,
+			version: stamp.version,
+			hash: stamp.hash,
+		}))
 	}
 
-	// Array overload first (AGENTS §9.2); the batch form is all-or-nothing.
 	remove(ids: readonly string[]): boolean
 	remove(id: string): boolean
 	remove(): void
 	remove(target?: string | readonly string[]): boolean | void {
-		this.#ensureAlive()
-		if (target === undefined) {
-			for (const id of this.#records.keys()) this.#emitter.emit('remove', id)
-			this.#records.clear()
-			return
-		}
-		if (typeof target === 'string') {
-			const removed = this.#records.delete(target)
-			if (removed) this.#emitter.emit('remove', target)
-			return removed
-		}
-		for (const id of target) if (!this.#records.has(id)) return false
-		for (const id of target) {
-			this.#records.delete(id)
-			this.#emitter.emit('remove', id)
-		}
-		return true
+		if (target === undefined) return this.#records.remove()
+		if (typeof target === 'string') return this.#records.remove(target)
+		return this.#records.remove(target)
 	}
 
 	destroy(): void {
-		if (this.#destroyed) return
-		this.#records.clear()
-		this.#destroyed = true
-		this.#emitter.emit('destroy')
-		this.#emitter.destroy()
-	}
-
-	#ensureAlive(): void {
-		if (this.#destroyed) {
-			throw new InterpretError('DESTROYED', 'Definition manager has been destroyed')
-		}
+		this.#records.destroy()
 	}
 }

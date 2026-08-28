@@ -2,11 +2,11 @@ import type { InterpretContextEventMap } from '@src/core'
 import { InterpretContext, isInterpretError } from '@src/core'
 import { describe, expect, it } from 'vitest'
 import { captureError, createRecorders } from '@orkestrel/test'
-import { buildInterpretation } from '../../../setup.js'
+import { buildInterpretation } from '../../setup.js'
 
 // The `InterpretContext` — capped ring-buffer history (newest-last), flattened
 // entity carry-over source, own subject/definition registries, clear vs.
-// destroy, DESTROYED after teardown (design §0/§6/§8).
+// destroy, DESTROYED after teardown.
 
 describe('InterpretContext', () => {
 	it('exposes the session and its own subject/definition registries', () => {

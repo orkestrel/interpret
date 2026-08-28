@@ -19,7 +19,6 @@ import {
 	extractNumbers,
 	matchAlias,
 	matchTemplate,
-	parseTemplate,
 	resolveExpression,
 	scoreSimilarity,
 	scoreTemplate,
@@ -549,14 +548,5 @@ describe('describeSubject', () => {
 		expect(describeSubject({ tags: ['a', 'b'], name: 'Ada' }, narrator)).toBe(
 			'with name: Ada, tags: a,b',
 		)
-	})
-})
-
-describe('parseTemplate', () => {
-	it('parses a valid JSON template and rejects invalid JSON / off-shape data', () => {
-		const template = buildInterpretTemplate()
-		expect(parseTemplate(JSON.stringify(template))).toEqual(template)
-		expect(parseTemplate('not json')).toBeUndefined()
-		expect(parseTemplate('{"id":"t1"}')).toBeUndefined()
 	})
 })

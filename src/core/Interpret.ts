@@ -30,7 +30,7 @@ import { Emitter } from '@orkestrel/emitter'
 import { DEFAULT_INTERPRET_FLOOR, DEFAULT_INTERPRET_SIMILARITY } from './constants.js'
 import { InterpretError } from './errors.js'
 import { assignEntities, digestValue, matchTemplate } from './helpers.js'
-import { InterpretContext } from './managers/InterpretContext.js'
+import { InterpretContext } from './InterpretContext.js'
 import { TemplateManager } from './managers/TemplateManager.js'
 import { Narrator } from './Narrator.js'
 import { Clarifier } from './stages/Clarifier.js'
@@ -44,8 +44,9 @@ import { Normalizer } from './stages/Normalizer.js'
  * `interprets` module, mirroring the reasons `Reason` orchestrator shape.
  *
  * @remarks
- * `interpret()` is genuinely SYNCHRONOUS (scsr's was fake-async with zero
- * `await`s) and runs a fixed five-stage pipeline —
+ * `interpret()` is genuinely SYNCHRONOUS — it returns its
+ * {@link Interpretation} directly, never a `Promise` — and runs a fixed
+ * five-stage pipeline —
  * `[normalize, extract, clarify, format, generate]` — each producing one
  * {@link StageRecord}. Between `extract` and `clarify` the orchestrator matches
  * the classified {@link Intent} against its registered {@link Template}s and,
@@ -53,15 +54,15 @@ import { Normalizer } from './stages/Normalizer.js'
  * (`assignEntities`) — a template-owned step, not a sixth stage. No match, or a
  * matched template whose intent confidence falls below the configured `floor`,
  * yields an explicit, auditable INCOMPLETE result (a `field: 'intent'`
- * ambiguity, absent subject/definition) rather than scsr's arbitrary
- * `templates[0]` fallback. A stage THROW is caught, marked on its record AND on
+ * ambiguity, absent subject/definition) rather than an arbitrary fallback
+ * template. A stage THROW is caught, marked on its record AND on
  * `failures`, emitted as `error`, and still yields a visible incomplete result
  * — never a silent fallback. Every result carries a `digest` over its original
  * text plus the matched template id/version and the built subject/definition,
  * so re-running the same text against the same template version reproduces the
  * same digest (the replay contract). `describe` / `narrate` are the reverse
  * direction (structure → prose). `destroy()` is idempotent, tears down the
- * registry and context, then destroys the emitter LAST (AGENTS §13); every
+ * registry and context, then destroys the emitter LAST; every
  * method afterwards except the {@link emitter} getter throws
  * `InterpretError('DESTROYED', …)`.
  *
@@ -115,15 +116,16 @@ export class Interpret implements InterpretInterface {
 			new InterpretContext(
 				options?.history === undefined ? undefined : { history: options.history },
 			)
-		this.#normalizer = options?.normalizer ?? new Normalizer()
-		this.#extractor = options?.extractor ?? new Extractor()
-		this.#clarifier = options?.clarifier ?? new Clarifier({ floor: this.#floor })
-		this.#formatter = options?.formatter ?? new Formatter()
-		this.#generator = options?.generator ?? new Generator()
 		this.#narrator = new Narrator({
 			...(options?.lexicon === undefined ? {} : { lexicon: options.lexicon }),
 			...(options?.formatters === undefined ? {} : { formatters: options.formatters }),
 		})
+		this.#normalizer = options?.normalizer ?? new Normalizer()
+		this.#extractor = options?.extractor ?? new Extractor()
+		this.#clarifier =
+			options?.clarifier ?? new Clarifier({ floor: this.#floor, narrator: this.#narrator })
+		this.#formatter = options?.formatter ?? new Formatter({ narrator: this.#narrator })
+		this.#generator = options?.generator ?? new Generator()
 		this.#emitter = new Emitter<InterpretEventMap>({
 			...(options?.on === undefined ? {} : { on: options.on }),
 			...(options?.error === undefined ? {} : { error: options.error }),
@@ -142,7 +144,7 @@ export class Interpret implements InterpretInterface {
 		try {
 			normalized = this.#normalizer.normalize(text)
 		} catch (error) {
-			return this.#abort(
+			return this.#fail(
 				text,
 				text,
 				{ action: '', domain: '', confidence: 0 },
@@ -164,7 +166,7 @@ export class Interpret implements InterpretInterface {
 		try {
 			extract = this.#extractor.extract(normalized.text)
 		} catch (error) {
-			return this.#abort(
+			return this.#fail(
 				text,
 				normalized.text,
 				{ action: '', domain: '', confidence: 0 },
@@ -225,7 +227,7 @@ export class Interpret implements InterpretInterface {
 		try {
 			clarified = this.#clarifier.clarify(assigned, matched, this.#context, intent)
 		} catch (error) {
-			return this.#abort(
+			return this.#fail(
 				text,
 				normalized.text,
 				intent,
@@ -248,7 +250,7 @@ export class Interpret implements InterpretInterface {
 		try {
 			formatted = this.#formatter.format(intent, matched, clarified.entities, clarified.ambiguities)
 		} catch (error) {
-			return this.#abort(
+			return this.#fail(
 				text,
 				normalized.text,
 				intent,
@@ -270,7 +272,7 @@ export class Interpret implements InterpretInterface {
 		try {
 			generated = this.#generator.generate(clarified.entities, matched)
 		} catch (error) {
-			return this.#abort(
+			return this.#fail(
 				text,
 				normalized.text,
 				intent,
@@ -361,8 +363,10 @@ export class Interpret implements InterpretInterface {
 
 	// A NO_TEMPLATE / LOW_CONFIDENCE match gate — an explicit incomplete result
 	// carrying a `field: 'intent'` ambiguity whose candidates are the registered
-	// domain names, plus the matching StageFailure. No `error` emit — a gate is
-	// a deliberate incomplete outcome, not a stage throw.
+	// domain names, plus the matching StageFailure. The question renders through
+	// the narrator's `ambiguity.*` line, so gate wording stays caller data. No
+	// `error` emit — a gate is a deliberate incomplete outcome, not a stage
+	// throw.
 	#gate(
 		text: string,
 		normalized: string,
@@ -378,10 +382,10 @@ export class Interpret implements InterpretInterface {
 		]
 		const ambiguity: Ambiguity = {
 			field: 'intent',
-			question:
-				code === 'NO_TEMPLATE'
-					? 'Which domain and action did you mean?'
-					: 'Which did you mean? The intent was too weak to act on.',
+			question: this.#narrator.line(
+				code === 'NO_TEMPLATE' ? 'ambiguity.intent' : 'ambiguity.confidence',
+				{},
+			),
 			candidates: domains,
 			required: true,
 		}
@@ -410,7 +414,7 @@ export class Interpret implements InterpretInterface {
 	// A stage THROW — mark the failed stage's record, emit `error` with the raw
 	// thrown value, and assemble a visible incomplete result. The one site the
 	// thrown value is rendered to a message (folded here, its sole use).
-	#abort(
+	#fail(
 		text: string,
 		normalized: string,
 		intent: Intent,

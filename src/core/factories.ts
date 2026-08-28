@@ -27,7 +27,7 @@ import { InterpretError } from './errors.js'
 import { isTemplate } from './validators.js'
 import { Interpret } from './Interpret.js'
 import { Narrator } from './Narrator.js'
-import { InterpretContext } from './managers/InterpretContext.js'
+import { InterpretContext } from './InterpretContext.js'
 import { TemplateManager } from './managers/TemplateManager.js'
 import { SubjectManager } from './managers/SubjectManager.js'
 import { DefinitionManager } from './managers/DefinitionManager.js'
@@ -45,7 +45,10 @@ import { Normalizer } from './stages/Normalizer.js'
  * pipeline `[normalize, extract, clarify, format, generate]`. Every stage
  * slot (`normalizer` / `extractor` / `clarifier` / `formatter` / `generator`)
  * is bring-your-own — a supplied implementation is used as-is, else the
- * built-in stage is constructed from the matching per-stage options.
+ * built-in stage is constructed with its own defaults, so a caller who wants
+ * a configured stage constructs that stage and supplies the instance.
+ * `InterpretOptions` carries no per-stage option record; `floor` is the one
+ * value threaded into a built-in stage, reaching the `Clarifier`.
  *
  * @param options - Optional templates, context, stage implementations, the
  *   `similarity` / `floor` axes, and emitter hooks
@@ -54,10 +57,10 @@ import { Normalizer } from './stages/Normalizer.js'
  * @example
  * ```ts
  * import { factorGroup, fieldFactor, quantitativeDefinition } from '@orkestrel/reason'
- * import { createInterpret } from '@src/core'
+ * import { createExtractor, createInterpret } from '@src/core'
  *
  * const interpret = createInterpret({
- * 	extractor: { extract: () => ({ intent: { action: 'calculate', domain: 'arithmetic', confidence: 1 }, numbers: [42], complete: true }) },
+ * 	extractor: createExtractor({ actions: { calculate: 'calculate' }, domains: { arithmetic: ['arithmetic'] } }),
  * 	templates: [
  * 		{
  * 			id: 't1',
@@ -264,8 +267,8 @@ export function createInterpretContext(
  * Build and validate one interpretation template from plain data.
  *
  * @remarks
- * The factory/coercer pair for template intake (AGENTS §4.6.1): this throws
- * on malformed data, while `parseTemplate` returns `undefined`. Data failing
+ * The throwing half of the template-intake pair: this throws on malformed
+ * data, while the `parseTemplate` coercer returns `undefined`. Data failing
  * {@link isTemplate} throws `InterpretError('INVALID_TEMPLATE', …)`.
  *
  * @param data - The candidate template data

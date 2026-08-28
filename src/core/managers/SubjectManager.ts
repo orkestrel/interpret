@@ -7,9 +7,7 @@ import type {
 	SubjectManagerOptions,
 	SubjectRecord,
 } from '../types.js'
-import { Emitter } from '@orkestrel/emitter'
-import { InterpretError } from '../errors.js'
-import { digestValue } from '../helpers.js'
+import { RecordManager } from './RecordManager.js'
 
 /**
  * The subject registry — a self-owning, versioned and content-hashed
@@ -17,14 +15,14 @@ import { digestValue } from '../helpers.js'
  * (a `Subject` carries no `id` field of its own).
  *
  * @remarks
- * The defect-7 fix: scsr keyed stored subjects by their definition's id, so
- * successive same-domain turns silently overwrote one shared subject. Here each
- * `add` mints a fresh `subject-{n}` id (deterministic per instance, no host
- * randomness — AGENTS §17.7) unless the caller overrides it via
- * `ManagerAddOptions.id`. `hash` is content-derived (id-independent) and
- * `version` bumps ONLY when the hash changes at a reused id. The batch
- * `remove(ids)` form is all-or-nothing; `destroy()` is idempotent and every
- * method afterwards throws `InterpretError('DESTROYED', …)`.
+ * Each `add` mints a fresh `subject-{n}` id (deterministic per instance, no
+ * host randomness) unless the caller overrides it through
+ * `ManagerAddOptions.id`, so successive same-domain turns never overwrite one
+ * shared subject. A composed {@link RecordManager} owns the collection, the
+ * content-derived `hash` (id-independent), and the version rule, so `version`
+ * bumps ONLY when the hash changes at a reused id and the batch `remove(ids)`
+ * form stays all-or-nothing. `destroy()` is idempotent and every method
+ * afterwards throws `InterpretError('DESTROYED', …)`.
  *
  * @example
  * ```ts
@@ -37,13 +35,12 @@ import { digestValue } from '../helpers.js'
  * ```
  */
 export class SubjectManager implements SubjectManagerInterface {
-	readonly #records = new Map<string, SubjectRecord>()
-	readonly #emitter: Emitter<SubjectManagerEventMap>
+	readonly #records: RecordManager<Subject, SubjectRecord>
 	#counter = 0
-	#destroyed = false
 
 	constructor(options?: SubjectManagerOptions) {
-		this.#emitter = new Emitter<SubjectManagerEventMap>({
+		this.#records = new RecordManager<Subject, SubjectRecord>({
+			entity: 'Subject',
 			...(options?.on === undefined ? {} : { on: options.on }),
 			...(options?.error === undefined ? {} : { error: options.error }),
 		})
@@ -51,79 +48,52 @@ export class SubjectManager implements SubjectManagerInterface {
 	}
 
 	get emitter(): EmitterInterface<SubjectManagerEventMap> {
-		return this.#emitter
+		return this.#records.emitter
 	}
 
 	get size(): number {
-		this.#ensureAlive()
 		return this.#records.size
 	}
 
 	has(id: string): boolean {
-		this.#ensureAlive()
 		return this.#records.has(id)
 	}
 
 	subject(id: string): SubjectRecord | undefined {
-		this.#ensureAlive()
-		return this.#records.get(id)
+		return this.#records.record(id)
 	}
 
 	subjects(): readonly SubjectRecord[] {
-		this.#ensureAlive()
-		return [...this.#records.values()]
+		return this.#records.records()
 	}
 
 	add(subject: Subject, options?: ManagerAddOptions): SubjectRecord {
-		this.#ensureAlive()
-		let id = options?.id
-		if (id === undefined) {
-			id = `subject-${this.#counter}`
-			this.#counter += 1
-		}
-		const hash = digestValue(subject)
-		const existing = this.#records.get(id)
-		const version =
-			existing === undefined ? 1 : existing.hash === hash ? existing.version : existing.version + 1
-		const record: SubjectRecord = { id, subject, version, hash }
-		this.#records.set(id, record)
-		this.#emitter.emit('add', id)
-		return record
+		return this.#records.add(options?.id ?? this.#mint(), subject, (stamp, value) => ({
+			id: stamp.id,
+			subject: value,
+			version: stamp.version,
+			hash: stamp.hash,
+		}))
 	}
 
-	// Array overload first (AGENTS §9.2); the batch form is all-or-nothing.
 	remove(ids: readonly string[]): boolean
 	remove(id: string): boolean
 	remove(): void
 	remove(target?: string | readonly string[]): boolean | void {
-		this.#ensureAlive()
-		if (target === undefined) {
-			for (const id of this.#records.keys()) this.#emitter.emit('remove', id)
-			this.#records.clear()
-			return
-		}
-		if (typeof target === 'string') {
-			const removed = this.#records.delete(target)
-			if (removed) this.#emitter.emit('remove', target)
-			return removed
-		}
-		for (const id of target) if (!this.#records.has(id)) return false
-		for (const id of target) {
-			this.#records.delete(id)
-			this.#emitter.emit('remove', id)
-		}
-		return true
+		if (target === undefined) return this.#records.remove()
+		if (typeof target === 'string') return this.#records.remove(target)
+		return this.#records.remove(target)
 	}
 
 	destroy(): void {
-		if (this.#destroyed) return
-		this.#records.clear()
-		this.#destroyed = true
-		this.#emitter.emit('destroy')
-		this.#emitter.destroy()
+		this.#records.destroy()
 	}
 
-	#ensureAlive(): void {
-		if (this.#destroyed) throw new InterpretError('DESTROYED', 'Subject manager has been destroyed')
+	// The own-minted record identity — deterministic per instance, never host
+	// randomness, so a replayed sequence of adds reproduces the same ids.
+	#mint(): string {
+		const id = `subject-${this.#counter}`
+		this.#counter += 1
+		return id
 	}
 }

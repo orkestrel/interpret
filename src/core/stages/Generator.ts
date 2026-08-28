@@ -30,9 +30,8 @@ import { deriveAggregateField, setField } from '../helpers.js'
  * flat (`'amountsSum'`), matching the source field's own shape.
  * `confidence` is the mean of the input entities' own confidences (`0` for
  * an empty entity set). A `FieldMapping` is emitted for EVERY field that
- * lands on the subject, including defaults, computed fields, and aggregates
- * — scsr silently omitted defaults/computed from its audit trail; this
- * closes that gap. `GeneratorOptions` is a reserved extension seam — the
+ * lands on the subject, including defaults, computed fields, and aggregates.
+ * `GeneratorOptions` is a reserved extension seam — the
  * stage has no knobs yet, so construction takes no arguments until one
  * exists.
  *

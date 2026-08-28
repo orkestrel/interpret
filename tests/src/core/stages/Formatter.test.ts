@@ -1,4 +1,4 @@
-import { Formatter } from '@src/core'
+import { Formatter, Narrator } from '@src/core'
 import { describe, expect, it } from 'vitest'
 import { buildInterpretTemplate } from '../../../setup.js'
 
@@ -66,6 +66,33 @@ describe('Formatter', () => {
 		]
 		expect(formatter.format(intent, template, entities, ambiguities).prompt).toBe(
 			'Calculate Arithmetic with value: 42 (defaults: term: 12) needed: What is your age?',
+		)
+	})
+
+	it('renders every clause through the injected narrator, so a lexicon rewords the prompt', () => {
+		const formatter = new Formatter({
+			verbs: { calculate: 'Calculate' },
+			narrator: new Narrator({
+				lexicon: {
+					templates: {
+						'prompt.base': '{{verb}} → {{name}}',
+						'prompt.entities': ' [{{fields}}]',
+						'prompt.defaults': ' <{{fields}}>',
+						'prompt.ambiguities': ' ask {{questions}}',
+					},
+				},
+			}),
+		})
+		const template = buildInterpretTemplate()
+		const entities = [
+			{ name: 'value', value: 42, provenance: { category: 'extracted' as const }, confidence: 0.9 },
+			{ name: 'term', value: 12, provenance: { category: 'default' as const }, confidence: 1 },
+		]
+		const ambiguities = [
+			{ field: 'age', question: 'What is your age?', candidates: [], required: true },
+		]
+		expect(formatter.format(intent, template, entities, ambiguities).prompt).toBe(
+			'Calculate → Arithmetic [value: 42] <term: 12> ask What is your age?',
 		)
 	})
 

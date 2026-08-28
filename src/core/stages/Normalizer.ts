@@ -12,8 +12,8 @@ import { applyReplacements, collapseWhitespace, escapeRegExp } from '../helpers.
  * substitutions in order, then collapses whitespace.
  *
  * @remarks
- * Each caller map is merged OVER the neutral built-in default for its slot —
- * `text` is never mutated (AGENTS §11). Every substitution actually applied
+ * Each caller map is merged OVER the neutral built-in default for its slot,
+ * and `text` is never mutated. Every substitution actually applied
  * (one entry per matching map KEY, not per occurrence) is recorded on the
  * result's `changes`, in `contractions → abbreviations → corrections` order,
  * so the audit trail explains every character difference between `text` and
@@ -53,7 +53,7 @@ export class Normalizer implements NormalizerInterface {
 
 	// One substitution pass over `map`, recording only the keys that actually
 	// matched. A chaining pass over the leaf `applyReplacements`, so it stays a
-	// private orchestration step rather than a leaf of its own (AGENTS §7).
+	// private orchestration step rather than a leaf of its own.
 	#applyStage(
 		text: string,
 		map: Readonly<Record<string, string>>,
