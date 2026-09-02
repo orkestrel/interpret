@@ -10,7 +10,7 @@ import type {
 import { RecordManager } from './RecordManager.js'
 
 /**
- * The subject registry — a self-owning, versioned and content-hashed
+ * Implements the subject registry — a self-owning, versioned and content-hashed
  * record-holder that mints its OWN record identity for every {@link Subject}
  * (a `Subject` carries no `id` field of its own).
  *

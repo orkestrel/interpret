@@ -15,7 +15,7 @@ import { DefinitionManager } from './managers/DefinitionManager.js'
 import { SubjectManager } from './managers/SubjectManager.js'
 
 /**
- * Cross-turn interpretation context — a capped, replayable history of
+ * Implements the cross-turn interpretation context — a capped, replayable history of
  * completed {@link Interpretation}s plus the subject and definition registries
  * carry-over reads from.
  *

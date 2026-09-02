@@ -19,7 +19,7 @@ import type { Definition, ReasonResult, Subject, SymbolicExpression } from '@ork
 // === Vocabulary
 
 /**
- * How one {@link FieldMapping} / {@link Entity} value was obtained.
+ * Names how one {@link FieldMapping} / {@link Entity} value was obtained.
  *
  * @remarks
  * `extracted` — mined from the raw text via keyword / alias / positional
@@ -32,7 +32,7 @@ import type { Definition, ReasonResult, Subject, SymbolicExpression } from '@ork
 export type ProvenanceCategory = 'extracted' | 'carried' | 'default' | 'computed' | 'subject'
 
 /**
- * The five fixed pipeline phases an {@link InterpretInterface#interpret} run
+ * Names the five fixed pipeline phases an {@link InterpretInterface#interpret} run
  * produces one {@link StageRecord} for, in order.
  *
  * @remarks
@@ -43,7 +43,7 @@ export type ProvenanceCategory = 'extracted' | 'carried' | 'default' | 'computed
 export type InterpretStage = 'normalize' | 'extract' | 'clarify' | 'format' | 'generate'
 
 /**
- * Coded misuse / failure conditions thrown as an {@link InterpretError} or
+ * Names the coded misuse / failure conditions thrown as an {@link InterpretError} or
  * carried on a {@link StageFailure}.
  *
  * @remarks
@@ -67,7 +67,7 @@ export type InterpretErrorCode =
 // === Template data model — pure JSON-serializable, versionable, diffable, hashable
 
 /**
- * One entity-extraction rule inside a {@link Template}: which literal alias
+ * Represents one entity-extraction rule inside a {@link Template}: which literal alias
  * phrases identify a value, and which subject field it lands on.
  *
  * @remarks
@@ -82,14 +82,14 @@ export interface EntityMapping {
 	readonly required?: boolean
 }
 
-/** A fallback value a {@link Template} fills onto a field left unresolved by extraction. */
+/** Represents a fallback value a {@link Template} fills onto a field left unresolved by extraction. */
 export interface FieldDefault {
 	readonly field: FieldPath
 	readonly value: unknown
 }
 
 /**
- * A declaratively computed field: evaluate `expression` against the entities
+ * Represents a declaratively computed field: evaluate `expression` against the entities
  * already resolved for this interpretation, and land the result on `field`.
  *
  * @remarks
@@ -115,7 +115,7 @@ export interface ComputedField {
 }
 
 /**
- * A named, versionable interpretation template: which intents it answers,
+ * Represents a named, versionable interpretation template: which intents it answers,
  * how to mine entities for it, its fallback data, its computed fields, and
  * the reasons `Definition` it ultimately produces a `Subject` for.
  *
@@ -139,14 +139,14 @@ export interface Template {
 
 // === Intent, entity, ambiguity, provenance
 
-/** How one value landed — its origin category plus an optional strategy detail. */
+/** Describes how one value landed — its origin category plus an optional strategy detail. */
 export interface Provenance {
 	readonly category: ProvenanceCategory
 	readonly detail?: string
 }
 
 /**
- * The classified action + domain for one interpretation, with a combined
+ * Represents the classified action + domain for one interpretation, with a combined
  * confidence.
  *
  * @remarks
@@ -162,7 +162,7 @@ export interface Intent {
 	readonly confidence: number
 }
 
-/** One value assigned to a template's entity mapping, with its provenance and confidence. */
+/** Represents one value assigned to a template's entity mapping, with its provenance and confidence. */
 export interface Entity {
 	readonly name: string
 	readonly value: unknown
@@ -170,7 +170,7 @@ export interface Entity {
 	readonly confidence: number
 }
 
-/** An unresolved field surfaced as a human-readable question, never bare prose. */
+/** Represents an unresolved field surfaced as a human-readable question, never bare prose. */
 export interface Ambiguity {
 	readonly field: FieldPath
 	readonly question: string
@@ -179,7 +179,7 @@ export interface Ambiguity {
 }
 
 /**
- * One audited field of the built subject — its resolved value, provenance,
+ * Represents one audited field of the built subject — its resolved value, provenance,
  * and confidence.
  *
  * @remarks
@@ -194,7 +194,7 @@ export interface FieldMapping {
 	readonly confidence: number
 }
 
-/** One normalization substitution applied to the raw text. */
+/** Represents one normalization substitution applied to the raw text. */
 export interface TextChange {
 	readonly from: string
 	readonly to: string
@@ -203,7 +203,7 @@ export interface TextChange {
 // === Per-stage record + failure marker
 
 /**
- * A structured input/output snapshot of one pipeline phase.
+ * Represents a structured input/output snapshot of one pipeline phase.
  *
  * @remarks
  * `input` / `output` are live structured values, never a stringified JSON
@@ -218,7 +218,7 @@ export interface StageRecord {
 	readonly error?: string
 }
 
-/** A visible marker for a stage that threw, carrying its coded reason. */
+/** Represents a visible marker for a stage that threw, carrying its coded reason. */
 export interface StageFailure {
 	readonly stage: InterpretStage
 	readonly code: InterpretErrorCode
@@ -227,14 +227,14 @@ export interface StageFailure {
 
 // === Stage result shapes
 
-/** The `Normalizer` stage's output: the cleaned text plus every substitution applied. */
+/** Represents the `Normalizer` stage's output: the cleaned text plus every substitution applied. */
 export interface NormalizeResult {
 	readonly text: string
 	readonly changes: readonly TextChange[]
 }
 
 /**
- * The `Extractor` stage's output: intent classification plus raw numbers.
+ * Represents the `Extractor` stage's output: intent classification plus raw numbers.
  *
  * @remarks
  * Template-agnostic by design — extraction never sees a `Template`, only the
@@ -248,19 +248,19 @@ export interface ExtractResult {
 	readonly complete: boolean
 }
 
-/** The `Clarifier` stage's output: resolved entities plus any remaining ambiguities. */
+/** Represents the `Clarifier` stage's output: resolved entities plus any remaining ambiguities. */
 export interface ClarifyResult {
 	readonly entities: readonly Entity[]
 	readonly ambiguities: readonly Ambiguity[]
 	readonly complete: boolean
 }
 
-/** The `Formatter` stage's output: the refined natural-language prompt. */
+/** Represents the `Formatter` stage's output: the refined natural-language prompt. */
 export interface FormatResult {
 	readonly prompt: string
 }
 
-/** The `Generator` stage's output: the built subject/definition pair plus its full field audit. */
+/** Represents the `Generator` stage's output: the built subject/definition pair plus its full field audit. */
 export interface GenerateResult {
 	readonly subject: Subject
 	readonly definition: Definition
@@ -271,7 +271,7 @@ export interface GenerateResult {
 // === The result
 
 /**
- * The full, replayable outcome of one `interpret()` call.
+ * Represents the full, replayable outcome of one `interpret()` call.
  *
  * @remarks
  * `subject` / `definition` are absent on an incomplete `NO_TEMPLATE` /
@@ -303,7 +303,7 @@ export interface Interpretation {
 // === Versioned, content-hashed records
 
 /**
- * A versioned, content-hashed {@link Template} as held by a
+ * Represents a versioned, content-hashed {@link Template} as held by a
  * {@link TemplateManagerInterface}.
  *
  * @remarks
@@ -318,7 +318,7 @@ export interface TemplateRecord {
 }
 
 /**
- * A versioned, content-hashed {@link Subject} as held by a
+ * Represents a versioned, content-hashed {@link Subject} as held by a
  * {@link SubjectManagerInterface}.
  *
  * @remarks
@@ -332,7 +332,7 @@ export interface SubjectRecord {
 	readonly hash: string
 }
 
-/** A versioned, content-hashed {@link Definition} as held by a {@link DefinitionManagerInterface}. */
+/** Represents a versioned, content-hashed {@link Definition} as held by a {@link DefinitionManagerInterface}. */
 export interface DefinitionRecord {
 	readonly id: string
 	readonly definition: Definition
@@ -343,7 +343,7 @@ export interface DefinitionRecord {
 // === Event maps
 
 /**
- * The push observation surface of an {@link InterpretInterface}.
+ * Represents the push observation surface of an {@link InterpretInterface}.
  *
  * @remarks
  * `interpret` fires once per completed `interpret()` call, complete OR
@@ -354,59 +354,59 @@ export interface DefinitionRecord {
  * Listener isolation is the emitter's own — never routed onto this map.
  */
 export type InterpretEventMap = {
-	/** An `interpret()` call completed — carries the full result. */
+	/** Fires when an `interpret()` call completes — carries the full result. */
 	readonly interpret: readonly [result: Interpretation]
-	/** A template was added — carries its id. */
+	/** Fires when a template is added — carries its id. */
 	readonly add: readonly [templateId: string]
-	/** An injected stage implementation threw — carries the raw thrown value. */
+	/** Fires when an injected stage implementation throws — carries the raw thrown value. */
 	readonly error: readonly [error: unknown]
-	/** The orchestrator was destroyed. */
+	/** Fires when the orchestrator is destroyed. */
 	readonly destroy: readonly []
 }
 
 /**
- * The push observation surface shared by every record registry — an id-keyed
+ * Represents the push observation surface shared by every record registry — an id-keyed
  * collection, so `add` / `remove` are the events (never ordered-list
  * `append`/`prepend`).
  */
 export type RecordEventMap = {
-	/** A record was added — carries its record id. */
+	/** Fires when a record is added — carries its record id. */
 	readonly add: readonly [id: string]
-	/** A record was removed — carries its record id. */
+	/** Fires when a record is removed — carries its record id. */
 	readonly remove: readonly [id: string]
-	/** The registry was destroyed. */
+	/** Fires when the registry is destroyed. */
 	readonly destroy: readonly []
 }
 
-/** The push observation surface of a {@link TemplateManagerInterface}. */
+/** Represents the push observation surface of a {@link TemplateManagerInterface}. */
 export type TemplateManagerEventMap = RecordEventMap
 
-/** The push observation surface of a {@link SubjectManagerInterface}, whose `add` carries the own-minted record id. */
+/** Represents the push observation surface of a {@link SubjectManagerInterface}, whose `add` carries the own-minted record id. */
 export type SubjectManagerEventMap = RecordEventMap
 
-/** The push observation surface of a {@link DefinitionManagerInterface}. */
+/** Represents the push observation surface of a {@link DefinitionManagerInterface}. */
 export type DefinitionManagerEventMap = RecordEventMap
 
 /**
- * The push observation surface of an {@link InterpretContextInterface}.
+ * Represents the push observation surface of an {@link InterpretContextInterface}.
  *
  * @remarks
  * An {@link Interpretation} carries no `id` of its own — `add` carries the
  * entry's `digest` instead, the closest content-derived identity it has.
  */
 export type InterpretContextEventMap = {
-	/** A completed interpretation was added to the history — carries its digest. */
+	/** Fires when a completed interpretation is added to the history — carries its digest. */
 	readonly add: readonly [digest: string]
-	/** The history and both registries were cleared. */
+	/** Fires when the history and both registries are cleared. */
 	readonly clear: readonly []
-	/** The context was destroyed. */
+	/** Fires when the context is destroyed. */
 	readonly destroy: readonly []
 }
 
 // === Narrator — lexicon-driven reverse rendering (mechanism, never policy)
 
 /**
- * A pure formatting function for one lexicon `value()` unit.
+ * Represents a pure formatting function for one lexicon `value()` unit.
  *
  * @remarks
  * A `Narrator` calls this from `value()` inside a `try`/`catch`, because a
@@ -416,7 +416,7 @@ export type InterpretContextEventMap = {
 export type NarratorFormatter = (value: unknown) => string
 
 /**
- * Caller-injected wording data for the reverse direction — mechanism, never
+ * Represents caller-injected wording data for the reverse direction — mechanism, never
  * policy. Every phrase, label, and template string a `Narrator` renders is
  * DATA supplied here, never a core literal.
  *
@@ -438,7 +438,7 @@ export interface Lexicon {
 	readonly templates?: Readonly<Record<string, string>>
 }
 
-/** Options for `createNarrator` / the `Narrator` constructor. */
+/** Represents the options for `createNarrator` / the `Narrator` constructor. */
 export interface NarratorOptions {
 	readonly lexicon?: Lexicon
 	readonly formatters?: Readonly<Record<string, NarratorFormatter>>
@@ -447,7 +447,7 @@ export interface NarratorOptions {
 // === Options records
 
 /**
- * Options for `createNormalizer` / the `Normalizer` constructor.
+ * Represents the options for `createNormalizer` / the `Normalizer` constructor.
  *
  * @remarks
  * The maps apply in order — contractions → abbreviations → corrections —
@@ -463,7 +463,7 @@ export interface NormalizerOptions {
 }
 
 /**
- * Options for `createExtractor` / the `Extractor` constructor.
+ * Represents the options for `createExtractor` / the `Extractor` constructor.
  *
  * @remarks
  * `actions` / `domains` are the caller's intent vocabulary — there is no
@@ -477,7 +477,7 @@ export interface ExtractorOptions {
 }
 
 /**
- * Options for `createClarifier` / the `Clarifier` constructor.
+ * Represents the options for `createClarifier` / the `Clarifier` constructor.
  *
  * @remarks
  * `floor` is the confidence axis honored when raising ambiguities — the
@@ -493,7 +493,7 @@ export interface ClarifierOptions {
 }
 
 /**
- * Options for `createFormatter` / the `Formatter` constructor.
+ * Represents the options for `createFormatter` / the `Formatter` constructor.
  *
  * @remarks
  * `verbs` maps an `Intent.action` to its display verb. `narrator` supplies the
@@ -507,21 +507,21 @@ export interface FormatterOptions {
 	readonly narrator?: NarratorInterface
 }
 
-/** Options for `createTemplateManager` / the `TemplateManager` constructor — the initial seed collection. */
+/** Represents the options for `createTemplateManager` / the `TemplateManager` constructor — the initial seed collection. */
 export interface TemplateManagerOptions {
 	readonly templates?: readonly Template[]
 	readonly on?: EmitterHooks<TemplateManagerEventMap>
 	readonly error?: EmitterErrorHandler
 }
 
-/** Options for `createSubjectManager` / the `SubjectManager` constructor — the initial seed collection. */
+/** Represents the options for `createSubjectManager` / the `SubjectManager` constructor — the initial seed collection. */
 export interface SubjectManagerOptions {
 	readonly subjects?: readonly Subject[]
 	readonly on?: EmitterHooks<SubjectManagerEventMap>
 	readonly error?: EmitterErrorHandler
 }
 
-/** Options for `createDefinitionManager` / the `DefinitionManager` constructor — the initial seed collection. */
+/** Represents the options for `createDefinitionManager` / the `DefinitionManager` constructor — the initial seed collection. */
 export interface DefinitionManagerOptions {
 	readonly definitions?: readonly Definition[]
 	readonly on?: EmitterHooks<DefinitionManagerEventMap>
@@ -529,7 +529,7 @@ export interface DefinitionManagerOptions {
 }
 
 /**
- * The identity, version, and content hash a {@link RecordManagerInterface}
+ * Represents the identity, version, and content hash a {@link RecordManagerInterface}
  * derives for one record before its concrete shape is built.
  *
  * @remarks
@@ -561,7 +561,7 @@ export type RecordFunction<TValue, TRecord extends RecordStamp> = (
 ) => TRecord
 
 /**
- * Options for the `RecordManager` constructor.
+ * Represents the options for the `RecordManager` constructor.
  *
  * @remarks
  * `entity` names what the registry holds, and is the only wording the engine
@@ -575,7 +575,7 @@ export interface RecordManagerOptions {
 }
 
 /**
- * The shared registry engine every record manager composes — the `Map`, the
+ * Represents the shared registry engine every record manager composes — the `Map`, the
  * content-hash and version rule, the batch `remove` overloads, and teardown.
  *
  * @remarks
@@ -602,7 +602,7 @@ export interface RecordManagerInterface<TValue, TRecord extends RecordStamp> {
 }
 
 /**
- * Per-call options for the record a manager's `add` mints.
+ * Represents the per-call options for the record a manager's `add` mints.
  *
  * @remarks
  * `id` overrides the minted record id. `TemplateManagerInterface#add` /
@@ -614,7 +614,7 @@ export interface RecordOptions {
 	readonly id?: string
 }
 
-/** Options for `createInterpretContext` / the `InterpretContext` constructor. */
+/** Represents the options for `createInterpretContext` / the `InterpretContext` constructor. */
 export interface InterpretContextOptions {
 	readonly session?: string
 	readonly history?: number
@@ -623,7 +623,7 @@ export interface InterpretContextOptions {
 }
 
 /**
- * Options for `createInterpret` / the `Interpret` constructor.
+ * Represents the options for `createInterpret` / the `Interpret` constructor.
  *
  * @remarks
  * `templates` seeds the registry. `context` supplies a shared
@@ -662,18 +662,18 @@ export interface InterpretOptions {
 
 // === Class interfaces — an exact bijection with the implementing class
 
-/** The `Normalizer` stage contract: raw text in, cleaned text + applied changes out. */
+/** Represents the `Normalizer` stage contract: raw text in, cleaned text + applied changes out. */
 export interface NormalizerInterface {
 	normalize(text: string): NormalizeResult
 }
 
-/** The `Extractor` stage contract: template-agnostic intent classification + raw number mining. */
+/** Represents the `Extractor` stage contract: template-agnostic intent classification + raw number mining. */
 export interface ExtractorInterface {
 	extract(text: string): ExtractResult
 }
 
 /**
- * The `Clarifier` stage contract: resolve carry-over, defaults, and computed
+ * Represents the `Clarifier` stage contract: resolve carry-over, defaults, and computed
  * fields against a set of already-assigned entities, surfacing ambiguities
  * for anything required that stays unresolved.
  */
@@ -686,7 +686,7 @@ export interface ClarifierInterface {
 	): ClarifyResult
 }
 
-/** The `Formatter` stage contract: render the refined natural-language prompt for a matched template. */
+/** Represents the `Formatter` stage contract: render the refined natural-language prompt for a matched template. */
 export interface FormatterInterface {
 	format(
 		intent: Intent,
@@ -697,7 +697,7 @@ export interface FormatterInterface {
 }
 
 /**
- * The `Generator` stage contract: build the final subject/definition pair plus
+ * Represents the `Generator` stage contract: build the final subject/definition pair plus
  * its field audit.
  *
  * @remarks
@@ -711,7 +711,7 @@ export interface GeneratorInterface {
 }
 
 /**
- * The `Narrator` contract — a stateless, TOTAL, lexicon-driven rendering
+ * Represents the `Narrator` contract — a stateless, TOTAL, lexicon-driven rendering
  * engine for the reverse direction.
  *
  * @remarks
@@ -738,7 +738,7 @@ export interface NarratorInterface {
 }
 
 /**
- * The template registry — a self-owning, versioned/hashed record-holder with
+ * Represents the template registry — a self-owning, versioned/hashed record-holder with
  * the singular/plural accessor pair and the batch `remove` overloads.
  *
  * @remarks
@@ -760,7 +760,7 @@ export interface TemplateManagerInterface {
 }
 
 /**
- * The subject registry — a self-owning, versioned/hashed record-holder
+ * Represents the subject registry — a self-owning, versioned/hashed record-holder
  * that mints its own record ids (a `Subject` carries none).
  */
 export interface SubjectManagerInterface {
@@ -776,7 +776,7 @@ export interface SubjectManagerInterface {
 	destroy(): void
 }
 
-/** The definition registry — a self-owning, versioned/hashed record-holder. */
+/** Represents the definition registry — a self-owning, versioned/hashed record-holder. */
 export interface DefinitionManagerInterface {
 	readonly emitter: EmitterInterface<DefinitionManagerEventMap>
 	readonly count: number
@@ -791,7 +791,7 @@ export interface DefinitionManagerInterface {
 }
 
 /**
- * Cross-turn interpretation context: a capped, replayable history plus the
+ * Represents the cross-turn interpretation context: a capped, replayable history plus the
  * subject/definition registries carry-over reads from.
  *
  * @remarks
@@ -814,7 +814,7 @@ export interface InterpretContextInterface {
 }
 
 /**
- * The interpretation orchestrator — the sole public entry point, mirroring
+ * Represents the interpretation orchestrator — the sole public entry point, mirroring
  * `reasons`' `Reason` orchestrator shape.
  *
  * @remarks

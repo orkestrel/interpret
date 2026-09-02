@@ -7,8 +7,8 @@ import type { InterpretErrorCode, InterpretStage, Lexicon, ProvenanceCategory } 
 // options rather than baked in here.
 
 /**
- * Default `similarity` for `createInterpret` / `matchAlias` — the fuzzy
- * alias-match score threshold (0..1).
+ * Names the default `similarity` for `createInterpret` / `matchAlias` — the
+ * fuzzy alias-match score threshold (0..1).
  *
  * @remarks
  * Domain-qualified (not a bare `DEFAULT_SIMILARITY`) so the name stays free
@@ -18,38 +18,38 @@ import type { InterpretErrorCode, InterpretStage, Lexicon, ProvenanceCategory } 
 export const DEFAULT_INTERPRET_SIMILARITY = 0.8
 
 /**
- * Default `floor` for `createInterpret` / `matchTemplate` — the minimum
- * intent confidence a template match (or the classified intent itself) must
+ * Names the default `floor` for `createInterpret` / `matchTemplate` — the
+ * minimum intent confidence a template match (or the classified intent itself) must
  * clear.
  */
 export const DEFAULT_INTERPRET_FLOOR = 0.3
 
-/** Default `history` cap for an `InterpretContext`'s `previous()` ring buffer. */
+/** Names the default `history` cap for an `InterpretContext`'s `previous()` ring buffer. */
 export const DEFAULT_INTERPRET_HISTORY = 16
 
-/** Confidence assigned to an exact keyword-proximity entity match. */
+/** Names the confidence assigned to an exact keyword-proximity entity match. */
 export const CONFIDENCE_EXACT = 1
 
-/** Confidence assigned to an exact alias-phrase entity match. */
+/** Names the confidence assigned to an exact alias-phrase entity match. */
 export const CONFIDENCE_ALIAS = 0.9
 
-/** Confidence assigned when a single entity mapping collects every extracted number. */
+/** Names the confidence assigned when a single entity mapping collects every extracted number. */
 export const CONFIDENCE_COLLECT = 0.9
 
-/** Confidence assigned to a positional (order-based) entity match fallback. */
+/** Names the confidence assigned to a positional (order-based) entity match fallback. */
 export const CONFIDENCE_POSITIONAL = 0.7
 
-/** Confidence assigned to a same-domain carried-over field. */
+/** Names the confidence assigned to a same-domain carried-over field. */
 export const CONFIDENCE_CARRIED = 0.7
 
-/** Confidence assigned to a template default fill. */
+/** Names the confidence assigned to a template default fill. */
 export const CONFIDENCE_DEFAULT = 1
 
-/** Confidence assigned to a successfully resolved computed field. */
+/** Names the confidence assigned to a successfully resolved computed field. */
 export const CONFIDENCE_COMPUTED = 0.9
 
 /**
- * The numeric-entity extraction pattern shared by `extractNumbers` and
+ * Holds the numeric-entity extraction pattern shared by `extractNumbers` and
  * `assignEntities` — an optional leading `$`, thousands-comma-grouped digits,
  * an optional decimal fraction, and an optional trailing `%`.
  *
@@ -61,8 +61,8 @@ export const CONFIDENCE_COMPUTED = 0.9
 export const NUMBER_PATTERN = /(?:\$\s*)?(\d+(?:,\d{3})*(?:\.\d+)?)\s*%?/g
 
 /**
- * Prototype-pollution-unsafe field-path segments — `setField` refuses to
- * write ANY path containing one, returning its input unchanged.
+ * Lists the prototype-pollution-unsafe field-path segments — `setField` refuses
+ * to write ANY path containing one, returning its input unchanged.
  */
 export const UNSAFE_FIELD_SEGMENTS: readonly string[] = Object.freeze([
 	'__proto__',
@@ -71,7 +71,7 @@ export const UNSAFE_FIELD_SEGMENTS: readonly string[] = Object.freeze([
 ])
 
 /**
- * Neutral built-in contraction expansions for `Normalizer` — small on
+ * Holds the neutral built-in contraction expansions for `Normalizer` — small on
  * purpose; callers merge their own map over this one.
  */
 export const DEFAULT_CONTRACTIONS: Readonly<Record<string, string>> = Object.freeze({
@@ -82,7 +82,7 @@ export const DEFAULT_CONTRACTIONS: Readonly<Record<string, string>> = Object.fre
 })
 
 /**
- * The neutral default `Lexicon` a `Narrator` merges caller data over.
+ * Holds the neutral default `Lexicon` a `Narrator` merges caller data over.
  *
  * @remarks
  * `phrases` and `labels` are empty — there is no built-in vocabulary and no
@@ -125,7 +125,7 @@ export const DEFAULT_LEXICON: Lexicon = Object.freeze({
 })
 
 /**
- * Every `ProvenanceCategory` literal, frozen — the one home the result guards
+ * Lists every `ProvenanceCategory` literal, frozen — the one home the result guards
  * check the union from, so a new category added to `types.ts` is added here
  * rather than silently rejected by `isProvenance`.
  */
@@ -138,8 +138,8 @@ export const PROVENANCE_CATEGORIES: readonly ProvenanceCategory[] = Object.freez
 ])
 
 /**
- * Every `InterpretStage` literal in pipeline order, frozen — the one home the
- * result guards check the union from.
+ * Lists every `InterpretStage` literal in pipeline order, frozen — the one home
+ * the result guards check the union from.
  */
 export const INTERPRET_STAGES: readonly InterpretStage[] = Object.freeze([
 	'normalize',
@@ -150,7 +150,7 @@ export const INTERPRET_STAGES: readonly InterpretStage[] = Object.freeze([
 ])
 
 /**
- * Every `InterpretErrorCode` literal, frozen — the one home the result guards
+ * Lists every `InterpretErrorCode` literal, frozen — the one home the result guards
  * check the union from.
  */
 export const INTERPRET_ERROR_CODES: readonly InterpretErrorCode[] = Object.freeze([

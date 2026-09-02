@@ -40,7 +40,7 @@ import { Generator } from './stages/Generator.js'
 import { Normalizer } from './stages/Normalizer.js'
 
 /**
- * The interpretation orchestrator — the sole public entry point of the
+ * Implements the interpretation orchestrator — the sole public entry point of the
  * `interprets` module, mirroring the reasons `Reason` orchestrator shape.
  *
  * @remarks

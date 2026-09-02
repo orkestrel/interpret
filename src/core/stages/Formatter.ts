@@ -12,7 +12,7 @@ import { formatField } from '@orkestrel/reason'
 import { Narrator } from '../Narrator.js'
 
 /**
- * The `Formatter` stage: renders the refined natural-language prompt for a
+ * Implements the format stage: renders the refined natural-language prompt for a
  * matched template.
  *
  * @remarks

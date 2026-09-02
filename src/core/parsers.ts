@@ -6,7 +6,7 @@ import { isTemplate } from './validators.js'
 // off-shape, never throwing, so JSON intake stays total at the boundary.
 
 /**
- * Parse a JSON string into a `Template`, or `undefined` on invalid JSON or a
+ * Parses a JSON string into a `Template`, or `undefined` on invalid JSON or a
  * shape that fails `isTemplate`.
  *
  * @remarks

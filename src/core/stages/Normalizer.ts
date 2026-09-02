@@ -8,7 +8,7 @@ import { DEFAULT_CONTRACTIONS } from '../constants.js'
 import { applyReplacements, collapseWhitespace, escapeRegExp } from '../helpers.js'
 
 /**
- * The `Normalizer` stage: applies contraction, abbreviation, and correction
+ * Implements the normalize stage: applies contraction, abbreviation, and correction
  * substitutions in order, then collapses whitespace.
  *
  * @remarks

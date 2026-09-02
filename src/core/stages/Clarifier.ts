@@ -22,7 +22,7 @@ import { resolveExpression, variablesOf } from '../helpers.js'
 import { Narrator } from '../Narrator.js'
 
 /**
- * The `Clarifier` stage: resolves same-domain carry-over, template defaults,
+ * Implements the clarify stage: resolves same-domain carry-over, template defaults,
  * and declaratively computed fields against an already-assigned entity set,
  * surfacing an {@link Ambiguity} for every required mapping that stays
  * unresolved.

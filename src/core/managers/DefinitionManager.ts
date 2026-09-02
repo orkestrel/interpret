@@ -10,7 +10,7 @@ import type {
 import { RecordManager } from './RecordManager.js'
 
 /**
- * The definition registry — a self-owning, versioned and content-hashed
+ * Implements the definition registry — a self-owning, versioned and content-hashed
  * record-holder for the reasons {@link Definition}s an interpretation produces.
  *
  * @remarks

@@ -34,7 +34,7 @@ import { Generator } from './stages/Generator.js'
 import { Normalizer } from './stages/Normalizer.js'
 
 /**
- * Create an interpretation orchestrator.
+ * Creates an interpretation orchestrator.
  *
  * @remarks
  * `interpret()` is genuinely synchronous and runs the fixed five-stage
@@ -80,7 +80,7 @@ export function createInterpret(options?: InterpretOptions): InterpretInterface 
 }
 
 /**
- * Create a text normalizer.
+ * Creates a text normalizer.
  *
  * @param options - Optional contraction / abbreviation / correction maps,
  *   merged over the neutral built-in defaults
@@ -98,7 +98,7 @@ export function createNormalizer(options?: NormalizerOptions): NormalizerInterfa
 }
 
 /**
- * Create a template-agnostic intent classifier and number extractor.
+ * Creates a template-agnostic intent classifier and number extractor.
  *
  * @param options - Optional caller `actions` / `domains` vocabularies
  * @returns A stateless {@link ExtractorInterface}
@@ -119,7 +119,7 @@ export function createExtractor(options?: ExtractorOptions): ExtractorInterface 
 }
 
 /**
- * Create a clarifier — carry-over, defaults, and computed-field resolution
+ * Creates a clarifier — carry-over, defaults, and computed-field resolution
  * against an assigned entity set.
  *
  * @param options - Optional confidence `floor` for raised ambiguities
@@ -137,7 +137,7 @@ export function createClarifier(options?: ClarifierOptions): ClarifierInterface 
 }
 
 /**
- * Create a prompt formatter.
+ * Creates a prompt formatter.
  *
  * @param options - Optional caller intent-verb phrasing map
  * @returns A stateless {@link FormatterInterface}
@@ -154,7 +154,7 @@ export function createFormatter(options?: FormatterOptions): FormatterInterface 
 }
 
 /**
- * Create a subject/definition generator.
+ * Creates a subject/definition generator.
  *
  * @returns A stateless {@link GeneratorInterface}
  *
@@ -170,7 +170,7 @@ export function createGenerator(): GeneratorInterface {
 }
 
 /**
- * Create a template registry.
+ * Creates a template registry.
  *
  * @param options - Optional initial seed collection
  * @returns A working {@link TemplateManagerInterface}
@@ -195,7 +195,7 @@ export function createTemplateManager(options?: TemplateManagerOptions): Templat
 }
 
 /**
- * Create a subject registry.
+ * Creates a subject registry.
  *
  * @remarks
  * Mints its own record ids on `add` when none is supplied — a `Subject`
@@ -217,7 +217,7 @@ export function createSubjectManager(options?: SubjectManagerOptions): SubjectMa
 }
 
 /**
- * Create a definition registry.
+ * Creates a definition registry.
  *
  * @param options - Optional initial seed collection
  * @returns A working {@link DefinitionManagerInterface}
@@ -240,7 +240,7 @@ export function createDefinitionManager(
 }
 
 /**
- * Create a cross-turn interpretation context.
+ * Creates a cross-turn interpretation context.
  *
  * @param options - Optional `session` label and `history` ring-buffer cap
  * @returns A working {@link InterpretContextInterface}
@@ -260,7 +260,7 @@ export function createInterpretContext(
 }
 
 /**
- * Create a lexicon-driven reverse-direction rendering engine.
+ * Creates a lexicon-driven reverse-direction rendering engine.
  *
  * @remarks
  * Stateless — `phrase` / `label` / `line` / `value` are total lookups into a

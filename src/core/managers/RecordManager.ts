@@ -11,7 +11,7 @@ import { InterpretError } from '../errors.js'
 import { digestValue } from '../helpers.js'
 
 /**
- * The shared registry engine behind every record manager in this module — it
+ * Implements the shared registry engine behind every record manager in this module — it
  * owns the `Map`, the content-hash and version rule, the batch `remove`
  * overloads, and teardown.
  *

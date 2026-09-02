@@ -4,7 +4,7 @@ import type { InterpretErrorCode } from './types.js'
 // machine-readable `code`, so a `catch` branches on `error.code`.
 
 /**
- * An error thrown by the interprets layer.
+ * Represents an error thrown by the interprets layer.
  *
  * @remarks
  * `DESTROYED` is the code that throws, on any use of a destroyed `Interpret`
@@ -32,10 +32,10 @@ export class InterpretError extends Error {
 }
 
 /**
- * Narrow an unknown caught value to an {@link InterpretError}.
+ * Narrows an unknown caught value to an {@link InterpretError}.
  *
  * @param value - The value to test (typically a `catch` binding)
- * @returns `true` when `value` is an {@link InterpretError}
+ * @returns True if `value` is an {@link InterpretError}; false otherwise
  *
  * @example
  * ```ts

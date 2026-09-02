@@ -2,7 +2,7 @@ import type { ExtractorInterface, ExtractorOptions, ExtractResult } from '../typ
 import { classifyIntent, extractNumbers } from '../helpers.js'
 
 /**
- * The `Extractor` stage: template-agnostic intent classification plus raw
+ * Implements the extract stage: template-agnostic intent classification plus raw
  * numeric-entity mining.
  *
  * @remarks

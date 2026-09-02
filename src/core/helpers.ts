@@ -21,7 +21,7 @@ import {
 // === Regex safety
 
 /**
- * Escape every regex metacharacter in `text` so it matches literally when
+ * Escapes every regex metacharacter in `text` so it matches literally when
  * compiled into a `RegExp`.
  *
  * @param text - The literal text to escape
@@ -42,7 +42,7 @@ export function escapeRegExp(text: string): string {
 // === Field paths — safe copy-on-write writes
 
 /**
- * Copy-on-write write a value at a (possibly nested) field path on a subject.
+ * Writes a value at a (possibly nested) field path on a subject, copy-on-write.
  *
  * @remarks
  * Never mutates `subject` — every level a `field` array descends through is
@@ -83,7 +83,7 @@ export function setField(subject: Subject, field: FieldPath, value: unknown): Su
 // === Normalization
 
 /**
- * Replace every whole-word occurrence of a map's keys with their values.
+ * Replaces every whole-word occurrence of a map's keys with their values.
  *
  * @remarks
  * Word-boundary safe (`in` never matches inside `information`) and
@@ -115,7 +115,7 @@ export function applyReplacements(text: string, map: Readonly<Record<string, str
 }
 
 /**
- * Collapse every run of whitespace to a single space and trim the ends.
+ * Collapses every run of whitespace to a single space and trims the ends.
  *
  * @param text - The text to collapse
  * @returns The collapsed text
@@ -134,7 +134,7 @@ export function collapseWhitespace(text: string): string {
 // === Tokenization (internal plumbing shared by extraction & classification)
 
 /**
- * Split text into lowercase tokens, stripping punctuation outside a small
+ * Splits text into lowercase tokens, stripping punctuation outside a small
  * numeric/currency-safe allowlist.
  *
  * @remarks
@@ -163,7 +163,7 @@ export function tokenize(text: string): readonly string[] {
 // === Extraction
 
 /**
- * Mine every numeric literal from text — optional leading `$`, thousands
+ * Mines every numeric literal from text — optional leading `$`, thousands
  * commas, an optional decimal fraction, an optional trailing `%`.
  *
  * @remarks
@@ -197,7 +197,7 @@ export function extractNumbers(text: string): readonly number[] {
 }
 
 /**
- * Assign already-extracted numbers to a matched template's entity mappings.
+ * Assigns already-extracted numbers to a matched template's entity mappings.
  *
  * @remarks
  * Strategy, in order: (1) a SINGLE mapping collects every number (an array
@@ -372,7 +372,7 @@ export function assignEntities(
 // === Intent classification
 
 /**
- * Classify the action + domain intent of a text against caller-supplied
+ * Classifies the action + domain intent of a text against caller-supplied
  * vocabularies.
  *
  * @remarks
@@ -452,7 +452,7 @@ export function classifyIntent(
 // === Fuzzy matching
 
 /**
- * Bigram (Dice coefficient) string similarity, case-insensitive.
+ * Measures bigram (Dice coefficient) string similarity, case-insensitive.
  *
  * @param a - The first string
  * @param b - The second string
@@ -493,7 +493,7 @@ export function scoreSimilarity(a: string, b: string): number {
 }
 
 /**
- * The best `scoreSimilarity` a token achieves against a list of aliases,
+ * Returns the best `scoreSimilarity` a token achieves against a list of aliases,
  * gated by a threshold.
  *
  * @param token - The token to score
@@ -521,7 +521,7 @@ export function matchAlias(token: string, aliases: readonly string[], threshold:
 // === Digest
 
 /**
- * Render one node of a value into its canonical, key-order-stable string,
+ * Renders one node of a value into its canonical, key-order-stable string,
  * against the object ancestors already on the recursion path.
  *
  * @remarks
@@ -568,7 +568,7 @@ export function canonicalizeNode(value: unknown, ancestors: ReadonlySet<object>)
 }
 
 /**
- * Render a value into a canonical, key-order-stable string — the pre-image
+ * Renders a value into a canonical, key-order-stable string — the pre-image
  * of `digestValue`.
  *
  * @remarks
@@ -592,7 +592,7 @@ export function canonicalize(value: unknown): string {
 }
 
 /**
- * Compute a canonical structural digest of a pure-JSON value — a key-order-
+ * Computes a canonical structural digest of a pure-JSON value — a key-order-
  * stable FNV-1a hash rendered as an 8-hex-digit string.
  *
  * @remarks
@@ -623,7 +623,7 @@ export function digestValue(value: unknown): string {
 // === Template matching
 
 /**
- * Score how well a classified intent matches one template's domain + action.
+ * Scores how well a classified intent matches one template's domain + action.
  *
  * @remarks
  * An absent axis scores `0` for that half — an unclassified intent matches no
@@ -658,7 +658,7 @@ export function scoreTemplate(intent: Intent, template: Template): number {
 }
 
 /**
- * Find the best-scoring added template for a classified intent, gated by a
+ * Finds the best-scoring added template for a classified intent, gated by a
  * confidence floor.
  *
  * @remarks
@@ -697,7 +697,7 @@ export function matchTemplate(
 // === Computed fields
 
 /**
- * Collect every variable name referenced by a symbolic expression tree, in
+ * Collects every variable name referenced by a symbolic expression tree, in
  * first-occurrence order.
  *
  * @param expression - The expression tree to scan
@@ -734,7 +734,7 @@ export function variablesOf(expression: SymbolicExpression): readonly string[] {
 }
 
 /**
- * Evaluate a symbolic expression tree against resolved bindings.
+ * Evaluates a symbolic expression tree against resolved bindings.
  *
  * @remarks
  * THE critical leaf (design-pinned, engine-parity semantics): an absent
@@ -782,7 +782,7 @@ export function resolveExpression(
 // === Reverse direction — structure to prose
 
 /**
- * Render a one-line, display-neutral description of a reasons `Subject`,
+ * Renders a one-line, display-neutral description of a reasons `Subject`,
  * through an injected `Narrator`.
  *
  * @remarks

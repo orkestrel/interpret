@@ -10,7 +10,7 @@ import type {
 import { RecordManager } from './RecordManager.js'
 
 /**
- * The template registry — a self-owning, versioned and content-hashed
+ * Implements the template registry — a self-owning, versioned and content-hashed
  * record-holder for the {@link Template}s an `Interpret` orchestrator matches
  * against.
  *

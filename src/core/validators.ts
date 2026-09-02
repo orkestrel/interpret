@@ -39,11 +39,11 @@ import { INTERPRET_ERROR_CODES, INTERPRET_STAGES, PROVENANCE_CATEGORIES } from '
 // gate. `interprets` therefore owns no recursive expression guard of its own.
 
 /**
- * Determine whether a value is an {@link EntityMapping} — a literal
+ * Determines whether a value is an {@link EntityMapping} — a literal
  * alias-phrase extraction rule pointing at a subject field.
  *
  * @param value - The value to test
- * @returns `true` when `value` is a well-formed entity mapping
+ * @returns True if `value` is a well-formed entity mapping; false otherwise
  *
  * @example
  * ```ts
@@ -66,7 +66,7 @@ export function isEntityMapping(value: unknown): value is EntityMapping {
 }
 
 /**
- * Determine whether a value is a {@link FieldDefault} — a fallback value a
+ * Determines whether a value is a {@link FieldDefault} — a fallback value a
  * {@link Template} fills onto an unresolved field.
  *
  * @remarks
@@ -75,7 +75,7 @@ export function isEntityMapping(value: unknown): value is EntityMapping {
  * mirrors the reasons `Check.value` precedent.
  *
  * @param value - The value to test
- * @returns `true` when `value` is a well-formed field default
+ * @returns True if `value` is a well-formed field default; false otherwise
  *
  * @example
  * ```ts
@@ -90,11 +90,11 @@ export function isFieldDefault(value: unknown): value is FieldDefault {
 }
 
 /**
- * Determine whether a value is a {@link ComputedField} — a declaratively
+ * Determines whether a value is a {@link ComputedField} — a declaratively
  * computed field carrying a reasons {@link SymbolicExpression} tree.
  *
  * @param value - The value to test
- * @returns `true` when `value` is a well-formed computed field
+ * @returns True if `value` is a well-formed computed field; false otherwise
  *
  * @example
  * ```ts
@@ -113,7 +113,7 @@ export function isComputedField(value: unknown): value is ComputedField {
 }
 
 /**
- * Determine whether a value is a {@link Template} — a named, versionable
+ * Determines whether a value is a {@link Template} — a named, versionable
  * interpretation template.
  *
  * @remarks
@@ -122,7 +122,7 @@ export function isComputedField(value: unknown): value is ComputedField {
  * parallel interprets-owned definition guard exists.
  *
  * @param value - The value to test
- * @returns `true` when `value` is a well-formed template
+ * @returns True if `value` is a well-formed template; false otherwise
  *
  * @example
  * ```ts
@@ -158,10 +158,10 @@ export function isTemplate(value: unknown): value is Template {
 }
 
 /**
- * Determine whether a value is an open {@link Provenance} result record.
+ * Determines whether a value is an open {@link Provenance} result record.
  *
  * @param value - The value to test
- * @returns `true` when the published provenance members conform
+ * @returns True if the published provenance members conform; false otherwise
  *
  * @example
  * ```ts
@@ -182,10 +182,10 @@ export function isProvenance(value: unknown): value is Provenance {
 }
 
 /**
- * Determine whether a value is an open {@link Intent} result record.
+ * Determines whether a value is an open {@link Intent} result record.
  *
  * @param value - The value to test
- * @returns `true` when the published intent members conform
+ * @returns True if the published intent members conform; false otherwise
  *
  * @remarks
  * `action` and `domain` are optional, because `classifyIntent` leaves an
@@ -208,14 +208,14 @@ export function isIntent(value: unknown): value is Intent {
 }
 
 /**
- * Determine whether a value is an open {@link Entity} result record.
+ * Determines whether a value is an open {@link Entity} result record.
  *
  * @remarks
  * `value` is not checked because its published type is `unknown`, and because
  * `objectOf` reads members rather than own keys, an absent `value` also passes.
  *
  * @param value - The value to test
- * @returns `true` when every checked entity member conforms
+ * @returns True if every checked entity member conforms; false otherwise
  *
  * @example
  * ```ts
@@ -230,14 +230,14 @@ export function isEntity(value: unknown): value is Entity {
 }
 
 /**
- * Determine whether a value is an open {@link FieldMapping} result record.
+ * Determines whether a value is an open {@link FieldMapping} result record.
  *
  * @remarks
  * `value` is not checked because its published type is `unknown`, and because
  * `objectOf` reads members rather than own keys, an absent `value` also passes.
  *
  * @param value - The value to test
- * @returns `true` when every checked field-mapping member conforms
+ * @returns True if every checked field-mapping member conforms; false otherwise
  *
  * @example
  * ```ts
@@ -260,10 +260,10 @@ export function isFieldMapping(value: unknown): value is FieldMapping {
 }
 
 /**
- * Determine whether a value is an open {@link Ambiguity} result record.
+ * Determines whether a value is an open {@link Ambiguity} result record.
  *
  * @param value - The value to test
- * @returns `true` when the published ambiguity members conform
+ * @returns True if the published ambiguity members conform; false otherwise
  *
  * @example
  * ```ts
@@ -283,7 +283,7 @@ export function isAmbiguity(value: unknown): value is Ambiguity {
 }
 
 /**
- * Determine whether a value is an open {@link StageRecord} result record.
+ * Determines whether a value is an open {@link StageRecord} result record.
  *
  * @remarks
  * `input` and `output` are not checked because their published type is
@@ -291,7 +291,7 @@ export function isAmbiguity(value: unknown): value is Ambiguity {
  * absent `input` or `output` also passes.
  *
  * @param value - The value to test
- * @returns `true` when every checked stage-record member conforms
+ * @returns True if every checked stage-record member conforms; false otherwise
  *
  * @example
  * ```ts
@@ -313,10 +313,10 @@ export function isStageRecord(value: unknown): value is StageRecord {
 }
 
 /**
- * Determine whether a value is an open {@link StageFailure} result record.
+ * Determines whether a value is an open {@link StageFailure} result record.
  *
  * @param value - The value to test
- * @returns `true` when the published stage-failure members conform
+ * @returns True if the published stage-failure members conform; false otherwise
  *
  * @example
  * ```ts
@@ -335,7 +335,7 @@ export function isStageFailure(value: unknown): value is StageFailure {
 }
 
 /**
- * Determine whether a value is an open {@link Interpretation} result record.
+ * Determines whether a value is an open {@link Interpretation} result record.
  *
  * @remarks
  * `subject` and `definition` receive shallow open-object checks. `Subject` is
@@ -346,7 +346,7 @@ export function isStageFailure(value: unknown): value is StageFailure {
  * class instance, and reject primitives and arrays.
  *
  * @param value - The value to test
- * @returns `true` when every checked interpretation member conforms
+ * @returns True if every checked interpretation member conforms; false otherwise
  *
  * @example
  * ```ts

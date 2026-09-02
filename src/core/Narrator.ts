@@ -6,7 +6,7 @@ import { fillTemplate } from '@orkestrel/template'
 import { DEFAULT_LEXICON } from './constants.js'
 
 /**
- * A stateless, TOTAL, lexicon-driven rendering engine for the reverse
+ * Implements a stateless, TOTAL, lexicon-driven rendering engine for the reverse
  * direction — the reverse-direction mirror of the forward `Formatter`'s
  * `verbs` seam, supplying mechanism rather than wording policy.
  *

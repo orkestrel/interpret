@@ -9,7 +9,7 @@ import type {
 import { setField } from '../helpers.js'
 
 /**
- * The `Generator` stage: builds the final `Subject` from a fully resolved
+ * Implements the generate stage: builds the final `Subject` from a fully resolved
  * entity set, plus its complete field audit.
  *
  * @remarks
