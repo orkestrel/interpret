@@ -76,7 +76,7 @@ describe('interprets barrel — value-space sample resolves', () => {
 })
 
 describe('createInterpret', () => {
-	it('wires a working orchestrator that interprets against a registered template', () => {
+	it('wires a working orchestrator that interprets against an added template', () => {
 		const interpret = createInterpret({
 			templates: [buildInterpretTemplate()],
 			extractor: createExtractor({ actions: INTERPRET_ACTIONS, domains: INTERPRET_DOMAINS }),

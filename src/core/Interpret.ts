@@ -49,7 +49,7 @@ import { Normalizer } from './stages/Normalizer.js'
  * five-stage pipeline —
  * `[normalize, extract, clarify, format, generate]` — each producing one
  * {@link StageRecord}. Between `extract` and `clarify` the orchestrator matches
- * the classified {@link Intent} against its registered {@link Template}s and,
+ * the classified {@link Intent} against its added {@link Template}s and,
  * on a match, assigns the extracted numbers to that template's mappings
  * (`assignEntities`) — a template-owned step, not a sixth stage. No match, or a
  * matched template whose intent confidence falls below the configured `floor`,
@@ -367,11 +367,11 @@ export class Interpret implements InterpretInterface {
 	}
 
 	// A NO_TEMPLATE / LOW_CONFIDENCE match gate — an explicit incomplete result
-	// carrying a `field: 'intent'` ambiguity whose candidates are the registered
-	// domain names, plus the matching StageFailure. The question renders through
-	// the narrator's `ambiguity.*` line, so gate wording stays caller data. No
-	// `error` emit — a gate is a deliberate incomplete outcome, not a stage
-	// throw.
+	// carrying a `field: 'intent'` ambiguity whose candidates are the added
+	// templates' domain names, plus the matching StageFailure. The question
+	// renders through the narrator's `ambiguity.*` line, so gate wording stays
+	// caller data. No `error` emit — a gate is a deliberate incomplete outcome,
+	// not a stage throw.
 	#gate(
 		text: string,
 		normalized: string,
@@ -399,7 +399,7 @@ export class Interpret implements InterpretInterface {
 			code,
 			message:
 				code === 'NO_TEMPLATE'
-					? 'No registered template matched the classified intent'
+					? 'No added template matched the classified intent'
 					: 'Classified intent confidence fell below the configured floor',
 		}
 		return this.#assemble(

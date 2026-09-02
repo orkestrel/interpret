@@ -5,7 +5,7 @@ import type { Definition, ReasonResult, Subject, SymbolicExpression } from '@ork
 // Interprets — a zero-dependency, synchronous, deterministic bidirectional
 // bridge between natural language and the reasons engine, plus the manager
 // that owns the interpretation lifecycle. FORWARD: raw text is normalized,
-// classified into an intent, matched against a registered `Template`, mined
+// classified into an intent, matched against an added `Template`, mined
 // for numeric entities, clarified (carry-over / defaults / computed fields),
 // formatted into a refined prompt, then generated into a `Subject` +
 // `Definition` pair ready for `Reason.reason`. REVERSE: `Definition` /
@@ -49,7 +49,7 @@ export type InterpretStage = 'normalize' | 'extract' | 'clarify' | 'format' | 'g
  * @remarks
  * `NORMALIZE_FAILED` / `EXTRACT_FAILED` / `CLARIFY_FAILED` / `FORMAT_FAILED`
  * / `GENERATE_FAILED` — an injected stage implementation threw during that
- * phase. `NO_TEMPLATE` — no registered {@link Template} scored at or above
+ * phase. `NO_TEMPLATE` — no added {@link Template} scored at or above
  * the confidence floor (or the registry is empty). `LOW_CONFIDENCE` — a
  * template matched but the classified {@link Intent}'s confidence fell below
  * the floor. `DESTROYED` — any use of a destroyed entity.
@@ -100,8 +100,14 @@ export interface FieldDefault {
  * than a closure, so a `Template` stays JSON-serializable end to end. A
  * `ComputedField` declares no dependency list of its own — `variablesOf`
  * derives every dependency from the tree. A `Variable` names a resolved field,
- * or one numeric element of an array-valued field as `{field}.{index}`, which
- * is how a template author declares an aggregate over collected numbers.
+ * or one numeric element of an array-valued field as `{field}.{index}`, so a
+ * computation addressing each element in turn declares an aggregate over a
+ * collection of KNOWN length; a collection whose length varies per turn has no
+ * declarable aggregate, because `resolveExpression` returns `undefined` for an
+ * unbound variable and abandons the whole expression. When a scalar field's
+ * path formats to the same binding key as an array element's — the `FieldPath`
+ * `['value', '0']` and the first element of `value` both format to `value.0` —
+ * the entity resolved later overwrites the earlier binding.
  */
 export interface ComputedField {
 	readonly field: FieldPath
@@ -146,7 +152,7 @@ export interface Provenance {
  * @remarks
  * Produced by `classifyIntent` against caller-supplied `actions` / `domains`
  * vocabularies only — there is no built-in en-US worldview and no
- * auto-classification from a registered template's own `domain` name. An axis
+ * auto-classification from an added template's own `domain` name. An axis
  * the vocabularies leave unmatched is absent (`undefined`), never an empty
  * string, so a reader tells "unclassified" from "classified as `''`".
  */
@@ -424,7 +430,7 @@ export type NarratorFormatter = (value: unknown) => string
  * for the pinned neutral key set. Token grammar (the `[^{}]` token class, the
  * `\{{` literal escape, whitespace trimming, and dotted-token path
  * resolution) is defined by @orkestrel/template — see the vendored
- * `guides/src/template.md` for the authoritative contract.
+ * `guides/template.md` for the authoritative contract.
  */
 export interface Lexicon {
 	readonly phrases?: Readonly<Record<string, Readonly<Record<string, string>>>>
@@ -596,13 +602,13 @@ export interface RecordManagerInterface<TValue, TRecord extends RecordStamp> {
 }
 
 /**
- * Per-call options for the record every manager's `add` method holds.
+ * Per-call options for the record a manager's `add` mints.
  *
  * @remarks
  * `id` overrides the minted record id. `TemplateManagerInterface#add` /
  * `DefinitionManagerInterface#add` default to the added value's own `id`
  * field when omitted; `SubjectManagerInterface#add` mints a fresh id when
- * omitted, since a `Subject` carries no `id` field of its own.
+ * omitted, because a `Subject` carries no `id` field of its own.
  */
 export interface RecordOptions {
 	readonly id?: string

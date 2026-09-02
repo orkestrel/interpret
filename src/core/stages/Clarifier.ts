@@ -35,16 +35,16 @@ import { Narrator } from '../Narrator.js'
  * computed fields resolve in dependency (topological) order via
  * `resolveExpression` — an unresolved input, a non-finite result, or a
  * dependency cycle leaves the field a gap, never landing an entity. A
- * computation reads every resolved numeric field by name, and each numeric
- * element of an array-valued field under `{field}.{index}`, so an aggregate
- * over collected numbers is a computation the template author declares rather
- * than a field the pipeline invents. `floor` comes from
- * {@link ClarifierOptions} rather than a hardcoded constant, and gates whether
- * a resolved entity's confidence counts as "resolved enough" when raising
- * ambiguities — a field with a value below `floor` still raises its
- * ambiguity. Every question is rendered through the injected
- * {@link NarratorInterface}'s `ambiguity.entity` line rather than minted from
- * a literal here, so wording stays caller data.
+ * computation reads every resolved numeric field by name, and can address one
+ * numeric element of an array-valued field as `{field}.{index}`, so an
+ * aggregate over a collection of KNOWN length is declarable while a collection
+ * whose length varies per turn has none — an unbound element abandons the
+ * whole expression. `floor` comes from {@link ClarifierOptions} rather than a
+ * hardcoded constant, and gates whether a resolved entity's confidence counts
+ * as "resolved enough" when raising ambiguities — a field with a value below
+ * `floor` still raises its ambiguity. Every question is rendered through the
+ * injected {@link NarratorInterface}'s `ambiguity.entity` line rather than
+ * minted from a literal here, so wording stays caller data.
  *
  * @example
  * ```ts
@@ -152,7 +152,10 @@ export class Clarifier implements ClarifierInterface {
 	// Resolves computed fields in dependency order, seeding bindings from every
 	// already-resolved numeric field (extracted/carried/default) and from each
 	// numeric element of an array-valued field under `{field}.{index}`, then
-	// growing bindings as each computed field lands.
+	// growing bindings as each computed field lands. A scalar field whose path
+	// formats to an array element's key — `['value', '0']` and the first element
+	// of `value` both format to `value.0` — collides here, and the entity later
+	// in `resolved` overwrites the earlier binding.
 	#resolveComputations(template: Template, filledFields: Set<string>, resolved: Entity[]): void {
 		const bindings: Record<string, number> = {}
 		for (const entity of resolved) {

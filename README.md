@@ -3,7 +3,7 @@
 A zero-dependency, synchronous, deterministic bidirectional bridge between
 natural language and the [`@orkestrel/reason`](https://github.com/orkestrel/reason)
 engine. FORWARD: raw text is normalized, classified into an intent, matched
-against a registered `Template`, mined for numeric entities, clarified
+against an added `Template`, mined for numeric entities, clarified
 (carry-over / defaults / computed fields), formatted into a refined prompt,
 then generated into a `Subject` + `Definition` pair ready for
 `Reason.reason`. REVERSE: a `Definition` / `Subject` / `ReasonResult`
@@ -73,7 +73,7 @@ For the full surface — the `Interpret` orchestrator, the five pipeline
 stages, the template/subject/definition managers, the cross-turn context,
 the lexicon-driven `Narrator`, helpers, validators, factories, errors, and
 the observation surface — see
-[`guides/src/interpret.md`](guides/src/interpret.md).
+[`guides/interpret.md`](guides/interpret.md).
 
 ## Package
 

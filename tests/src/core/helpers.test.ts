@@ -1,9 +1,9 @@
 import {
 	createConstant,
-	createSymbolicReasoner,
 	createEquation,
 	createOperation,
 	createSymbolicDefinition,
+	createSymbolicReasoner,
 	createVariable,
 } from '@orkestrel/reason'
 import {

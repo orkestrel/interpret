@@ -113,7 +113,7 @@ describe('Narrator', () => {
 	})
 
 	describe('value', () => {
-		it('formats through a registered formatter and falls back to String on a miss', () => {
+		it('formats through a supplied formatter and falls back to String on a miss', () => {
 			const narrator = new Narrator({
 				formatters: { money: (value) => `$${String(value)}` },
 			})

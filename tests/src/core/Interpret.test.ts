@@ -10,10 +10,10 @@ import type {
 import { isRecord, isString } from '@orkestrel/contract'
 import {
 	createConstant,
-	createReason,
-	createSymbolicReasoner,
 	createEquation,
+	createReason,
 	createSymbolicDefinition,
+	createSymbolicReasoner,
 	createVariable,
 } from '@orkestrel/reason'
 import { createNarrator, Extractor, Interpret, InterpretContext, isInterpretError } from '@src/core'

@@ -17,13 +17,13 @@ import type { Template } from '@src/core'
 import { resolveField } from '@orkestrel/contract'
 import {
 	createConstant,
-	createLogicalReasoner,
-	createReason,
-	createSymbolicReasoner,
 	createEquation,
 	createLogicalDefinition,
+	createLogicalReasoner,
 	createOperation,
+	createReason,
 	createSymbolicDefinition,
+	createSymbolicReasoner,
 	createVariable,
 } from '@orkestrel/reason'
 import { describe, expect, it } from 'vitest'

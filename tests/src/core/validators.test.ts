@@ -533,7 +533,7 @@ describe('isInterpretation', () => {
 		const interpretation = {
 			text: 'text',
 			normalized: 'text',
-			intent: { action: '', domain: '', confidence: 0 },
+			intent: { confidence: 0 },
 			entities: [],
 			mappings: [],
 			ambiguities: [],

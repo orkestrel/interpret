@@ -383,8 +383,8 @@ export function assignEntities(
  * unmatched axis is left `undefined` rather than an empty string, so an
  * unclassified intent is visibly absent. Combined confidence (PINNED): both
  * fire → their average; exactly one fires → its value times `0.5`; neither →
- * `0`. There is no built-in worldview and no auto-classification from a
- * registered template's own `domain` name — a caller MUST list a template's
+ * `0`. There is no built-in worldview and no auto-classification from an
+ * added template's own `domain` name — a caller MUST list a template's
  * domain among `domains` for it to classify. No `floor` parameter: the
  * confidence floor gate lives at the orchestrator's `matchTemplate` step,
  * never inside classification itself.
@@ -658,15 +658,15 @@ export function scoreTemplate(intent: Intent, template: Template): number {
 }
 
 /**
- * Find the best-scoring registered template for a classified intent, gated
- * by a confidence floor.
+ * Find the best-scoring added template for a classified intent, gated by a
+ * confidence floor.
  *
  * @remarks
  * Explicit no-match, never an arbitrary fallback template: an empty registry,
  * and a best score strictly below `floor`, each return `undefined`.
  *
  * @param intent - The classified intent
- * @param templates - The registered templates to score
+ * @param templates - The added templates to score
  * @param floor - The minimum score a match must clear
  * @returns The best-scoring template, or `undefined` on no qualifying match
  *
