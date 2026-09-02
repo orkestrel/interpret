@@ -13,7 +13,7 @@ describe('SubjectManager', () => {
 		const first = manager.add({ age: 25 })
 		const second = manager.add({ age: 30 })
 		expect(first.id).not.toBe(second.id)
-		expect(manager.size).toBe(2)
+		expect(manager.count).toBe(2)
 		expect(manager.subject(first.id)?.subject).toEqual({ age: 25 })
 		expect(manager.subject(second.id)?.subject).toEqual({ age: 30 })
 	})
@@ -23,12 +23,12 @@ describe('SubjectManager', () => {
 		expect(manager.add({ age: 25 }, { id: 'fixed' }).version).toBe(1)
 		expect(manager.add({ age: 25 }, { id: 'fixed' }).version).toBe(1)
 		expect(manager.add({ age: 40 }, { id: 'fixed' }).version).toBe(2)
-		expect(manager.size).toBe(1)
+		expect(manager.count).toBe(1)
 	})
 
 	it('seeds from options, minting an id per seed subject', () => {
 		const manager = new SubjectManager({ subjects: [{ a: 1 }, { b: 2 }] })
-		expect(manager.size).toBe(2)
+		expect(manager.count).toBe(2)
 		expect(manager.subjects().map((record) => record.subject)).toEqual([{ a: 1 }, { b: 2 }])
 	})
 
@@ -39,9 +39,9 @@ describe('SubjectManager', () => {
 		manager.add({ v: 3 }, { id: 'c' })
 		expect(manager.remove(a.id)).toBe(true)
 		expect(manager.remove(['b', 'absent'])).toBe(false)
-		expect(manager.size).toBe(2)
+		expect(manager.count).toBe(2)
 		expect(manager.remove(['b', 'c'])).toBe(true)
-		expect(manager.size).toBe(0)
+		expect(manager.count).toBe(0)
 	})
 
 	it('throws DESTROYED after destroy, idempotently', () => {

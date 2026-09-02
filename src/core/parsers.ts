@@ -12,8 +12,9 @@ import { isTemplate } from './validators.js'
  * @remarks
  * The module's sole JSON boundary — an `Interpretation` and the versioned
  * records are produced internally, never deserialized from untrusted JSON;
- * replay re-runs `interpret`, it does not deserialize a stored result. The
- * throwing half of the pair is `createTemplate`.
+ * replay re-runs `interpret`, it does not deserialize a stored result. Intake
+ * is total: an off-shape template returns `undefined` here, and a caller who
+ * wants a throw raises its own error from that `undefined`.
  *
  * @param value - The JSON text to parse
  * @returns The parsed template, or `undefined`

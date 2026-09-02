@@ -7,15 +7,13 @@ import type { InterpretErrorCode } from './types.js'
  * An error thrown by the interprets layer.
  *
  * @remarks
- * Two codes throw: `INVALID_TEMPLATE`, when `createTemplate` is handed data
- * that fails `isTemplate`, and `DESTROYED`, on any use of a destroyed
- * `Interpret` / manager / context. Every other {@link InterpretErrorCode}
- * reaches a caller as data rather than as a throw — `NO_TEMPLATE` and
- * `LOW_CONFIDENCE` on a visible incomplete {@link Interpretation}, and the
- * five per-stage `*_FAILED` codes on that result's `failures`, beside the
- * raw thrown value re-emitted as `error`. `context` carries structured
- * detail when a throw site supplies one; the throw sites in this package
- * supply none.
+ * `DESTROYED` is the code that throws, on any use of a destroyed `Interpret`
+ * / manager / context. Every other {@link InterpretErrorCode} reaches a caller
+ * as data rather than as a throw — `NO_TEMPLATE` and `LOW_CONFIDENCE` on a
+ * visible incomplete {@link Interpretation}, and the per-stage `*_FAILED`
+ * codes on that result's `failures`, beside the raw thrown value re-emitted
+ * as `error`. `context` carries structured detail when a throw site supplies
+ * one; the throw sites in this package supply none.
  */
 export class InterpretError extends Error {
 	readonly code: InterpretErrorCode

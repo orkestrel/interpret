@@ -1,7 +1,7 @@
 import type { EmitterInterface } from '@orkestrel/emitter'
 import type { Subject } from '@orkestrel/reason'
 import type {
-	ManagerAddOptions,
+	RecordOptions,
 	SubjectManagerEventMap,
 	SubjectManagerInterface,
 	SubjectManagerOptions,
@@ -17,7 +17,7 @@ import { RecordManager } from './RecordManager.js'
  * @remarks
  * Each `add` mints a fresh `subject-{n}` id (deterministic per instance, no
  * host randomness) unless the caller overrides it through
- * `ManagerAddOptions.id`, so successive same-domain turns never overwrite one
+ * `RecordOptions.id`, so successive same-domain turns never overwrite one
  * shared subject. A composed {@link RecordManager} owns the collection, the
  * content-derived `hash` (id-independent), and the version rule, so `version`
  * bumps ONLY when the hash changes at a reused id and the batch `remove(ids)`
@@ -51,8 +51,8 @@ export class SubjectManager implements SubjectManagerInterface {
 		return this.#records.emitter
 	}
 
-	get size(): number {
-		return this.#records.size
+	get count(): number {
+		return this.#records.count
 	}
 
 	has(id: string): boolean {
@@ -67,7 +67,7 @@ export class SubjectManager implements SubjectManagerInterface {
 		return this.#records.records()
 	}
 
-	add(subject: Subject, options?: ManagerAddOptions): SubjectRecord {
+	add(subject: Subject, options?: RecordOptions): SubjectRecord {
 		return this.#records.add(options?.id ?? this.#mint(), subject, (stamp, value) => ({
 			id: stamp.id,
 			subject: value,

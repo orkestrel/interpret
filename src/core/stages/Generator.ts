@@ -1,4 +1,3 @@
-import type { FieldPath } from '@orkestrel/contract'
 import type { Subject } from '@orkestrel/reason'
 import type {
 	Entity,
@@ -7,9 +6,7 @@ import type {
 	GeneratorInterface,
 	Template,
 } from '../types.js'
-import { isFiniteNumber } from '@orkestrel/contract'
-import { CONFIDENCE_COMPUTED } from '../constants.js'
-import { deriveAggregateField, setField } from '../helpers.js'
+import { setField } from '../helpers.js'
 
 /**
  * The `Generator` stage: builds the final `Subject` from a fully resolved
@@ -21,19 +18,14 @@ import { deriveAggregateField, setField } from '../helpers.js'
  * by its OWN `name` — the shape `Clarifier` uses for its synthesized
  * default/computed entities, so one lookup rule serves both extraction-
  * mapped and template-data-derived fields. A single-element array value
- * unwraps to its scalar; a multi-element, ALL-numeric array value stays an
- * array AND additionally emits five aggregate fields (`Sum` / `Count` /
- * `Average` / `Minimum` / `Maximum`, provenance `computed`), each derived as
- * a SIBLING path beside the source field via `deriveAggregateField` — for an
- * array `FieldPath` (e.g. `['address', 'amounts']`) the aggregates nest
- * (`['address', 'amountsSum']`, ...); for a plain string field they stay
- * flat (`'amountsSum'`), matching the source field's own shape.
+ * unwraps to its scalar; every other value lands as it stands, so a
+ * multi-element array stays an array. The stage derives no field of its own:
+ * an aggregate over an array-valued entity is a `ComputedField` the template
+ * author declares, resolved by `Clarifier` before this stage runs.
  * `confidence` is the mean of the input entities' own confidences (`0` for
  * an empty entity set). A `FieldMapping` is emitted for EVERY field that
- * lands on the subject, including defaults, computed fields, and aggregates.
- * `GeneratorOptions` is a reserved extension seam — the
- * stage has no knobs yet, so construction takes no arguments until one
- * exists.
+ * lands on the subject, including defaults and computed fields. The stage
+ * takes no options, so construction takes no arguments.
  *
  * @example
  * ```ts
@@ -83,46 +75,6 @@ export class Generator implements GeneratorInterface {
 					confidence: entity.confidence,
 				})
 				continue
-			}
-
-			if (Array.isArray(value) && value.length > 1) {
-				const numeric: number[] = []
-				for (const item of value) {
-					if (!isFiniteNumber(item)) break
-					numeric.push(item)
-				}
-				if (numeric.length === value.length) {
-					subject = setField(subject, field, value)
-					mappings.push({
-						field,
-						entity: entity.name,
-						value,
-						provenance: entity.provenance,
-						confidence: entity.confidence,
-					})
-					const sum = numeric.reduce((total, item) => total + item, 0)
-					const first = numeric[0]
-					if (first === undefined) continue
-					const minimum = numeric.reduce((min, item) => (item < min ? item : min), first)
-					const maximum = numeric.reduce((max, item) => (item > max ? item : max), first)
-					const aggregates: ReadonlyArray<readonly [FieldPath, number]> = [
-						[deriveAggregateField(field, 'Sum'), sum],
-						[deriveAggregateField(field, 'Count'), numeric.length],
-						[deriveAggregateField(field, 'Average'), sum / numeric.length],
-						[deriveAggregateField(field, 'Minimum'), minimum],
-						[deriveAggregateField(field, 'Maximum'), maximum],
-					]
-					for (const [aggregateField, aggregateValue] of aggregates) {
-						subject = setField(subject, aggregateField, aggregateValue)
-						mappings.push({
-							field: aggregateField,
-							value: aggregateValue,
-							provenance: { category: 'computed' },
-							confidence: CONFIDENCE_COMPUTED,
-						})
-					}
-					continue
-				}
 			}
 
 			subject = setField(subject, field, value)

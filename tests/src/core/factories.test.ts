@@ -1,5 +1,9 @@
-import type { InterpretEventMap, Template } from '@src/core'
-import { factorGroup, fieldFactor, quantitativeDefinition } from '@orkestrel/reason'
+import type { InterpretEventMap } from '@src/core'
+import {
+	createFactorGroup,
+	createFieldFactor,
+	createQuantitativeDefinition,
+} from '@orkestrel/reason'
 import {
 	Clarifier,
 	createClarifier,
@@ -11,7 +15,6 @@ import {
 	createInterpretContext,
 	createNormalizer,
 	createSubjectManager,
-	createTemplate,
 	createTemplateManager,
 	DEFAULT_INTERPRET_FLOOR,
 	DEFAULT_INTERPRET_HISTORY,
@@ -28,7 +31,7 @@ import {
 	SubjectManager,
 	TemplateManager,
 } from '@src/core'
-import { captureError, createRecorder, createRecorders, invokeUnchecked } from '@orkestrel/test'
+import { createRecorder, createRecorders } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import {
 	buildInterpretTemplate,
@@ -54,7 +57,6 @@ describe('interprets barrel — value-space sample resolves', () => {
 		expect(createSubjectManager).toBeDefined()
 		expect(createDefinitionManager).toBeDefined()
 		expect(createInterpretContext).toBeDefined()
-		expect(createTemplate).toBeDefined()
 		expect(isInterpretError).toBeDefined()
 		expect(InterpretError).toBeDefined()
 		expect(DEFAULT_INTERPRET_FLOOR).toBeDefined()
@@ -92,9 +94,9 @@ describe('createInterpret', () => {
 			extractor: createExtractor({ actions: INTERPRET_ACTIONS, domains: INTERPRET_DOMAINS }),
 			on: { interpret: interpretEvents.handler },
 		})
-		const events = createRecorders<InterpretEventMap, 'interpret' | 'register' | 'destroy'>(
+		const events = createRecorders<InterpretEventMap, 'interpret' | 'add' | 'destroy'>(
 			interpret.emitter,
-			['interpret', 'register', 'destroy'],
+			['interpret', 'add', 'destroy'],
 		)
 		interpret.interpret('calculate arithmetic 42')
 		expect(interpretEvents.count).toBe(1)
@@ -174,7 +176,7 @@ describe('createGenerator', () => {
 describe('createTemplateManager', () => {
 	it('wires a working registry seeded from options', () => {
 		const manager = createTemplateManager({ templates: [buildInterpretTemplate()] })
-		expect(manager.size).toBe(1)
+		expect(manager.count).toBe(1)
 		expect(manager.has('template-1')).toBe(true)
 	})
 
@@ -190,7 +192,7 @@ describe('createTemplateManager', () => {
 describe('createSubjectManager', () => {
 	it('wires a working registry seeded from options', () => {
 		const manager = createSubjectManager({ subjects: [{ value: 1 }] })
-		expect(manager.size).toBe(1)
+		expect(manager.count).toBe(1)
 	})
 
 	it('honors a custom id via add options', () => {
@@ -202,13 +204,13 @@ describe('createSubjectManager', () => {
 })
 
 describe('createDefinitionManager', () => {
-	const definition = quantitativeDefinition('d1', 'D1', [
-		factorGroup('total', 'sum', [fieldFactor('value', 'value')]),
+	const definition = createQuantitativeDefinition('d1', 'D1', [
+		createFactorGroup('total', 'sum', [createFieldFactor('value', 'value')]),
 	])
 
 	it('wires a working registry seeded from options', () => {
 		const manager = createDefinitionManager({ definitions: [definition] })
-		expect(manager.size).toBe(1)
+		expect(manager.count).toBe(1)
 		expect(manager.has('d1')).toBe(true)
 	})
 
@@ -230,19 +232,5 @@ describe('createInterpretContext', () => {
 		context.add(buildInterpretation())
 		context.add(buildInterpretation())
 		expect(context.previous()).toHaveLength(2)
-	})
-})
-
-describe('createTemplate — validation', () => {
-	it('returns valid template data unchanged', () => {
-		const template = createTemplate(buildInterpretTemplate())
-		expect(template.id).toBe('template-1')
-	})
-
-	it('throws InterpretError INVALID_TEMPLATE for malformed data', () => {
-		const bad: unknown = { ...buildInterpretTemplate(), mappings: 'not-an-array' }
-		const error = captureError(() => invokeUnchecked<Template>(undefined, createTemplate, [bad]))
-		if (!isInterpretError(error)) throw new Error('expected an InterpretError')
-		expect(error.code).toBe('INVALID_TEMPLATE')
 	})
 })

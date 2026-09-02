@@ -62,13 +62,14 @@ import { Normalizer } from './stages/Normalizer.js'
  * so re-running the same text against the same template version reproduces the
  * same digest (the replay contract). `describe` / `narrate` are the reverse
  * direction (structure → prose). `destroy()` is idempotent, tears down the
- * registry and context, then destroys the emitter LAST; every
- * method afterwards except the {@link emitter} getter throws
- * `InterpretError('DESTROYED', …)`.
+ * registry and the context it constructed itself — a context supplied through
+ * `options.context` is shared, so it stays alive for whoever else holds it —
+ * then destroys the emitter LAST; every method afterwards except the
+ * {@link emitter} getter throws `InterpretError('DESTROYED', …)`.
  *
  * @example
  * ```ts
- * import { factorGroup, fieldFactor, quantitativeDefinition } from '@orkestrel/reason'
+ * import { createFactorGroup, createFieldFactor, createQuantitativeDefinition } from '@orkestrel/reason'
  * import { Interpret, Extractor } from '@src/core'
  *
  * const interpret = new Interpret({
@@ -82,8 +83,8 @@ import { Normalizer } from './stages/Normalizer.js'
  * 			mappings: [{ entity: 'value', aliases: [], field: 'value' }],
  * 			defaults: [],
  * 			computations: [],
- * 			definition: quantitativeDefinition('t1', 'Arithmetic', [
- * 				factorGroup('total', 'sum', [fieldFactor('value', 'value')]),
+ * 			definition: createQuantitativeDefinition('t1', 'Arithmetic', [
+ * 				createFactorGroup('total', 'sum', [createFieldFactor('value', 'value')]),
  * 			]),
  * 		},
  * 	],
@@ -94,6 +95,7 @@ import { Normalizer } from './stages/Normalizer.js'
 export class Interpret implements InterpretInterface {
 	readonly #templates: TemplateManager
 	readonly #context: InterpretContextInterface
+	readonly #ownsContext: boolean
 	readonly #normalizer: NormalizerInterface
 	readonly #extractor: ExtractorInterface
 	readonly #clarifier: ClarifierInterface
@@ -111,15 +113,13 @@ export class Interpret implements InterpretInterface {
 		this.#templates = new TemplateManager({
 			...(options?.templates === undefined ? {} : { templates: options.templates }),
 		})
+		this.#ownsContext = options?.context === undefined
 		this.#context =
 			options?.context ??
 			new InterpretContext(
 				options?.history === undefined ? undefined : { history: options.history },
 			)
-		this.#narrator = new Narrator({
-			...(options?.lexicon === undefined ? {} : { lexicon: options.lexicon }),
-			...(options?.formatters === undefined ? {} : { formatters: options.formatters }),
-		})
+		this.#narrator = new Narrator(options?.narrator)
 		this.#normalizer = options?.normalizer ?? new Normalizer()
 		this.#extractor = options?.extractor ?? new Extractor()
 		this.#clarifier =
@@ -147,7 +147,7 @@ export class Interpret implements InterpretInterface {
 			return this.#fail(
 				text,
 				text,
-				{ action: '', domain: '', confidence: 0 },
+				{ confidence: 0 },
 				[],
 				[],
 				stages,
@@ -169,7 +169,7 @@ export class Interpret implements InterpretInterface {
 			return this.#fail(
 				text,
 				normalized.text,
-				{ action: '', domain: '', confidence: 0 },
+				{ confidence: 0 },
 				[],
 				[],
 				stages,
@@ -321,15 +321,20 @@ export class Interpret implements InterpretInterface {
 		return result
 	}
 
-	register(template: Template): void {
+	add(template: Template): void {
 		this.#ensureAlive()
 		this.#templates.add(template, { id: template.id })
-		this.#emitter.emit('register', template.id)
+		this.#emitter.emit('add', template.id)
 	}
 
-	unregister(id: string): boolean {
+	remove(ids: readonly string[]): boolean
+	remove(id: string): boolean
+	remove(): void
+	remove(target?: string | readonly string[]): boolean | void {
 		this.#ensureAlive()
-		return this.#templates.remove(id)
+		if (target === undefined) return this.#templates.remove()
+		if (typeof target === 'string') return this.#templates.remove(target)
+		return this.#templates.remove(target)
 	}
 
 	template(id: string): Template | undefined {
@@ -355,7 +360,7 @@ export class Interpret implements InterpretInterface {
 	destroy(): void {
 		if (this.#destroyed) return
 		this.#templates.destroy()
-		this.#context.destroy()
+		if (this.#ownsContext) this.#context.destroy()
 		this.#destroyed = true
 		this.#emitter.emit('destroy')
 		this.#emitter.destroy()

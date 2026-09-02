@@ -1,18 +1,18 @@
 import type { Lexicon, NarratorOptions } from '@src/core'
 import {
-	atom,
-	constant,
-	equation,
-	fact,
-	factorGroup,
-	fieldFactor,
-	inference,
-	inferentialDefinition,
-	logicalDefinition,
-	quantitativeDefinition,
-	rule,
-	symbolicDefinition,
-	variable,
+	createAtom,
+	createConstant,
+	createEquation,
+	createFact,
+	createFactorGroup,
+	createFieldFactor,
+	createInference,
+	createInferentialDefinition,
+	createLogicalDefinition,
+	createQuantitativeDefinition,
+	createRule,
+	createSymbolicDefinition,
+	createVariable,
 } from '@orkestrel/reason'
 import { Narrator } from '@src/core'
 import { describe, expect, it } from 'vitest'
@@ -23,20 +23,26 @@ import { TRICKY_KEYS } from '../../setup.js'
 // supplied via the lexicon/formatters seam, mirroring the forward
 // `Formatter`'s `verbs` option.
 
-const QUANTITATIVE = quantitativeDefinition('premium', 'Premium', [
-	factorGroup('g', 'sum', [fieldFactor('v', 'value')]),
+const QUANTITATIVE = createQuantitativeDefinition('premium', 'Premium', [
+	createFactorGroup('g', 'sum', [createFieldFactor('v', 'value')]),
 ])
-const LOGICAL = logicalDefinition('eligibility', 'Eligibility', [
-	rule('adult', [atom('age', 'from', 18)], atom('adult', 'equals', true)),
+const LOGICAL = createLogicalDefinition('eligibility', 'Eligibility', [
+	createRule('adult', [createAtom('age', 'from', 18)], createAtom('adult', 'equals', true)),
 ])
-const SYMBOLIC = symbolicDefinition('s1', 'Solve', [
-	equation('e1', variable('x'), constant(5), 'x'),
+const SYMBOLIC = createSymbolicDefinition('s1', 'Solve', [
+	createEquation('e1', createVariable('x'), createConstant(5), 'x'),
 ])
-const INFERENTIAL = inferentialDefinition(
+const INFERENTIAL = createInferentialDefinition(
 	'mortality',
 	'Mortality',
-	[fact('f1', 'human', ['socrates'])],
-	[inference('mortal', [fact('p1', 'human', ['?x'])], fact('c1', 'mortal', ['?x']))],
+	[createFact('f1', 'human', ['socrates'])],
+	[
+		createInference(
+			'mortal',
+			[createFact('p1', 'human', ['?x'])],
+			createFact('c1', 'mortal', ['?x']),
+		),
+	],
 )
 
 describe('Narrator', () => {

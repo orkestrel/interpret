@@ -1,6 +1,6 @@
 import type { EmitterInterface } from '@orkestrel/emitter'
 import type {
-	ManagerAddOptions,
+	RecordOptions,
 	Template,
 	TemplateManagerEventMap,
 	TemplateManagerInterface,
@@ -15,8 +15,8 @@ import { RecordManager } from './RecordManager.js'
  * against.
  *
  * @remarks
- * `size` (never `count` — the sole tally in scope) plus the singular/plural
- * accessor pair (`template` / `templates`) and the batch `remove` overloads.
+ * `count` — the registry's lone tally — plus the singular/plural accessor
+ * pair (`template` / `templates`) and the batch `remove` overloads.
  * A composed {@link RecordManager} owns the collection, the content-derived
  * `hash`, and the version rule, so an identical re-add keeps its version and
  * the batch `remove(ids)` form stays ALL-OR-NOTHING. This class adds what is
@@ -26,7 +26,7 @@ import { RecordManager } from './RecordManager.js'
  *
  * @example
  * ```ts
- * import { factorGroup, fieldFactor, quantitativeDefinition } from '@orkestrel/reason'
+ * import { createFactorGroup, createFieldFactor, createQuantitativeDefinition } from '@orkestrel/reason'
  * import { TemplateManager } from '@src/core'
  *
  * const manager = new TemplateManager()
@@ -38,12 +38,12 @@ import { RecordManager } from './RecordManager.js'
  * 	mappings: [],
  * 	defaults: [],
  * 	computations: [],
- * 	definition: quantitativeDefinition('t1', 'Arithmetic', [
- * 		factorGroup('total', 'sum', [fieldFactor('value', 'value')]),
+ * 	definition: createQuantitativeDefinition('t1', 'Arithmetic', [
+ * 		createFactorGroup('total', 'sum', [createFieldFactor('value', 'value')]),
  * 	]),
  * })
  * record.version // 1
- * manager.size // 1
+ * manager.count // 1
  * ```
  */
 export class TemplateManager implements TemplateManagerInterface {
@@ -62,8 +62,8 @@ export class TemplateManager implements TemplateManagerInterface {
 		return this.#records.emitter
 	}
 
-	get size(): number {
-		return this.#records.size
+	get count(): number {
+		return this.#records.count
 	}
 
 	has(id: string): boolean {
@@ -78,7 +78,7 @@ export class TemplateManager implements TemplateManagerInterface {
 		return this.#records.records()
 	}
 
-	add(template: Template, options?: ManagerAddOptions): TemplateRecord {
+	add(template: Template, options?: RecordOptions): TemplateRecord {
 		return this.#records.add(options?.id ?? template.id, template, (stamp, value) => ({
 			id: stamp.id,
 			template: value,

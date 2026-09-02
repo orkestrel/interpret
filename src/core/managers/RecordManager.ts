@@ -48,7 +48,7 @@ import { digestValue } from '../helpers.js'
  * 	hash: stamp.hash,
  * }))
  * record.version // 1
- * notes.size // 1
+ * notes.count // 1
  * ```
  */
 export class RecordManager<TValue, TRecord extends RecordStamp> implements RecordManagerInterface<
@@ -72,7 +72,7 @@ export class RecordManager<TValue, TRecord extends RecordStamp> implements Recor
 		return this.#emitter
 	}
 
-	get size(): number {
+	get count(): number {
 		this.#ensureAlive()
 		return this.#records.size
 	}

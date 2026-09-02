@@ -27,9 +27,6 @@ export const DEFAULT_INTERPRET_FLOOR = 0.3
 /** Default `history` cap for an `InterpretContext`'s `previous()` ring buffer. */
 export const DEFAULT_INTERPRET_HISTORY = 16
 
-/** Default `id` for an `Interpret` orchestrator. */
-export const INTERPRET_ID = 'interpret'
-
 /** Confidence assigned to an exact keyword-proximity entity match. */
 export const CONFIDENCE_EXACT = 1
 
@@ -83,21 +80,6 @@ export const DEFAULT_CONTRACTIONS: Readonly<Record<string, string>> = Object.fre
 	"it's": 'it is',
 	"don't": 'do not',
 })
-
-/** Neutral built-in abbreviation expansions for `Normalizer` — empty by default. */
-export const DEFAULT_ABBREVIATIONS: Readonly<Record<string, string>> = Object.freeze({})
-
-/** Neutral built-in misspelling corrections for `Normalizer` — empty by default. */
-export const DEFAULT_CORRECTIONS: Readonly<Record<string, string>> = Object.freeze({})
-
-/** Neutral built-in action-verb vocabulary for `Extractor#extract`'s intent classification — empty by default. */
-export const DEFAULT_ACTIONS: Readonly<Record<string, string>> = Object.freeze({})
-
-/** Neutral built-in domain-keyword vocabulary for `Extractor#extract`'s intent classification — empty by default. */
-export const DEFAULT_DOMAINS: Readonly<Record<string, readonly string[]>> = Object.freeze({})
-
-/** Neutral built-in intent-verb phrasing for `Formatter#format` — empty by default. */
-export const DEFAULT_VERBS: Readonly<Record<string, string>> = Object.freeze({})
 
 /**
  * The neutral default `Lexicon` a `Narrator` merges caller data over.
@@ -179,6 +161,5 @@ export const INTERPRET_ERROR_CODES: readonly InterpretErrorCode[] = Object.freez
 	'GENERATE_FAILED',
 	'NO_TEMPLATE',
 	'LOW_CONFIDENCE',
-	'INVALID_TEMPLATE',
 	'DESTROYED',
 ])

@@ -23,10 +23,10 @@ describe('Extractor', () => {
 		expect(Object.keys(result)).not.toContain('entities')
 	})
 
-	it('never auto-classifies from an unregistered vocabulary (empty defaults)', () => {
+	it('never auto-classifies from a vocabulary the caller never supplied', () => {
 		const extractor = new Extractor()
 		const result = extractor.extract('calculate my rate at 85')
-		expect(result.intent).toEqual({ action: '', domain: '', confidence: 0 })
+		expect(result.intent).toEqual({ confidence: 0 })
 	})
 
 	it('complete requires BOTH numbers present and a positive-confidence intent', () => {

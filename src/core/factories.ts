@@ -8,7 +8,6 @@ import type {
 	FormatterInterface,
 	FormatterOptions,
 	GeneratorInterface,
-	GeneratorOptions,
 	InterpretContextInterface,
 	InterpretContextOptions,
 	InterpretInterface,
@@ -19,12 +18,9 @@ import type {
 	NormalizerOptions,
 	SubjectManagerInterface,
 	SubjectManagerOptions,
-	Template,
 	TemplateManagerInterface,
 	TemplateManagerOptions,
 } from './types.js'
-import { InterpretError } from './errors.js'
-import { isTemplate } from './validators.js'
 import { Interpret } from './Interpret.js'
 import { Narrator } from './Narrator.js'
 import { InterpretContext } from './InterpretContext.js'
@@ -56,7 +52,7 @@ import { Normalizer } from './stages/Normalizer.js'
  *
  * @example
  * ```ts
- * import { factorGroup, fieldFactor, quantitativeDefinition } from '@orkestrel/reason'
+ * import { createFactorGroup, createFieldFactor, createQuantitativeDefinition } from '@orkestrel/reason'
  * import { createExtractor, createInterpret } from '@src/core'
  *
  * const interpret = createInterpret({
@@ -70,8 +66,8 @@ import { Normalizer } from './stages/Normalizer.js'
  * 			mappings: [{ entity: 'value', aliases: [], field: 'value' }],
  * 			defaults: [],
  * 			computations: [],
- * 			definition: quantitativeDefinition('t1', 'Arithmetic', [
- * 				factorGroup('total', 'sum', [fieldFactor('value', 'value')]),
+ * 			definition: createQuantitativeDefinition('t1', 'Arithmetic', [
+ * 				createFactorGroup('total', 'sum', [createFieldFactor('value', 'value')]),
  * 			]),
  * 		},
  * 	],
@@ -160,7 +156,6 @@ export function createFormatter(options?: FormatterOptions): FormatterInterface 
 /**
  * Create a subject/definition generator.
  *
- * @param options - Currently an empty extension seam
  * @returns A stateless {@link GeneratorInterface}
  *
  * @example
@@ -170,7 +165,7 @@ export function createFormatter(options?: FormatterOptions): FormatterInterface 
  * const generator = createGenerator()
  * ```
  */
-export function createGenerator(_options?: GeneratorOptions): GeneratorInterface {
+export function createGenerator(): GeneratorInterface {
 	return new Generator()
 }
 
@@ -182,16 +177,17 @@ export function createGenerator(_options?: GeneratorOptions): GeneratorInterface
  *
  * @example
  * ```ts
- * import { factorGroup, fieldFactor, quantitativeDefinition } from '@orkestrel/reason'
- * import { createTemplate, createTemplateManager } from '@src/core'
+ * import { createFactorGroup, createFieldFactor, createQuantitativeDefinition } from '@orkestrel/reason'
+ * import { createTemplateManager } from '@src/core'
  *
- * const template = createTemplate({
- * 	id: 't1', name: 'Arithmetic', domain: 'arithmetic', intents: ['calculate'],
- * 	mappings: [{ entity: 'value', aliases: [], field: 'value' }], defaults: [], computations: [],
- * 	definition: quantitativeDefinition('t1', 'Arithmetic', [factorGroup('total', 'sum', [fieldFactor('value', 'value')])]),
+ * const templates = createTemplateManager({
+ * 	templates: [{
+ * 		id: 't1', name: 'Arithmetic', domain: 'arithmetic', intents: ['calculate'],
+ * 		mappings: [{ entity: 'value', aliases: [], field: 'value' }], defaults: [], computations: [],
+ * 		definition: createQuantitativeDefinition('t1', 'Arithmetic', [createFactorGroup('total', 'sum', [createFieldFactor('value', 'value')])]),
+ * 	}],
  * })
- * const templates = createTemplateManager({ templates: [template] })
- * templates.size // 1
+ * templates.count // 1
  * ```
  */
 export function createTemplateManager(options?: TemplateManagerOptions): TemplateManagerInterface {
@@ -213,7 +209,7 @@ export function createTemplateManager(options?: TemplateManagerOptions): Templat
  * import { createSubjectManager } from '@src/core'
  *
  * const subjects = createSubjectManager({ subjects: [{ value: 1 }] })
- * subjects.size // 1
+ * subjects.count // 1
  * ```
  */
 export function createSubjectManager(options?: SubjectManagerOptions): SubjectManagerInterface {
@@ -228,13 +224,13 @@ export function createSubjectManager(options?: SubjectManagerOptions): SubjectMa
  *
  * @example
  * ```ts
- * import { factorGroup, fieldFactor, quantitativeDefinition } from '@orkestrel/reason'
+ * import { createFactorGroup, createFieldFactor, createQuantitativeDefinition } from '@orkestrel/reason'
  * import { createDefinitionManager } from '@src/core'
  *
  * const definitions = createDefinitionManager({
- * 	definitions: [quantitativeDefinition('d1', 'D1', [factorGroup('total', 'sum', [fieldFactor('value', 'value')])])],
+ * 	definitions: [createQuantitativeDefinition('d1', 'D1', [createFactorGroup('total', 'sum', [createFieldFactor('value', 'value')])])],
  * })
- * definitions.size // 1
+ * definitions.count // 1
  * ```
  */
 export function createDefinitionManager(
@@ -261,38 +257,6 @@ export function createInterpretContext(
 	options?: InterpretContextOptions,
 ): InterpretContextInterface {
 	return new InterpretContext(options)
-}
-
-/**
- * Build and validate one interpretation template from plain data.
- *
- * @remarks
- * The throwing half of the template-intake pair: this throws on malformed
- * data, while the `parseTemplate` coercer returns `undefined`. Data failing
- * {@link isTemplate} throws `InterpretError('INVALID_TEMPLATE', …)`.
- *
- * @param data - The candidate template data
- * @returns The same data, now known to satisfy {@link Template}
- * @throws {@link InterpretError} `INVALID_TEMPLATE` when `data` fails validation
- *
- * @example
- * ```ts
- * import { factorGroup, fieldFactor, quantitativeDefinition } from '@orkestrel/reason'
- * import { createTemplate } from '@src/core'
- *
- * const template = createTemplate({
- * 	id: 't1', name: 'Arithmetic', domain: 'arithmetic', intents: ['calculate'],
- * 	mappings: [{ entity: 'value', aliases: [], field: 'value' }], defaults: [], computations: [],
- * 	definition: quantitativeDefinition('t1', 'Arithmetic', [factorGroup('total', 'sum', [fieldFactor('value', 'value')])]),
- * })
- * template.id // 't1'
- * ```
- */
-export function createTemplate(data: Template): Template {
-	if (!isTemplate(data)) {
-		throw new InterpretError('INVALID_TEMPLATE', 'Template data failed validation')
-	}
-	return data
 }
 
 /**

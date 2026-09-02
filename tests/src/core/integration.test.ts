@@ -1,4 +1,5 @@
 import type { InterpretEventMap } from '@src/core'
+import { createOperation, createVariable } from '@orkestrel/reason'
 import { Extractor, Interpret } from '@src/core'
 import { createRecorders } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
@@ -15,7 +16,7 @@ import {
 // The interprets integration corpus — the terrain-vocabulary redesign of scsr's
 // 49-case suite (sync API; no-match is auditable-incomplete, never templates[0];
 // no durations): forward NL → subject/definition, cross-turn carry-over,
-// multi-template best-match, register-after-miss, computed fields, the numeric
+// multi-template best-match, add-after-miss, computed fields, the numeric
 // corpus pins, full provenance, and determinism + digest-replay (design §8).
 
 function build(templates = [buildInsuranceTemplate()]): Interpret {
@@ -54,14 +55,14 @@ describe('interprets integration', () => {
 		interpret.destroy()
 	})
 
-	it('register-after-miss: an unmatched turn is incomplete, a later registration completes it', () => {
+	it('add-after-miss: an unmatched turn is incomplete, a later add completes it', () => {
 		const interpret = new Interpret({
 			extractor: new Extractor({ actions: INTERPRET_ACTIONS, domains: INTERPRET_DOMAINS }),
 		})
 		const first = interpret.interpret('calculate insurance age 25')
 		expect(first.complete).toBe(false)
 		expect(first.failures[0]?.code).toBe('NO_TEMPLATE')
-		interpret.register(buildInsuranceTemplate())
+		interpret.add(buildInsuranceTemplate())
 		const second = interpret.interpret('calculate insurance age 25')
 		expect(second.complete).toBe(true)
 		expect(second.definition?.id).toBe('insurance-auto')
@@ -102,18 +103,33 @@ describe('interprets integration', () => {
 		interpret.destroy()
 	})
 
-	it('numeric corpus: statistics scalar 42 vs array with Sum/Count/Average/Minimum/Maximum', () => {
+	it('numeric corpus: a statistics turn keeps its collected array and derives no field of its own', () => {
 		const interpret = build([buildStatisticsTemplate()])
 		expect(interpret.interpret('compute statistics 42').subject?.value).toBe(42)
 		const many = interpret.interpret('compute statistics 10 20 30')
-		expect(many.subject).toMatchObject({
-			value: [10, 20, 30],
-			valueSum: 60,
-			valueCount: 3,
-			valueAverage: 20,
-			valueMinimum: 10,
-			valueMaximum: 30,
-		})
+		expect(many.subject).toEqual({ value: [10, 20, 30] })
+		interpret.destroy()
+	})
+
+	it('numeric corpus: a declared computation aggregates the collected array by element', () => {
+		const interpret = build([
+			buildStatisticsTemplate({
+				computations: [
+					{
+						field: 'total',
+						expression: createOperation(
+							'add',
+							createOperation('add', createVariable('value.0'), createVariable('value.1')),
+							createVariable('value.2'),
+						),
+					},
+				],
+			}),
+		])
+		const result = interpret.interpret('compute statistics 10 20 30')
+		expect(result.subject).toEqual({ value: [10, 20, 30], total: 60 })
+		const computed = result.mappings.find((mapping) => mapping.field === 'total')
+		expect(computed?.provenance.category).toBe('computed')
 		interpret.destroy()
 	})
 
@@ -148,7 +164,7 @@ describe('interprets integration', () => {
 	it('replay: a template content change bumps the version and changes the digest', () => {
 		const interpret = build()
 		const before = interpret.interpret('calculate insurance age 25').digest
-		interpret.register(buildInsuranceTemplate({ name: 'Renamed' }))
+		interpret.add(buildInsuranceTemplate({ name: 'Renamed' }))
 		const after = interpret.interpret('calculate insurance age 25').digest
 		expect(after).not.toBe(before)
 		interpret.destroy()

@@ -1,10 +1,10 @@
 import {
-	constant,
-	factorGroup,
-	fieldFactor,
-	operation,
-	quantitativeDefinition,
-	variable,
+	createConstant,
+	createFactorGroup,
+	createFieldFactor,
+	createOperation,
+	createQuantitativeDefinition,
+	createVariable,
 } from '@orkestrel/reason'
 import {
 	createInterpret,
@@ -119,14 +119,14 @@ describe('isComputedField', () => {
 		expect(
 			isComputedField({
 				field: 'monthly',
-				expression: operation('divide', variable('deductible'), constant(12)),
+				expression: createOperation('divide', createVariable('deductible'), createConstant(12)),
 			}),
 		).toBe(true)
 	})
 
 	it('rejects a malformed expression tree and a missing field', () => {
 		expect(isComputedField({ field: 'monthly', expression: { form: 'variable' } })).toBe(false)
-		expect(isComputedField({ expression: constant(1) })).toBe(false)
+		expect(isComputedField({ expression: createConstant(1) })).toBe(false)
 	})
 
 	it('rejects adversarial junk, including a cyclic expression', () => {
@@ -146,7 +146,10 @@ describe('isTemplate', () => {
 		const template = buildInterpretTemplate({
 			defaults: [{ field: 'term', value: 12 }],
 			computations: [
-				{ field: 'monthly', expression: operation('divide', variable('value'), constant(12)) },
+				{
+					field: 'monthly',
+					expression: createOperation('divide', createVariable('value'), createConstant(12)),
+				},
 			],
 		})
 		expect(isTemplate(template)).toBe(true)
@@ -171,8 +174,8 @@ describe('isTemplate', () => {
 	})
 
 	it('round-trips against a definition built with reasons factories', () => {
-		const definition = quantitativeDefinition('t2', 'Two', [
-			factorGroup('g', 'sum', [fieldFactor('v', 'value')]),
+		const definition = createQuantitativeDefinition('t2', 'Two', [
+			createFactorGroup('g', 'sum', [createFieldFactor('v', 'value')]),
 		])
 		const template = buildInterpretTemplate({ id: 't2', name: 'Two', definition })
 		expect(isTemplate(template)).toBe(true)
@@ -251,10 +254,17 @@ describe('isIntent', () => {
 		).toBe(true)
 	})
 
+	it('accepts an unclassified intent carrying neither axis', () => {
+		expect(isIntent({ confidence: 0 })).toBe(true)
+		expect(isIntent({ action: 'calculate', confidence: 0.5 })).toBe(true)
+		expect(isIntent({ domain: 'arithmetic', confidence: 0.5 })).toBe(true)
+	})
+
 	it('rejects each wrongly typed member and arrays', () => {
 		expect(isIntent({ action: 1, domain: 'arithmetic', confidence: 1 })).toBe(false)
 		expect(isIntent({ action: 'calculate', domain: 1, confidence: 1 })).toBe(false)
 		expect(isIntent({ action: 'calculate', domain: 'arithmetic', confidence: 'high' })).toBe(false)
+		expect(isIntent({})).toBe(false)
 		expect(isIntent([])).toBe(false)
 	})
 })

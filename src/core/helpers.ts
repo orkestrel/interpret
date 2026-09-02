@@ -42,37 +42,6 @@ export function escapeRegExp(text: string): string {
 // === Field paths — safe copy-on-write writes
 
 /**
- * Derive the sibling field path for a computed aggregate of `field` — the
- * suffix is appended to `field`'s OWN last segment, so the aggregate nests
- * beside the source field rather than flattening past it.
- *
- * @remarks
- * For an array {@link FieldPath} (e.g. `['address', 'amounts']`) with suffix
- * `'Sum'` the result is `['address', 'amountsSum']` — nested beside
- * `address.amounts`. For a plain string field the result stays a flat string
- * (`'amounts'` → `'amountsSum'`), matching the existing single-key behavior.
- *
- * @param field - The source field path
- * @param suffix - The aggregate suffix (`'Sum'`, `'Count'`, `'Average'`, `'Minimum'`, `'Maximum'`)
- * @returns The sibling field path for the aggregate
- *
- * @example
- * ```ts
- * import { deriveAggregateField } from '@src/core'
- *
- * deriveAggregateField(['address', 'amounts'], 'Sum') // ['address', 'amountsSum']
- * deriveAggregateField('amounts', 'Sum')               // 'amountsSum'
- * ```
- */
-export function deriveAggregateField(field: FieldPath, suffix: string): FieldPath {
-	if (Array.isArray(field)) {
-		const last = field[field.length - 1]
-		return [...field.slice(0, -1), `${last}${suffix}`]
-	}
-	return `${field}${suffix}`
-}
-
-/**
  * Copy-on-write write a value at a (possibly nested) field path on a subject.
  *
  * @remarks
@@ -198,8 +167,9 @@ export function tokenize(text: string): readonly string[] {
  * commas, an optional decimal fraction, an optional trailing `%`.
  *
  * @remarks
- * Numbers-only: this is the module's entire extraction contract (AGENTS
- * §21 mechanism-never-policy) — no date, text-entity, or negation parsing.
+ * Numbers-only: this is the module's entire extraction contract — no date,
+ * text-entity, or negation parsing. Mining a domain's own entity vocabulary is
+ * the caller's business, supplied through a `Template`.
  *
  * @param text - The text to scan
  * @returns Every extracted number, in left-to-right order
@@ -409,18 +379,20 @@ export function assignEntities(
  * `actions` maps a token to an action name — the first matching token in
  * `text` (left to right) wins, at `CONFIDENCE_EXACT`. `domains` maps a domain
  * name to its keyword list — the domain with the most matching tokens wins
- * (ties keep the earliest-declared domain), also at `CONFIDENCE_EXACT`.
- * Combined confidence (PINNED): both fire → their average; exactly one fires
- * → its value times `0.5`; neither → `0`. There is no built-in worldview and
- * no auto-classification from a registered template's own `domain` name — a
- * caller MUST list a template's domain among `domains` for it to classify.
- * No `floor` parameter: the confidence floor gate lives at the orchestrator's
- * `matchTemplate` step, never inside classification itself.
+ * (ties keep the earliest-declared domain), also at `CONFIDENCE_EXACT`. An
+ * unmatched axis is left `undefined` rather than an empty string, so an
+ * unclassified intent is visibly absent. Combined confidence (PINNED): both
+ * fire → their average; exactly one fires → its value times `0.5`; neither →
+ * `0`. There is no built-in worldview and no auto-classification from a
+ * registered template's own `domain` name — a caller MUST list a template's
+ * domain among `domains` for it to classify. No `floor` parameter: the
+ * confidence floor gate lives at the orchestrator's `matchTemplate` step,
+ * never inside classification itself.
  *
  * @param text - The (normalized) text to classify
  * @param actions - The caller's token → action-name vocabulary
  * @param domains - The caller's domain-name → keyword-list vocabulary
- * @returns The classified intent
+ * @returns The classified intent, each unmatched axis absent
  *
  * @example
  * ```ts
@@ -428,7 +400,7 @@ export function assignEntities(
  *
  * classifyIntent('calculate my rate', { calculate: 'compute' }, { rating: ['rate'] })
  * // { action: 'compute', domain: 'rating', confidence: 1 }
- * classifyIntent('hello', {}, {}) // { action: '', domain: '', confidence: 0 }
+ * classifyIntent('hello', {}, {}) // { confidence: 0 } — neither axis matched
  * ```
  */
 export function classifyIntent(
@@ -438,7 +410,7 @@ export function classifyIntent(
 ): Intent {
 	const tokens = tokenize(text)
 
-	let action = ''
+	let action: string | undefined
 	let actionConfidence = 0
 	for (const token of tokens) {
 		const mapped = actions[token]
@@ -449,7 +421,7 @@ export function classifyIntent(
 		}
 	}
 
-	let domain = ''
+	let domain: string | undefined
 	let domainConfidence = 0
 	let bestMatches = 0
 	for (const [name, keywords] of Object.entries(domains)) {
@@ -470,7 +442,11 @@ export function classifyIntent(
 			? (actionConfidence + domainConfidence) / 2
 			: Math.max(actionConfidence, domainConfidence) * 0.5
 
-	return { action, domain, confidence }
+	return {
+		...(action === undefined ? {} : { action }),
+		...(domain === undefined ? {} : { domain }),
+		confidence,
+	}
 }
 
 // === Fuzzy matching
@@ -545,22 +521,63 @@ export function matchAlias(token: string, aliases: readonly string[], threshold:
 // === Digest
 
 /**
+ * Render one node of a value into its canonical, key-order-stable string,
+ * against the object ancestors already on the recursion path.
+ *
+ * @remarks
+ * The recursive leaf behind {@link canonicalize} and {@link digestValue}, and
+ * the one place `ancestors` is a real parameter rather than a seeded default.
+ * Record keys sort before serialization, so a re-ordered object canonicalizes
+ * identically; arrays keep position order, because position is meaningful.
+ * `ancestors` tracks the objects along the CURRENT recursion path rather than
+ * a global "seen" set, so the same object reachable twice through non-cyclic
+ * sibling branches still canonicalizes normally; a node already on the path
+ * renders as the literal string `'[cycle]'` instead of recursing —
+ * deterministic, never throws, never overflows the call stack. Seeding
+ * `ancestors` with a node makes that node render as `'[cycle]'`, so a caller
+ * digesting a whole value passes an empty set.
+ *
+ * @param value - The value to canonicalize
+ * @param ancestors - The objects already on the current recursion path
+ * @returns The canonical string form of `value`
+ *
+ * @example
+ * ```ts
+ * import { canonicalizeNode } from '@src/core'
+ *
+ * canonicalizeNode({ b: 1, a: 2 }, new Set()) // '{"a":2,"b":1}'
+ * const cyclic = { name: 'root' }
+ * canonicalizeNode(cyclic, new Set([cyclic])) // '"[cycle]"'
+ * ```
+ */
+export function canonicalizeNode(value: unknown, ancestors: ReadonlySet<object>): string {
+	if (Array.isArray(value)) {
+		if (ancestors.has(value)) return JSON.stringify('[cycle]')
+		const nested = new Set(ancestors)
+		nested.add(value)
+		return `[${value.map((entry) => canonicalizeNode(entry, nested)).join(',')}]`
+	}
+	if (isRecord(value)) {
+		if (ancestors.has(value)) return JSON.stringify('[cycle]')
+		const nested = new Set(ancestors)
+		nested.add(value)
+		const keys = Object.keys(value).sort()
+		return `{${keys.map((key) => `${JSON.stringify(key)}:${canonicalizeNode(value[key], nested)}`).join(',')}}`
+	}
+	return JSON.stringify(value) ?? 'null'
+}
+
+/**
  * Render a value into a canonical, key-order-stable string — the pre-image
  * of `digestValue`.
  *
  * @remarks
- * Ported from the app's `raters` digest machinery (`app/core/raters/helpers.ts`)
- * — record keys sort before serialization so a re-ordered object canonicalizes
- * identically; arrays keep position order (position is meaningful).
- * Cycle-safe and total: `visited` tracks the object ancestors
- * along the CURRENT recursion path (not a global "seen" set, so the same
- * object reachable twice via non-cyclic sibling branches still canonicalizes
- * normally); revisiting an ancestor renders that node as the literal string
- * `'[cycle]'` instead of recursing — deterministic, never throws, never
+ * The public entry point: it starts {@link canonicalizeNode} from an empty
+ * ancestor path, so the whole value canonicalizes and only a genuine cycle
+ * renders as `'[cycle]'`. Total and cycle-safe — it never throws and never
  * overflows the call stack.
  *
  * @param value - The value to canonicalize
- * @param visited - The object ancestors along the current recursion path (internal; omit at the call site)
  * @returns The canonical string form
  *
  * @example
@@ -570,21 +587,8 @@ export function matchAlias(token: string, aliases: readonly string[], threshold:
  * canonicalize({ b: 1, a: 2 }) === canonicalize({ a: 2, b: 1 }) // true
  * ```
  */
-export function canonicalize(value: unknown, visited: ReadonlySet<object> = new Set()): string {
-	if (Array.isArray(value)) {
-		if (visited.has(value)) return JSON.stringify('[cycle]')
-		const nextVisited = new Set(visited)
-		nextVisited.add(value)
-		return `[${value.map((entry) => canonicalize(entry, nextVisited)).join(',')}]`
-	}
-	if (isRecord(value)) {
-		if (visited.has(value)) return JSON.stringify('[cycle]')
-		const nextVisited = new Set(visited)
-		nextVisited.add(value)
-		const keys = Object.keys(value).sort()
-		return `{${keys.map((key) => `${JSON.stringify(key)}:${canonicalize(value[key], nextVisited)}`).join(',')}}`
-	}
-	return JSON.stringify(value) ?? 'null'
+export function canonicalize(value: unknown): string {
+	return canonicalizeNode(value, new Set())
 }
 
 /**
@@ -607,7 +611,7 @@ export function canonicalize(value: unknown, visited: ReadonlySet<object> = new 
  * ```
  */
 export function digestValue(value: unknown): string {
-	const canonical = canonicalize(value)
+	const canonical = canonicalizeNode(value, new Set())
 	let hash = 0x811c9dc5
 	for (let index = 0; index < canonical.length; index += 1) {
 		hash ^= canonical.charCodeAt(index)
@@ -620,6 +624,10 @@ export function digestValue(value: unknown): string {
 
 /**
  * Score how well a classified intent matches one template's domain + action.
+ *
+ * @remarks
+ * An absent axis scores `0` for that half — an unclassified intent matches no
+ * template on the axis it never carried.
  *
  * @param intent - The classified intent
  * @param template - The candidate template
@@ -637,12 +645,15 @@ export function digestValue(value: unknown): string {
  * ```
  */
 export function scoreTemplate(intent: Intent, template: Template): number {
-	const domainScore = template.domain.toLowerCase() === intent.domain.toLowerCase() ? 1 : 0
-	const actionScore = template.intents.some(
-		(candidate) => candidate.toLowerCase() === intent.action.toLowerCase(),
-	)
-		? 1
-		: 0
+	const domain = intent.domain
+	const action = intent.action
+	const domainScore =
+		domain !== undefined && template.domain.toLowerCase() === domain.toLowerCase() ? 1 : 0
+	const actionScore =
+		action !== undefined &&
+		template.intents.some((candidate) => candidate.toLowerCase() === action.toLowerCase())
+			? 1
+			: 0
 	return (domainScore + actionScore) / 2
 }
 
@@ -663,7 +674,7 @@ export function scoreTemplate(intent: Intent, template: Template): number {
  * ```ts
  * import { matchTemplate } from '@src/core'
  *
- * matchTemplate({ action: '', domain: '', confidence: 0 }, [], 0.3) // undefined — empty registry
+ * matchTemplate({ confidence: 0 }, [], 0.3) // undefined — empty registry
  * ```
  */
 export function matchTemplate(
@@ -694,10 +705,10 @@ export function matchTemplate(
  *
  * @example
  * ```ts
- * import { constant, operation, variable } from '@orkestrel/reason'
+ * import { createConstant, createOperation, createVariable } from '@orkestrel/reason'
  * import { variablesOf } from '@src/core'
  *
- * variablesOf(operation('divide', variable('deductible'), constant(12))) // ['deductible']
+ * variablesOf(createOperation('divide', createVariable('deductible'), createConstant(12))) // ['deductible']
  * ```
  */
 export function variablesOf(expression: SymbolicExpression): readonly string[] {
@@ -743,12 +754,12 @@ export function variablesOf(expression: SymbolicExpression): readonly string[] {
  *
  * @example
  * ```ts
- * import { constant, operation, variable } from '@orkestrel/reason'
+ * import { createConstant, createOperation, createVariable } from '@orkestrel/reason'
  * import { resolveExpression } from '@src/core'
  *
- * resolveExpression(operation('divide', variable('deductible'), constant(12)), { deductible: 6000 }) // 500
- * resolveExpression(operation('divide', constant(1), constant(0)), {}) // undefined — NaN gap
- * resolveExpression(variable('missing'), {}) // undefined — unresolved input
+ * resolveExpression(createOperation('divide', createVariable('deductible'), createConstant(12)), { deductible: 6000 }) // 500
+ * resolveExpression(createOperation('divide', createConstant(1), createConstant(0)), {}) // undefined — NaN gap
+ * resolveExpression(createVariable('missing'), {}) // undefined — unresolved input
  * ```
  */
 export function resolveExpression(

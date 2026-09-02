@@ -9,14 +9,14 @@ import type {
 } from '@src/core'
 import { isRecord, isString } from '@orkestrel/contract'
 import {
-	constant,
+	createConstant,
 	createReason,
 	createSymbolicReasoner,
-	equation,
-	symbolicDefinition,
-	variable,
+	createEquation,
+	createSymbolicDefinition,
+	createVariable,
 } from '@orkestrel/reason'
-import { createNarrator, Extractor, Interpret, isInterpretError } from '@src/core'
+import { createNarrator, Extractor, Interpret, InterpretContext, isInterpretError } from '@src/core'
 import { captureError, createRecorders } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import {
@@ -36,22 +36,36 @@ function corpusExtractor(): ExtractorInterface {
 
 describe('Interpret', () => {
 	describe('registry', () => {
-		it('registers, looks up, lists, and unregisters templates as plain data', () => {
+		it('adds, looks up, lists, and removes templates as plain data', () => {
 			const interpret = new Interpret()
 			const template = buildInterpretTemplate()
-			interpret.register(template)
+			interpret.add(template)
 			expect(interpret.template('template-1')).toEqual(template)
 			expect(interpret.templates()).toEqual([template])
-			expect(interpret.unregister('template-1')).toBe(true)
+			expect(interpret.remove('template-1')).toBe(true)
 			expect(interpret.template('template-1')).toBeUndefined()
 			interpret.destroy()
 		})
 
-		it('emits register with the template id', () => {
+		it('removes a listed batch all-or-nothing, and every template with no argument', () => {
 			const interpret = new Interpret()
-			const events = createRecorders<InterpretEventMap, 'register'>(interpret.emitter, ['register'])
-			interpret.register(buildInterpretTemplate())
-			expect(events.register.calls).toEqual([['template-1']])
+			interpret.add(buildInterpretTemplate())
+			interpret.add(buildInsuranceTemplate())
+			expect(interpret.remove(['template-1', 'absent'])).toBe(false)
+			expect(interpret.templates()).toHaveLength(2)
+			expect(interpret.remove(['template-1', 'insurance-auto'])).toBe(true)
+			expect(interpret.templates()).toEqual([])
+			interpret.add(buildInterpretTemplate())
+			expect(interpret.remove()).toBeUndefined()
+			expect(interpret.templates()).toEqual([])
+			interpret.destroy()
+		})
+
+		it('emits add with the template id', () => {
+			const interpret = new Interpret()
+			const events = createRecorders<InterpretEventMap, 'add'>(interpret.emitter, ['add'])
+			interpret.add(buildInterpretTemplate())
+			expect(events.add.calls).toEqual([['template-1']])
 			interpret.destroy()
 		})
 	})
@@ -137,7 +151,7 @@ describe('Interpret', () => {
 			const interpret = new Interpret({
 				templates: [buildInsuranceTemplate()],
 				extractor: corpusExtractor(),
-				lexicon: { templates: { 'ambiguity.intent': 'Which domain?' } },
+				narrator: { lexicon: { templates: { 'ambiguity.intent': 'Which domain?' } } },
 			})
 			const result = interpret.interpret('what is the meaning of life')
 			expect(result.ambiguities[0]?.question).toBe('Which domain?')
@@ -301,16 +315,20 @@ describe('Interpret', () => {
 			const reason = createReason({ reasoners: [createSymbolicReasoner()] })
 			const result = reason.reason(
 				{},
-				symbolicDefinition('r', 'R', [equation('e1', variable('x'), constant(5), 'x')]),
+				createSymbolicDefinition('r', 'R', [
+					createEquation('e1', createVariable('x'), createConstant(5), 'x'),
+				]),
 			)
 			expect(interpret.narrate(result)).toBe(createNarrator().narrate(result))
 			reason.destroy()
 			interpret.destroy()
 		})
 
-		it('honors a lexicon override supplied through InterpretOptions', () => {
+		it('honors a lexicon override supplied through the narrator option group', () => {
 			const interpret = new Interpret({
-				lexicon: { templates: { 'definition.quantitative': '{{name}} has {{count}} group(s)' } },
+				narrator: {
+					lexicon: { templates: { 'definition.quantitative': '{{name}} has {{count}} group(s)' } },
+				},
 			})
 			const definition = buildInterpretTemplate().definition
 			expect(interpret.describe(definition)).toBe('Arithmetic has 1 group(s)')
@@ -329,5 +347,27 @@ describe('Interpret', () => {
 			const error = captureError(() => interpret.interpret('x'))
 			expect(isInterpretError(error) && error.code === 'DESTROYED').toBe(true)
 		})
+
+		it('leaves a caller-supplied context alive, and a second orchestrator keeps using it', () => {
+			const context = new InterpretContext({ session: 'shared' })
+			const first = new Interpret({ context })
+			const second = new Interpret({ context })
+			first.destroy()
+			expect(context.session).toBe('shared')
+			expect(context.previous()).toEqual([])
+			second.interpret('calculate arithmetic 42')
+			expect(context.previous()).toHaveLength(1)
+			second.destroy()
+			expect(context.session).toBe('shared')
+			context.destroy()
+			const error = captureError(() => context.previous())
+			expect(isInterpretError(error) && error.code === 'DESTROYED').toBe(true)
+		})
+
+		// The teardown of a context the orchestrator constructed itself has no
+		// public observer: `Interpret` publishes no context accessor, so nothing
+		// outside can read that context's state or subscribe to its emitter. The
+		// supplied-context case above is the half a caller can drive, and it is the
+		// half that matters — a shared context outliving one orchestrator.
 	})
 })

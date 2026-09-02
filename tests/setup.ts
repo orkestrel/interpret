@@ -15,14 +15,14 @@ import type { ReasonResult, SymbolicResult } from '@orkestrel/reason'
 import type { Interpretation, Template } from '@src/core'
 import { isArray } from '@orkestrel/contract'
 import {
-	constant,
-	factorGroup,
-	fieldFactor,
-	logicalDefinition,
-	operation,
-	quantitativeDefinition,
-	staticFactor,
-	variable,
+	createConstant,
+	createFactorGroup,
+	createFieldFactor,
+	createLogicalDefinition,
+	createOperation,
+	createQuantitativeDefinition,
+	createStaticFactor,
+	createVariable,
 } from '@orkestrel/reason'
 import { InterpretContext } from '@src/core'
 import { afterEach, vi } from 'vitest'
@@ -117,8 +117,8 @@ export function buildInterpretTemplate(overrides?: Partial<Template>): Template 
 		mappings: [{ entity: 'value', aliases: ['amount', 'number'], field: 'value' }],
 		defaults: [],
 		computations: [],
-		definition: quantitativeDefinition('template-1', 'Arithmetic', [
-			factorGroup('total', 'sum', [fieldFactor('value', 'value')]),
+		definition: createQuantitativeDefinition('template-1', 'Arithmetic', [
+			createFactorGroup('total', 'sum', [createFieldFactor('value', 'value')]),
 		]),
 		...overrides,
 	}
@@ -155,7 +155,7 @@ export const INTERPRET_DOMAINS: Readonly<Record<string, readonly string[]>> = Ob
  * Build the auto-insurance corpus template — the redesign's terrain-vocabulary
  * analog of scsr's `DEFAULT_TEMPLATES` insurance fixture: a required `age`
  * mapping, `accidents`/`coverage`/`deductible` defaults, and a declarative
- * `monthly = deductible / 12` computation (`operation('divide', …)` — the
+ * `monthly = deductible / 12` computation (`createOperation('divide', …)` — the
  * closure-free `ComputedField` replacing scsr's `InferenceRule.compute`).
  *
  * @param overrides - Fields merged over the corpus defaults
@@ -178,10 +178,13 @@ export function buildInsuranceTemplate(overrides?: Partial<Template>): Template 
 			{ field: 'deductible', value: 500 },
 		],
 		computations: [
-			{ field: 'monthly', expression: operation('divide', variable('deductible'), constant(12)) },
+			{
+				field: 'monthly',
+				expression: createOperation('divide', createVariable('deductible'), createConstant(12)),
+			},
 		],
-		definition: quantitativeDefinition('insurance-auto', 'Auto Insurance Rate', [
-			factorGroup('age-group', 'product', [staticFactor('age-factor', 1)]),
+		definition: createQuantitativeDefinition('insurance-auto', 'Auto Insurance Rate', [
+			createFactorGroup('age-group', 'product', [createStaticFactor('age-factor', 1)]),
 		]),
 		...overrides,
 	}
@@ -207,7 +210,7 @@ export function buildEligibilityTemplate(overrides?: Partial<Template>): Templat
 		],
 		defaults: [],
 		computations: [],
-		definition: logicalDefinition('eligibility', 'Eligibility', []),
+		definition: createLogicalDefinition('eligibility', 'Eligibility', []),
 		...overrides,
 	}
 }
@@ -229,8 +232,8 @@ export function buildLoanTemplate(overrides?: Partial<Template>): Template {
 		mappings: [{ entity: 'amount', aliases: [], field: 'amount' }],
 		defaults: [],
 		computations: [],
-		definition: quantitativeDefinition('loan-personal', 'Personal Loan', [
-			factorGroup('total', 'sum', [fieldFactor('amount', 'amount')]),
+		definition: createQuantitativeDefinition('loan-personal', 'Personal Loan', [
+			createFactorGroup('total', 'sum', [createFieldFactor('amount', 'amount')]),
 		]),
 		...overrides,
 	}
@@ -239,7 +242,8 @@ export function buildLoanTemplate(overrides?: Partial<Template>): Template {
 /**
  * Build the statistics corpus template — a SINGLE `value` mapping so extraction
  * collects every number: one number lands as a scalar, several as an array the
- * `Generator` keeps AND augments with `Sum`/`Count`/`Average`/`Minimum`/`Maximum`.
+ * `Generator` keeps as it stands. An aggregate over that array is a
+ * `ComputedField` the caller declares through `overrides`.
  *
  * @param overrides - Fields merged over the corpus defaults
  * @returns The built template
@@ -253,8 +257,8 @@ export function buildStatisticsTemplate(overrides?: Partial<Template>): Template
 		mappings: [{ entity: 'value', aliases: [], field: 'value' }],
 		defaults: [],
 		computations: [],
-		definition: quantitativeDefinition('statistics', 'Statistics', [
-			factorGroup('total', 'sum', [fieldFactor('value', 'value')]),
+		definition: createQuantitativeDefinition('statistics', 'Statistics', [
+			createFactorGroup('total', 'sum', [createFieldFactor('value', 'value')]),
 		]),
 		...overrides,
 	}
@@ -283,8 +287,8 @@ export function buildInterpretation(overrides?: Partial<Interpretation>): Interp
 			},
 		],
 		subject: { age: 25 },
-		definition: quantitativeDefinition('insurance-auto', 'Auto Insurance', [
-			factorGroup('total', 'sum', [fieldFactor('age', 'age')]),
+		definition: createQuantitativeDefinition('insurance-auto', 'Auto Insurance', [
+			createFactorGroup('total', 'sum', [createFieldFactor('age', 'age')]),
 		]),
 		mappings: [
 			{

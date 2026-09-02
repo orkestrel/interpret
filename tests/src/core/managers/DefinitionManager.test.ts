@@ -1,5 +1,5 @@
 import type { DefinitionManagerEventMap } from '@src/core'
-import { symbolicDefinition } from '@orkestrel/reason'
+import { createSymbolicDefinition } from '@orkestrel/reason'
 import { DefinitionManager, isInterpretError } from '@src/core'
 import { describe, expect, it } from 'vitest'
 import { captureError, createRecorders } from '@orkestrel/test'
@@ -11,7 +11,7 @@ import { captureError, createRecorders } from '@orkestrel/test'
 describe('DefinitionManager', () => {
 	it('adds a definition keyed by its own id as a versioned, hashed record', () => {
 		const manager = new DefinitionManager()
-		const record = manager.add(symbolicDefinition('rate', 'Rate', []))
+		const record = manager.add(createSymbolicDefinition('rate', 'Rate', []))
 		expect(record.id).toBe('rate')
 		expect(record.version).toBe(1)
 		expect(manager.definition('rate')).toBe(record)
@@ -19,14 +19,14 @@ describe('DefinitionManager', () => {
 
 	it('keeps the version on an identical re-add — bumps only on a content change', () => {
 		const manager = new DefinitionManager()
-		manager.add(symbolicDefinition('rate', 'Rate', []))
-		expect(manager.add(symbolicDefinition('rate', 'Rate', [])).version).toBe(1)
-		expect(manager.add(symbolicDefinition('rate', 'Renamed', [])).version).toBe(2)
+		manager.add(createSymbolicDefinition('rate', 'Rate', []))
+		expect(manager.add(createSymbolicDefinition('rate', 'Rate', [])).version).toBe(1)
+		expect(manager.add(createSymbolicDefinition('rate', 'Renamed', [])).version).toBe(2)
 	})
 
 	it('seeds from options and lists in insertion order', () => {
 		const manager = new DefinitionManager({
-			definitions: [symbolicDefinition('a', 'A', []), symbolicDefinition('b', 'B', [])],
+			definitions: [createSymbolicDefinition('a', 'A', []), createSymbolicDefinition('b', 'B', [])],
 		})
 		expect(manager.definitions().map((record) => record.id)).toEqual(['a', 'b'])
 	})
@@ -34,16 +34,16 @@ describe('DefinitionManager', () => {
 	it('removes one, all-or-nothing batch, and all', () => {
 		const manager = new DefinitionManager({
 			definitions: [
-				symbolicDefinition('a', 'A', []),
-				symbolicDefinition('b', 'B', []),
-				symbolicDefinition('c', 'C', []),
+				createSymbolicDefinition('a', 'A', []),
+				createSymbolicDefinition('b', 'B', []),
+				createSymbolicDefinition('c', 'C', []),
 			],
 		})
 		expect(manager.remove('a')).toBe(true)
 		expect(manager.remove(['b', 'absent'])).toBe(false)
-		expect(manager.size).toBe(2)
+		expect(manager.count).toBe(2)
 		manager.remove()
-		expect(manager.size).toBe(0)
+		expect(manager.count).toBe(0)
 	})
 
 	it('throws DESTROYED after destroy, idempotently', () => {
@@ -58,14 +58,17 @@ describe('DefinitionManager', () => {
 		it('fires add with the record id, once per add call', () => {
 			const manager = new DefinitionManager()
 			const events = createRecorders<DefinitionManagerEventMap, 'add'>(manager.emitter, ['add'])
-			manager.add(symbolicDefinition('a', 'A', []))
-			manager.add(symbolicDefinition('b', 'B', []))
+			manager.add(createSymbolicDefinition('a', 'A', []))
+			manager.add(createSymbolicDefinition('b', 'B', []))
 			expect(events.add.calls).toEqual([['a'], ['b']])
 		})
 
 		it('fires remove with the record id for a single remove, and per id for a batch remove', () => {
 			const manager = new DefinitionManager({
-				definitions: [symbolicDefinition('a', 'A', []), symbolicDefinition('b', 'B', [])],
+				definitions: [
+					createSymbolicDefinition('a', 'A', []),
+					createSymbolicDefinition('b', 'B', []),
+				],
 			})
 			const events = createRecorders<DefinitionManagerEventMap, 'remove'>(manager.emitter, [
 				'remove',
@@ -84,7 +87,7 @@ describe('DefinitionManager', () => {
 			manager.destroy()
 			manager.destroy()
 			expect(events.destroy.calls).toEqual([[]])
-			const error = captureError(() => manager.add(symbolicDefinition('c', 'C', [])))
+			const error = captureError(() => manager.add(createSymbolicDefinition('c', 'C', [])))
 			expect(isInterpretError(error) && error.code === 'DESTROYED').toBe(true)
 		})
 	})

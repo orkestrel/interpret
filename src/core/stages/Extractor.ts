@@ -1,5 +1,4 @@
 import type { ExtractorInterface, ExtractorOptions, ExtractResult } from '../types.js'
-import { DEFAULT_ACTIONS, DEFAULT_DOMAINS } from '../constants.js'
 import { classifyIntent, extractNumbers } from '../helpers.js'
 
 /**
@@ -31,8 +30,8 @@ export class Extractor implements ExtractorInterface {
 	readonly #domains: Readonly<Record<string, readonly string[]>>
 
 	constructor(options?: ExtractorOptions) {
-		this.#actions = { ...DEFAULT_ACTIONS, ...options?.actions }
-		this.#domains = { ...DEFAULT_DOMAINS, ...options?.domains }
+		this.#actions = { ...options?.actions }
+		this.#domains = { ...options?.domains }
 	}
 
 	extract(text: string): ExtractResult {

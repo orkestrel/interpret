@@ -28,17 +28,18 @@ npm install @orkestrel/interpret
 ## Usage
 
 ```ts
-import { createInterpret } from '@orkestrel/interpret'
-import { factorGroup, fieldFactor, quantitativeDefinition } from '@orkestrel/reason'
+import { createExtractor, createInterpret } from '@orkestrel/interpret'
+import {
+	createFactorGroup,
+	createFieldFactor,
+	createQuantitativeDefinition,
+} from '@orkestrel/reason'
 
 const interpret = createInterpret({
-	extractor: {
-		extract: () => ({
-			intent: { action: 'calculate', domain: 'arithmetic', confidence: 1 },
-			numbers: [42],
-			complete: true,
-		}),
-	},
+	extractor: createExtractor({
+		actions: { calculate: 'calculate' },
+		domains: { arithmetic: ['arithmetic'] },
+	}),
 	templates: [
 		{
 			id: 't1',
@@ -48,8 +49,8 @@ const interpret = createInterpret({
 			mappings: [{ entity: 'value', aliases: [], field: 'value' }],
 			defaults: [],
 			computations: [],
-			definition: quantitativeDefinition('t1', 'Arithmetic', [
-				factorGroup('total', 'sum', [fieldFactor('value', 'value')]),
+			definition: createQuantitativeDefinition('t1', 'Arithmetic', [
+				createFactorGroup('total', 'sum', [createFieldFactor('value', 'value')]),
 			]),
 		},
 	],

@@ -30,7 +30,7 @@ describe('RecordManager', () => {
 		const record = addNote(notes, 'n1', 'first')
 		expect(record).toEqual({ id: 'n1', note: 'first', version: 1, hash: record.hash })
 		expect(record.hash.length).toBeGreaterThan(0)
-		expect(notes.size).toBe(1)
+		expect(notes.count).toBe(1)
 		expect(notes.has('n1')).toBe(true)
 		expect(notes.record('n1')).toBe(record)
 		expect(notes.records()).toEqual([record])
@@ -42,7 +42,7 @@ describe('RecordManager', () => {
 		expect(addNote(notes, 'n1', 'first').version).toBe(1)
 		expect(addNote(notes, 'n1', 'second').version).toBe(2)
 		expect(addNote(notes, 'n1', 'second').version).toBe(2)
-		expect(notes.size).toBe(1)
+		expect(notes.count).toBe(1)
 	})
 
 	it('derives the hash from the value alone — the same value hashes identically across ids', () => {
@@ -58,23 +58,23 @@ describe('RecordManager', () => {
 		expect(notes.remove('a')).toBe(true)
 		expect(notes.remove('missing')).toBe(false)
 		expect(notes.remove(['b', 'absent'])).toBe(false)
-		expect(notes.size).toBe(2)
+		expect(notes.count).toBe(2)
 		expect(notes.remove(['b', 'c'])).toBe(true)
-		expect(notes.size).toBe(0)
+		expect(notes.count).toBe(0)
 	})
 
 	it('remove() with no argument clears the collection', () => {
 		const notes = buildNotes()
 		addNote(notes, 'a', '1')
 		notes.remove()
-		expect(notes.size).toBe(0)
+		expect(notes.count).toBe(0)
 	})
 
 	it('names the configured entity in its DESTROYED throw, idempotently', () => {
 		const notes = buildNotes()
 		notes.destroy()
 		notes.destroy()
-		const error = captureError(() => notes.size)
+		const error = captureError(() => notes.count)
 		expect(isInterpretError(error) && error.code === 'DESTROYED').toBe(true)
 		expect(isInterpretError(error) && error.message).toBe('Note manager has been destroyed')
 	})

@@ -20,6 +20,14 @@ describe('Formatter', () => {
 		expect(formatter.format(intent, template, [], []).prompt).toBe('calculate Arithmetic')
 	})
 
+	it('renders an empty verb when the intent carries no action', () => {
+		const formatter = new Formatter({ verbs: { calculate: 'Calculate' } })
+		const template = buildInterpretTemplate()
+		expect(
+			formatter.format({ domain: 'arithmetic', confidence: 0.5 }, template, [], []).prompt,
+		).toBe(' Arithmetic')
+	})
+
 	it('appends a `with {label}: {value}` clause for non-default entities', () => {
 		const formatter = new Formatter({ verbs: { calculate: 'Calculate' } })
 		const template = buildInterpretTemplate()

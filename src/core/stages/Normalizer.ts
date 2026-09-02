@@ -4,7 +4,7 @@ import type {
 	NormalizerOptions,
 	TextChange,
 } from '../types.js'
-import { DEFAULT_ABBREVIATIONS, DEFAULT_CONTRACTIONS, DEFAULT_CORRECTIONS } from '../constants.js'
+import { DEFAULT_CONTRACTIONS } from '../constants.js'
 import { applyReplacements, collapseWhitespace, escapeRegExp } from '../helpers.js'
 
 /**
@@ -12,8 +12,10 @@ import { applyReplacements, collapseWhitespace, escapeRegExp } from '../helpers.
  * substitutions in order, then collapses whitespace.
  *
  * @remarks
- * Each caller map is merged OVER the neutral built-in default for its slot,
- * and `text` is never mutated. Every substitution actually applied
+ * The caller's `contractions` map is merged OVER `DEFAULT_CONTRACTIONS`;
+ * `abbreviations` and `corrections` carry no built-in vocabulary, so each is
+ * exactly what the caller supplied. `text` is never mutated, and every
+ * substitution actually applied
  * (one entry per matching map KEY, not per occurrence) is recorded on the
  * result's `changes`, in `contractions → abbreviations → corrections` order,
  * so the audit trail explains every character difference between `text` and
@@ -36,8 +38,8 @@ export class Normalizer implements NormalizerInterface {
 
 	constructor(options?: NormalizerOptions) {
 		this.#contractions = { ...DEFAULT_CONTRACTIONS, ...options?.contractions }
-		this.#abbreviations = { ...DEFAULT_ABBREVIATIONS, ...options?.abbreviations }
-		this.#corrections = { ...DEFAULT_CORRECTIONS, ...options?.corrections }
+		this.#abbreviations = { ...options?.abbreviations }
+		this.#corrections = { ...options?.corrections }
 	}
 
 	normalize(text: string): NormalizeResult {

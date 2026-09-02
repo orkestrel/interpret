@@ -15,7 +15,7 @@ describe('TemplateManager', () => {
 		expect(record.id).toBe('template-1')
 		expect(record.version).toBe(1)
 		expect(record.hash.length).toBeGreaterThan(0)
-		expect(manager.size).toBe(1)
+		expect(manager.count).toBe(1)
 		expect(manager.has('template-1')).toBe(true)
 		expect(manager.template('template-1')).toBe(record)
 	})
@@ -24,7 +24,7 @@ describe('TemplateManager', () => {
 		const manager = new TemplateManager({
 			templates: [buildInterpretTemplate({ id: 'a' }), buildInterpretTemplate({ id: 'b' })],
 		})
-		expect(manager.size).toBe(2)
+		expect(manager.count).toBe(2)
 		expect(manager.templates().map((record) => record.id)).toEqual(['a', 'b'])
 	})
 
@@ -57,22 +57,22 @@ describe('TemplateManager', () => {
 		expect(manager.remove('a')).toBe(true)
 		expect(manager.remove('missing')).toBe(false)
 		expect(manager.remove(['b', 'absent'])).toBe(false)
-		expect(manager.size).toBe(2)
+		expect(manager.count).toBe(2)
 		expect(manager.remove(['b', 'c'])).toBe(true)
-		expect(manager.size).toBe(0)
+		expect(manager.count).toBe(0)
 	})
 
 	it('remove() with no argument clears the registry', () => {
 		const manager = new TemplateManager({ templates: [buildInterpretTemplate()] })
 		manager.remove()
-		expect(manager.size).toBe(0)
+		expect(manager.count).toBe(0)
 	})
 
 	it('throws DESTROYED after destroy, idempotently', () => {
 		const manager = new TemplateManager({ templates: [buildInterpretTemplate()] })
 		manager.destroy()
 		manager.destroy()
-		const error = captureError(() => manager.size)
+		const error = captureError(() => manager.count)
 		expect(isInterpretError(error) && error.code === 'DESTROYED').toBe(true)
 	})
 

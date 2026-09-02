@@ -1,5 +1,5 @@
 import type { Entity, Intent } from '@src/core'
-import { constant, operation, variable } from '@orkestrel/reason'
+import { createConstant, createOperation, createVariable } from '@orkestrel/reason'
 import { Clarifier, Narrator } from '@src/core'
 import { describe, expect, it } from 'vitest'
 import {
@@ -115,7 +115,7 @@ describe('Clarifier', () => {
 				computations: [
 					{
 						field: 'monthly',
-						expression: operation('divide', variable('deductible'), constant(12)),
+						expression: createOperation('divide', createVariable('deductible'), createConstant(12)),
 					},
 				],
 			})
@@ -132,14 +132,74 @@ describe('Clarifier', () => {
 			})
 		})
 
+		it('binds each numeric element of an array-valued field under its index', () => {
+			const clarifier = new Clarifier()
+			const template = buildInterpretTemplate({
+				mappings: [{ entity: 'value', aliases: [], field: 'value' }],
+				computations: [
+					{
+						field: 'total',
+						expression: createOperation(
+							'add',
+							createOperation('add', createVariable('value.0'), createVariable('value.1')),
+							createVariable('value.2'),
+						),
+					},
+				],
+			})
+			const fresh: readonly Entity[] = [
+				{
+					name: 'value',
+					value: [10, 20, 30],
+					provenance: { category: 'extracted', detail: 'collect' },
+					confidence: 0.9,
+				},
+			]
+			const result = clarifier.clarify(fresh, template, undefined, intent)
+			expect(result.entities.find((entity) => entity.name === 'total')?.value).toBe(60)
+		})
+
+		it('leaves a computation over a non-numeric array element a gap', () => {
+			const clarifier = new Clarifier()
+			const template = buildInterpretTemplate({
+				mappings: [{ entity: 'value', aliases: [], field: 'value' }],
+				computations: [
+					{
+						field: 'total',
+						expression: createOperation(
+							'add',
+							createVariable('value.0'),
+							createVariable('value.1'),
+						),
+					},
+				],
+			})
+			const fresh: readonly Entity[] = [
+				{
+					name: 'value',
+					value: [10, 'twenty'],
+					provenance: { category: 'extracted', detail: 'collect' },
+					confidence: 0.9,
+				},
+			]
+			const result = clarifier.clarify(fresh, template, undefined, intent)
+			expect(result.entities.find((entity) => entity.name === 'total')).toBeUndefined()
+		})
+
 		it('resolves multi-step computed fields in dependency (topological) order', () => {
 			const clarifier = new Clarifier()
 			const template = buildInterpretTemplate({
 				mappings: [{ entity: 'value', aliases: [], field: 'value' }],
 				computations: [
 					// 'yearly' depends on 'monthly', which depends on the fresh 'value'
-					{ field: 'yearly', expression: operation('multiply', variable('monthly'), constant(12)) },
-					{ field: 'monthly', expression: operation('divide', variable('value'), constant(12)) },
+					{
+						field: 'yearly',
+						expression: createOperation('multiply', createVariable('monthly'), createConstant(12)),
+					},
+					{
+						field: 'monthly',
+						expression: createOperation('divide', createVariable('value'), createConstant(12)),
+					},
 				],
 			})
 			const fresh: readonly Entity[] = [
@@ -157,7 +217,7 @@ describe('Clarifier', () => {
 				computations: [
 					{
 						field: 'monthly',
-						expression: operation('divide', variable('deductible'), constant(12)),
+						expression: createOperation('divide', createVariable('deductible'), createConstant(12)),
 					},
 				],
 			})
@@ -170,7 +230,10 @@ describe('Clarifier', () => {
 			const template = buildInterpretTemplate({
 				mappings: [{ entity: 'value', aliases: [], field: 'value' }],
 				computations: [
-					{ field: 'ratio', expression: operation('divide', variable('value'), constant(0)) },
+					{
+						field: 'ratio',
+						expression: createOperation('divide', createVariable('value'), createConstant(0)),
+					},
 				],
 			})
 			const fresh: readonly Entity[] = [
@@ -185,8 +248,14 @@ describe('Clarifier', () => {
 			const template = buildInterpretTemplate({
 				mappings: [],
 				computations: [
-					{ field: 'a', expression: operation('add', variable('b'), constant(1)) },
-					{ field: 'b', expression: operation('add', variable('a'), constant(1)) },
+					{
+						field: 'a',
+						expression: createOperation('add', createVariable('b'), createConstant(1)),
+					},
+					{
+						field: 'b',
+						expression: createOperation('add', createVariable('a'), createConstant(1)),
+					},
 				],
 			})
 			const result = clarifier.clarify([], template, undefined, intent)

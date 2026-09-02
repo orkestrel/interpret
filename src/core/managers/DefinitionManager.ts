@@ -5,7 +5,7 @@ import type {
 	DefinitionManagerInterface,
 	DefinitionManagerOptions,
 	DefinitionRecord,
-	ManagerAddOptions,
+	RecordOptions,
 } from '../types.js'
 import { RecordManager } from './RecordManager.js'
 
@@ -24,13 +24,13 @@ import { RecordManager } from './RecordManager.js'
  *
  * @example
  * ```ts
- * import { symbolicDefinition } from '@orkestrel/reason'
+ * import { createSymbolicDefinition } from '@orkestrel/reason'
  * import { DefinitionManager } from '@src/core'
  *
  * const manager = new DefinitionManager()
- * const record = manager.add(symbolicDefinition('rate', 'Rate', []))
+ * const record = manager.add(createSymbolicDefinition('rate', 'Rate', []))
  * record.id // 'rate'
- * manager.add(symbolicDefinition('rate', 'Rate', [])).version // 1 — identical re-add, no bump
+ * manager.add(createSymbolicDefinition('rate', 'Rate', [])).version // 1 — identical re-add, no bump
  * ```
  */
 export class DefinitionManager implements DefinitionManagerInterface {
@@ -49,8 +49,8 @@ export class DefinitionManager implements DefinitionManagerInterface {
 		return this.#records.emitter
 	}
 
-	get size(): number {
-		return this.#records.size
+	get count(): number {
+		return this.#records.count
 	}
 
 	has(id: string): boolean {
@@ -65,7 +65,7 @@ export class DefinitionManager implements DefinitionManagerInterface {
 		return this.#records.records()
 	}
 
-	add(definition: Definition, options?: ManagerAddOptions): DefinitionRecord {
+	add(definition: Definition, options?: RecordOptions): DefinitionRecord {
 		return this.#records.add(options?.id ?? definition.id, definition, (stamp, value) => ({
 			id: stamp.id,
 			definition: value,

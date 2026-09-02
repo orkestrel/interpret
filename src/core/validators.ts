@@ -98,12 +98,12 @@ export function isFieldDefault(value: unknown): value is FieldDefault {
  *
  * @example
  * ```ts
- * import { constant, operation, variable } from '@orkestrel/reason'
+ * import { createConstant, createOperation, createVariable } from '@orkestrel/reason'
  * import { isComputedField } from '@src/core'
  *
  * isComputedField({
  * 	field: 'monthly',
- * 	expression: operation('divide', variable('deductible'), constant(12)),
+ * 	expression: createOperation('divide', createVariable('deductible'), createConstant(12)),
  * }) // true
  * isComputedField({ field: 'monthly', expression: { form: 'variable' } }) // false — name missing
  * ```
@@ -126,7 +126,7 @@ export function isComputedField(value: unknown): value is ComputedField {
  *
  * @example
  * ```ts
- * import { factorGroup, fieldFactor, quantitativeDefinition } from '@orkestrel/reason'
+ * import { createFactorGroup, createFieldFactor, createQuantitativeDefinition } from '@orkestrel/reason'
  * import { isTemplate } from '@src/core'
  *
  * isTemplate({
@@ -137,8 +137,8 @@ export function isComputedField(value: unknown): value is ComputedField {
  * 	mappings: [],
  * 	defaults: [],
  * 	computations: [],
- * 	definition: quantitativeDefinition('t1', 'Arithmetic', [
- * 		factorGroup('total', 'sum', [fieldFactor('value', 'value')]),
+ * 	definition: createQuantitativeDefinition('t1', 'Arithmetic', [
+ * 		createFactorGroup('total', 'sum', [createFieldFactor('value', 'value')]),
  * 	]),
  * }) // true
  * isTemplate({ id: 't1' }) // false — most fields missing
@@ -187,16 +187,24 @@ export function isProvenance(value: unknown): value is Provenance {
  * @param value - The value to test
  * @returns `true` when the published intent members conform
  *
+ * @remarks
+ * `action` and `domain` are optional, because `classifyIntent` leaves an
+ * unmatched axis absent — an intent carrying neither still conforms.
+ *
  * @example
  * ```ts
  * import { isIntent } from '@src/core'
  *
  * isIntent({ action: 'calculate', domain: 'arithmetic', confidence: 1, metadata: true }) // true
+ * isIntent({ confidence: 0 })                                                            // true
  * isIntent({ action: 'calculate', domain: 'arithmetic', confidence: 'high' })             // false
  * ```
  */
 export function isIntent(value: unknown): value is Intent {
-	return objectOf({ action: isString, domain: isString, confidence: isNumber })(value)
+	return objectOf({ action: isString, domain: isString, confidence: isNumber }, [
+		'action',
+		'domain',
+	])(value)
 }
 
 /**

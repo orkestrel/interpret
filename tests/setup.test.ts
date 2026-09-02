@@ -16,15 +16,15 @@
 import type { Template } from '@src/core'
 import { resolveField } from '@orkestrel/contract'
 import {
-	constant,
+	createConstant,
 	createLogicalReasoner,
 	createReason,
 	createSymbolicReasoner,
-	equation,
-	logicalDefinition,
-	operation,
-	symbolicDefinition,
-	variable,
+	createEquation,
+	createLogicalDefinition,
+	createOperation,
+	createSymbolicDefinition,
+	createVariable,
 } from '@orkestrel/reason'
 import { describe, expect, it } from 'vitest'
 import {
@@ -46,11 +46,18 @@ import {
  * A one-equation symbolic definition solving `total = x + 1` from a seeded `x`, so a real
  * engine run yields a real `SymbolicResult` for the narrower to accept.
  */
-function buildSolvedDefinition(): ReturnType<typeof symbolicDefinition> {
-	return symbolicDefinition(
+function buildSolvedDefinition(): ReturnType<typeof createSymbolicDefinition> {
+	return createSymbolicDefinition(
 		'proof',
 		'Proof',
-		[equation('e1', constant(0), operation('add', variable('x'), constant(1)), 'total')],
+		[
+			createEquation(
+				'e1',
+				createConstant(0),
+				createOperation('add', createVariable('x'), createConstant(1)),
+				'total',
+			),
+		],
 		{ variables: { x: 5 } },
 	)
 }
@@ -83,7 +90,7 @@ describe('expectSymbolic', () => {
 	})
 
 	it('refuses a result of another reasoning, naming the reasoning it got', () => {
-		const result = createLogicalReasoner().reason({}, logicalDefinition('gate', 'Gate', []))
+		const result = createLogicalReasoner().reason({}, createLogicalDefinition('gate', 'Gate', []))
 
 		expect(() => expectSymbolic(result)).toThrow('Expected a symbolic result, got "logical"')
 	})

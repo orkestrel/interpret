@@ -9,7 +9,6 @@ import type {
 	Template,
 } from '../types.js'
 import { formatField } from '@orkestrel/reason'
-import { DEFAULT_VERBS } from '../constants.js'
 import { Narrator } from '../Narrator.js'
 
 /**
@@ -26,8 +25,9 @@ import { Narrator } from '../Narrator.js'
  * `prompt.*` line rather than minted from a literal here, so a caller rewords
  * the assembly by overriding those keys in a `Lexicon`. `verbs` maps
  * `intent.action` to its display verb; an action absent from the map falls
- * back to the action string itself. Every parameter is read — the signature
- * carries no argument the body ignores.
+ * back to the action string itself, and an intent carrying no action at all
+ * renders an empty verb. Every parameter is read — the signature carries no
+ * argument the body ignores.
  *
  * @example
  * ```ts
@@ -56,7 +56,7 @@ export class Formatter implements FormatterInterface {
 	readonly #narrator: NarratorInterface
 
 	constructor(options?: FormatterOptions) {
-		this.#verbs = { ...DEFAULT_VERBS, ...options?.verbs }
+		this.#verbs = { ...options?.verbs }
 		this.#narrator = options?.narrator ?? new Narrator()
 	}
 
@@ -66,7 +66,8 @@ export class Formatter implements FormatterInterface {
 		entities: readonly Entity[],
 		ambiguities: readonly Ambiguity[],
 	): FormatResult {
-		const verb = this.#verbs[intent.action] ?? intent.action
+		const action = intent.action
+		const verb = action === undefined ? '' : (this.#verbs[action] ?? action)
 		const resolved: string[] = []
 		const defaults: string[] = []
 		for (const entity of entities) {

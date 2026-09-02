@@ -34,11 +34,15 @@ import { Narrator } from '../Narrator.js'
  * value; template defaults fill any field still unresolved after carry-over;
  * computed fields resolve in dependency (topological) order via
  * `resolveExpression` — an unresolved input, a non-finite result, or a
- * dependency cycle leaves the field a gap, never landing an entity. `floor`
- * comes from {@link ClarifierOptions} rather than a hardcoded constant, and
- * gates whether a resolved entity's confidence counts as "resolved enough"
- * when raising ambiguities — a field with a value below `floor` still raises
- * its ambiguity. Every question is rendered through the injected
+ * dependency cycle leaves the field a gap, never landing an entity. A
+ * computation reads every resolved numeric field by name, and each numeric
+ * element of an array-valued field under `{field}.{index}`, so an aggregate
+ * over collected numbers is a computation the template author declares rather
+ * than a field the pipeline invents. `floor` comes from
+ * {@link ClarifierOptions} rather than a hardcoded constant, and gates whether
+ * a resolved entity's confidence counts as "resolved enough" when raising
+ * ambiguities — a field with a value below `floor` still raises its
+ * ambiguity. Every question is rendered through the injected
  * {@link NarratorInterface}'s `ambiguity.entity` line rather than minted from
  * a literal here, so wording stays caller data.
  *
@@ -145,15 +149,25 @@ export class Clarifier implements ClarifierInterface {
 		}
 	}
 
-	// Resolves computed fields in dependency order, seeding bindings from
-	// every already-resolved numeric field (extracted/carried/default), then
+	// Resolves computed fields in dependency order, seeding bindings from every
+	// already-resolved numeric field (extracted/carried/default) and from each
+	// numeric element of an array-valued field under `{field}.{index}`, then
 	// growing bindings as each computed field lands.
 	#resolveComputations(template: Template, filledFields: Set<string>, resolved: Entity[]): void {
 		const bindings: Record<string, number> = {}
 		for (const entity of resolved) {
 			const mapping = template.mappings.find((candidate) => candidate.entity === entity.name)
 			const field = mapping === undefined ? entity.name : formatField(mapping.field)
-			if (isFiniteNumber(entity.value)) bindings[field] = entity.value
+			const value = entity.value
+			if (isFiniteNumber(value)) {
+				bindings[field] = value
+				continue
+			}
+			if (!Array.isArray(value)) continue
+			for (let index = 0; index < value.length; index += 1) {
+				const item = value[index]
+				if (isFiniteNumber(item)) bindings[`${field}.${index}`] = item
+			}
 		}
 
 		for (const computation of this.#orderComputations(template.computations)) {

@@ -2,8 +2,8 @@ import { Generator } from '@src/core'
 import { describe, expect, it } from 'vitest'
 import { buildInterpretTemplate, TRICKY_KEYS } from '../../../setup.js'
 
-// The `Generator` stage — entity → field, array unwrap/aggregate, mean
-// confidence, and a `FieldMapping` for EVERY subject field (design §8).
+// The `Generator` stage — entity → field, single-element array unwrap, mean
+// confidence, and a `FieldMapping` for EVERY subject field.
 
 describe('Generator', () => {
 	const generator = new Generator()
@@ -52,7 +52,7 @@ describe('Generator', () => {
 		expect(result.subject.value).toBe(42)
 	})
 
-	it('keeps a multi-element numeric array AND emits Sum/Count/Average/Minimum/Maximum aggregates', () => {
+	it('keeps a multi-element numeric array as it stands, deriving no sibling field', () => {
 		const template = buildInterpretTemplate()
 		const entities = [
 			{
@@ -63,27 +63,12 @@ describe('Generator', () => {
 			},
 		]
 		const result = generator.generate(entities, template)
-		expect(result.subject).toEqual({
-			value: [10, 20, 30],
-			valueSum: 60,
-			valueCount: 3,
-			valueAverage: 20,
-			valueMinimum: 10,
-			valueMaximum: 30,
-		})
-		const aggregateFields = result.mappings
-			.filter((mapping) => mapping.provenance.category === 'computed')
-			.map((mapping) => mapping.field)
-		expect(aggregateFields).toEqual([
-			'valueSum',
-			'valueCount',
-			'valueAverage',
-			'valueMinimum',
-			'valueMaximum',
-		])
+		expect(result.subject).toEqual({ value: [10, 20, 30] })
+		expect(result.mappings).toHaveLength(1)
+		expect(result.mappings[0]?.provenance.category).toBe('extracted')
 	})
 
-	it('a nested array mapping produces nested sibling aggregates (subject.address.amountsSum, ...)', () => {
+	it('writes a nested array mapping at its own path, deriving no sibling field', () => {
 		const template = buildInterpretTemplate({
 			mappings: [{ entity: 'value', aliases: [], field: ['address', 'amounts'] }],
 		})
@@ -96,29 +81,11 @@ describe('Generator', () => {
 			},
 		]
 		const result = generator.generate(entities, template)
-		expect(result.subject).toEqual({
-			address: {
-				amounts: [10, 20, 30],
-				amountsSum: 60,
-				amountsCount: 3,
-				amountsAverage: 20,
-				amountsMinimum: 10,
-				amountsMaximum: 30,
-			},
-		})
-		const aggregateMappings = result.mappings.filter(
-			(mapping) => mapping.provenance.category === 'computed',
-		)
-		expect(aggregateMappings.map((mapping) => mapping.field)).toEqual([
-			['address', 'amountsSum'],
-			['address', 'amountsCount'],
-			['address', 'amountsAverage'],
-			['address', 'amountsMinimum'],
-			['address', 'amountsMaximum'],
-		])
+		expect(result.subject).toEqual({ address: { amounts: [10, 20, 30] } })
+		expect(result.mappings.map((mapping) => mapping.field)).toEqual([['address', 'amounts']])
 	})
 
-	it('leaves a multi-element NON-numeric array untouched — no aggregates', () => {
+	it('leaves a multi-element NON-numeric array untouched', () => {
 		const template = buildInterpretTemplate()
 		const entities = [
 			{
@@ -231,7 +198,7 @@ describe('Generator', () => {
 			expect(result.subject).not.toBe(entities)
 		})
 
-		it('never mutates a multi-element array entity value while building aggregates', () => {
+		it('never mutates a multi-element array entity value while building the subject', () => {
 			const template = buildInterpretTemplate()
 			const value = Object.freeze([10, 20, 30])
 			const entities = [

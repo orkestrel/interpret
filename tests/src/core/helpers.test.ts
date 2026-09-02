@@ -1,15 +1,16 @@
 import {
-	constant,
+	createConstant,
 	createSymbolicReasoner,
-	equation,
-	operation,
-	symbolicDefinition,
-	variable,
+	createEquation,
+	createOperation,
+	createSymbolicDefinition,
+	createVariable,
 } from '@orkestrel/reason'
 import {
 	applyReplacements,
 	assignEntities,
 	canonicalize,
+	canonicalizeNode,
 	classifyIntent,
 	collapseWhitespace,
 	createNarrator,
@@ -234,23 +235,28 @@ describe('classifyIntent', () => {
 		})
 		expect(classifyIntent('calculate something', actions, {})).toEqual({
 			action: 'compute',
-			domain: '',
 			confidence: 0.5,
 		})
 		expect(classifyIntent('the rate please', {}, domains)).toEqual({
-			action: '',
 			domain: 'rating',
 			confidence: 0.5,
 		})
-		expect(classifyIntent('hello there', {}, {})).toEqual({ action: '', domain: '', confidence: 0 })
+		expect(classifyIntent('hello there', {}, {})).toEqual({ confidence: 0 })
+	})
+
+	it('leaves an unmatched axis absent rather than an empty string', () => {
+		const unclassified = classifyIntent('hello there', {}, {})
+		expect(unclassified.action).toBeUndefined()
+		expect(unclassified.domain).toBeUndefined()
+		expect(Object.hasOwn(unclassified, 'action')).toBe(false)
+		expect(Object.hasOwn(unclassified, 'domain')).toBe(false)
+		const halfClassified = classifyIntent('calculate something', { calculate: 'compute' }, {})
+		expect(halfClassified.action).toBe('compute')
+		expect(Object.hasOwn(halfClassified, 'domain')).toBe(false)
 	})
 
 	it('never auto-classifies from a domain name absent from the caller vocabulary (ledger 18)', () => {
-		expect(classifyIntent('arithmetic please', {}, {})).toEqual({
-			action: '',
-			domain: '',
-			confidence: 0,
-		})
+		expect(classifyIntent('arithmetic please', {}, {})).toEqual({ confidence: 0 })
 	})
 
 	it('is deterministic across repeated calls', () => {
@@ -274,9 +280,29 @@ describe('scoreSimilarity / matchAlias', () => {
 	})
 })
 
-describe('canonicalize / digestValue', () => {
+describe('canonicalize / canonicalizeNode / digestValue', () => {
 	it('canonicalize is key-order independent for records', () => {
 		expect(canonicalize({ b: 1, a: 2 })).toBe(canonicalize({ a: 2, b: 1 }))
+	})
+
+	it('canonicalize starts the leaf from an empty ancestor path', () => {
+		const subject = { b: 1, a: 2 }
+		expect(canonicalize(subject)).toBe('{"a":2,"b":1}')
+		expect(canonicalize(subject)).toBe(canonicalizeNode(subject, new Set()))
+	})
+
+	it('canonicalizeNode renders a node already on the ancestor path as the cycle marker', () => {
+		const subject = { age: 25 }
+		expect(canonicalizeNode(subject, new Set([subject]))).toBe('"[cycle]"')
+		const items = [1, 2]
+		expect(canonicalizeNode(items, new Set([items]))).toBe('"[cycle]"')
+	})
+
+	it('canonicalizeNode keeps a sibling repeat of one object out of the cycle branch', () => {
+		const shared = { a: 1 }
+		expect(canonicalizeNode({ left: shared, right: shared }, new Set())).toBe(
+			'{"left":{"a":1},"right":{"a":1}}',
+		)
 	})
 
 	it('digestValue is key-order independent and deterministic', () => {
@@ -374,8 +400,19 @@ describe('scoreTemplate / matchTemplate', () => {
 		expect(scoreTemplate({ action: 'nope', domain: 'other', confidence: 1 }, template)).toBe(0)
 	})
 
+	it('scores an absent axis as no match on that half', () => {
+		const template = buildInterpretTemplate()
+		expect(scoreTemplate({ domain: 'arithmetic', confidence: 0.5 }, template)).toBe(0.5)
+		expect(scoreTemplate({ action: 'calculate', confidence: 0.5 }, template)).toBe(0.5)
+		expect(scoreTemplate({ confidence: 0 }, template)).toBe(0)
+	})
+
 	it('matchTemplate returns undefined on an empty registry (explicit no-match, never templates[0])', () => {
-		expect(matchTemplate({ action: '', domain: '', confidence: 0 }, [], 0.3)).toBeUndefined()
+		expect(matchTemplate({ confidence: 0 }, [], 0.3)).toBeUndefined()
+	})
+
+	it('matchTemplate refuses an unclassified intent against a real template', () => {
+		expect(matchTemplate({ confidence: 0 }, [buildInterpretTemplate()], 0.3)).toBeUndefined()
 	})
 
 	it('matchTemplate returns undefined when the best score is below floor', () => {
@@ -395,46 +432,51 @@ describe('scoreTemplate / matchTemplate', () => {
 
 describe('variablesOf', () => {
 	it('collects variable names in first-occurrence order, deduplicated', () => {
-		const tree = operation(
+		const tree = createOperation(
 			'add',
-			variable('x'),
-			operation('multiply', variable('y'), variable('x')),
+			createVariable('x'),
+			createOperation('multiply', createVariable('y'), createVariable('x')),
 		)
 		expect(variablesOf(tree)).toEqual(['x', 'y'])
 	})
 
 	it('returns empty for a tree with no variables', () => {
-		expect(variablesOf(constant(1))).toEqual([])
+		expect(variablesOf(createConstant(1))).toEqual([])
 	})
 })
 
 describe('resolveExpression', () => {
 	it('resolves a simple division (deductible/12)', () => {
 		expect(
-			resolveExpression(operation('divide', variable('deductible'), constant(12)), {
-				deductible: 6000,
-			}),
+			resolveExpression(
+				createOperation('divide', createVariable('deductible'), createConstant(12)),
+				{
+					deductible: 6000,
+				},
+			),
 		).toBeCloseTo(500, 10)
 	})
 
 	it('divide-by-zero becomes a gap (undefined), never NaN on the subject', () => {
-		expect(resolveExpression(operation('divide', constant(1), constant(0)), {})).toBeUndefined()
+		expect(
+			resolveExpression(createOperation('divide', createConstant(1), createConstant(0)), {}),
+		).toBeUndefined()
 	})
 
 	it('an unresolved input variable is a gap', () => {
-		expect(resolveExpression(variable('missing'), {})).toBeUndefined()
+		expect(resolveExpression(createVariable('missing'), {})).toBeUndefined()
 		expect(
-			resolveExpression(operation('add', variable('missing'), constant(1)), {}),
+			resolveExpression(createOperation('add', createVariable('missing'), createConstant(1)), {}),
 		).toBeUndefined()
 	})
 
 	it('unary operations (round/ceil/floor/abs) ignore the absent right operand', () => {
-		expect(resolveExpression(operation('floor', constant(2.7)), {})).toBe(2)
-		expect(resolveExpression(operation('abs', constant(-4)), {})).toBe(4)
+		expect(resolveExpression(createOperation('floor', createConstant(2.7)), {})).toBe(2)
+		expect(resolveExpression(createOperation('abs', createConstant(-4)), {})).toBe(4)
 	})
 
 	it('is deterministic across repeated calls', () => {
-		const tree = operation('divide', variable('deductible'), constant(12))
+		const tree = createOperation('divide', createVariable('deductible'), createConstant(12))
 		expect(resolveExpression(tree, { deductible: 6000 })).toBe(
 			resolveExpression(tree, { deductible: 6000 }),
 		)
@@ -443,7 +485,7 @@ describe('resolveExpression', () => {
 	describe('EXTREME_NUMBERS through a computed expression', () => {
 		it('adding 0 to every extreme value returns it unchanged (finite stays finite)', () => {
 			for (const value of EXTREME_NUMBERS) {
-				const tree = operation('add', variable('x'), constant(0))
+				const tree = createOperation('add', createVariable('x'), createConstant(0))
 				// `-0 + 0` is `+0` by IEEE-754 addition (not `Object.is`-equal to `-0`), so this
 				// probes numeric EQUALITY, not bitwise identity — the one EXTREME_NUMBERS entry
 				// that legitimately changes representation under `+0` addition.
@@ -452,22 +494,30 @@ describe('resolveExpression', () => {
 		})
 
 		it('an overflowing multiply (MAX_VALUE * MAX_VALUE) becomes a gap, not Infinity', () => {
-			const tree = operation('multiply', constant(Number.MAX_VALUE), constant(Number.MAX_VALUE))
+			const tree = createOperation(
+				'multiply',
+				createConstant(Number.MAX_VALUE),
+				createConstant(Number.MAX_VALUE),
+			)
 			expect(resolveExpression(tree, {})).toBeUndefined()
 		})
 
 		it('dividing the smallest EXTREME_NUMBERS value by a huge constant stays finite', () => {
-			const tree = operation('divide', constant(Number.MIN_VALUE), constant(Number.MAX_VALUE))
+			const tree = createOperation(
+				'divide',
+				createConstant(Number.MIN_VALUE),
+				createConstant(Number.MAX_VALUE),
+			)
 			const result = resolveExpression(tree, {})
 			expect(result).toBeDefined()
 			expect(Number.isFinite(result)).toBe(true)
 		})
 
 		it('EPSILON survives an add/subtract round trip through the tree', () => {
-			const tree = operation(
+			const tree = createOperation(
 				'subtract',
-				operation('add', variable('base'), constant(Number.EPSILON)),
-				constant(Number.EPSILON),
+				createOperation('add', createVariable('base'), createConstant(Number.EPSILON)),
+				createConstant(Number.EPSILON),
 			)
 			expect(resolveExpression(tree, { base: 1 })).toBeCloseTo(1, 15)
 		})
@@ -475,12 +525,12 @@ describe('resolveExpression', () => {
 
 	describe('absent-operand parity with the engine (SymbolicReasoner)', () => {
 		it('add with absent right defaults to 0 in both resolveExpression and the engine', () => {
-			const node = operation('add', variable('x'))
+			const node = createOperation('add', createVariable('x'))
 			const viaHelper = resolveExpression(node, { x: 5 })
-			const definition = symbolicDefinition(
+			const definition = createSymbolicDefinition(
 				'd',
 				'D',
-				[equation('e1', constant(0), node, 'result')],
+				[createEquation('e1', createConstant(0), node, 'result')],
 				{
 					variables: { x: 5 },
 				},
@@ -490,12 +540,12 @@ describe('resolveExpression', () => {
 		})
 
 		it('multiply with absent right is 0 (engine-pinned, NOT Transform default 1) in both paths', () => {
-			const node = operation('multiply', variable('x'))
+			const node = createOperation('multiply', createVariable('x'))
 			const viaHelper = resolveExpression(node, { x: 5 })
-			const definition = symbolicDefinition(
+			const definition = createSymbolicDefinition(
 				'd',
 				'D',
-				[equation('e1', constant(0), node, 'result')],
+				[createEquation('e1', createConstant(0), node, 'result')],
 				{
 					variables: { x: 5 },
 				},
@@ -506,12 +556,12 @@ describe('resolveExpression', () => {
 		})
 
 		it('divide with absent right is a gap here and NaN→gap in the engine (both non-finite)', () => {
-			const node = operation('divide', variable('x'))
+			const node = createOperation('divide', createVariable('x'))
 			const viaHelper = resolveExpression(node, { x: 5 })
-			const definition = symbolicDefinition(
+			const definition = createSymbolicDefinition(
 				'd',
 				'D',
-				[equation('e1', constant(0), node, 'result')],
+				[createEquation('e1', createConstant(0), node, 'result')],
 				{
 					variables: { x: 5 },
 				},

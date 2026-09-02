@@ -12,10 +12,9 @@ import type { Definition, ReasonResult, Subject, SymbolicExpression } from '@ork
 // `Subject` / `ReasonResult` render to display-neutral prose, complementing
 // (never duplicating) raters' `describe*` family. Nothing here is an LLM,
 // provider, or agent — the `prompt` a result carries is FOR an external
-// model, never consumed internally. Types are the source of truth
-// (`AGENTS.md` § Design laws); every discriminant names its axis, never
-// `kind` / `type`: `stage` splits pipeline phases, `category` splits
-// provenance, `code` splits coded errors.
+// model, never consumed internally. Types are the source of truth, and every
+// discriminant names its axis, never `kind` / `type`: `stage` splits pipeline
+// phases, `category` splits provenance, `code` splits coded errors.
 
 // === Vocabulary
 
@@ -53,8 +52,7 @@ export type InterpretStage = 'normalize' | 'extract' | 'clarify' | 'format' | 'g
  * phase. `NO_TEMPLATE` — no registered {@link Template} scored at or above
  * the confidence floor (or the registry is empty). `LOW_CONFIDENCE` — a
  * template matched but the classified {@link Intent}'s confidence fell below
- * the floor. `INVALID_TEMPLATE` — `createTemplate` was handed data that
- * fails `isTemplate`. `DESTROYED` — any use of a destroyed entity.
+ * the floor. `DESTROYED` — any use of a destroyed entity.
  */
 export type InterpretErrorCode =
 	| 'NORMALIZE_FAILED'
@@ -64,7 +62,6 @@ export type InterpretErrorCode =
 	| 'GENERATE_FAILED'
 	| 'NO_TEMPLATE'
 	| 'LOW_CONFIDENCE'
-	| 'INVALID_TEMPLATE'
 	| 'DESTROYED'
 
 // === Template data model — pure JSON-serializable, versionable, diffable, hashable
@@ -102,7 +99,9 @@ export interface FieldDefault {
  * / `Operation`), evaluated by the pure `resolveExpression` helper rather
  * than a closure, so a `Template` stays JSON-serializable end to end. A
  * `ComputedField` declares no dependency list of its own — `variablesOf`
- * derives every dependency from the tree.
+ * derives every dependency from the tree. A `Variable` names a resolved field,
+ * or one numeric element of an array-valued field as `{field}.{index}`, which
+ * is how a template author declares an aggregate over collected numbers.
  */
 export interface ComputedField {
 	readonly field: FieldPath
@@ -147,11 +146,13 @@ export interface Provenance {
  * @remarks
  * Produced by `classifyIntent` against caller-supplied `actions` / `domains`
  * vocabularies only — there is no built-in en-US worldview and no
- * auto-classification from a registered template's own `domain` name.
+ * auto-classification from a registered template's own `domain` name. An axis
+ * the vocabularies leave unmatched is absent (`undefined`), never an empty
+ * string, so a reader tells "unclassified" from "classified as `''`".
  */
 export interface Intent {
-	readonly action: string
-	readonly domain: string
+	readonly action?: string
+	readonly domain?: string
 	readonly confidence: number
 }
 
@@ -340,16 +341,17 @@ export interface DefinitionRecord {
  *
  * @remarks
  * `interpret` fires once per completed `interpret()` call, complete OR
- * incomplete — visibility is the point. `register` fires when a template is
- * registered, carrying its id. `error` fires with the raw thrown value when
- * an injected stage implementation throws. `destroy` fires once on teardown.
+ * incomplete — visibility is the point. `add` fires when a template is added,
+ * carrying its id, and names the same act as the {@link RecordEventMap} row
+ * the call forwards to. `error` fires with the raw thrown value when an
+ * injected stage implementation throws. `destroy` fires once on teardown.
  * Listener isolation is the emitter's own — never routed onto this map.
  */
 export type InterpretEventMap = {
 	/** An `interpret()` call completed — carries the full result. */
 	readonly interpret: readonly [result: Interpretation]
-	/** A template was registered — carries its id. */
-	readonly register: readonly [templateId: string]
+	/** A template was added — carries its id. */
+	readonly add: readonly [templateId: string]
 	/** An injected stage implementation threw — carries the raw thrown value. */
 	readonly error: readonly [error: unknown]
 	/** The orchestrator was destroyed. */
@@ -442,8 +444,11 @@ export interface NarratorOptions {
  * Options for `createNormalizer` / the `Normalizer` constructor.
  *
  * @remarks
- * Each map is merged OVER the neutral built-in defaults, applied in order
- * contractions → abbreviations → corrections, before whitespace collapse.
+ * The maps apply in order — contractions → abbreviations → corrections —
+ * before whitespace collapse. `contractions` merges OVER
+ * `DEFAULT_CONTRACTIONS`; `abbreviations` and `corrections` carry no built-in
+ * vocabulary, because an abbreviation or a misspelling set is domain worldview
+ * rather than mechanism.
  */
 export interface NormalizerOptions {
 	readonly contractions?: Readonly<Record<string, string>>
@@ -495,16 +500,6 @@ export interface FormatterOptions {
 	readonly verbs?: Readonly<Record<string, string>>
 	readonly narrator?: NarratorInterface
 }
-
-/**
- * Options for `createGenerator` / the `Generator` constructor.
- *
- * @remarks
- * Currently an empty extension seam — the `Generator` stage takes no
- * configuration today, but keeps its own options type so a future knob
- * never has to change the `GeneratorInterface#generate` call signature.
- */
-export interface GeneratorOptions {}
 
 /** Options for `createTemplateManager` / the `TemplateManager` constructor — the initial seed collection. */
 export interface TemplateManagerOptions {
@@ -589,7 +584,7 @@ export interface RecordManagerOptions {
  */
 export interface RecordManagerInterface<TValue, TRecord extends RecordStamp> {
 	readonly emitter: EmitterInterface<RecordEventMap>
-	readonly size: number
+	readonly count: number
 	has(id: string): boolean
 	record(id: string): TRecord | undefined
 	records(): readonly TRecord[]
@@ -601,7 +596,7 @@ export interface RecordManagerInterface<TValue, TRecord extends RecordStamp> {
 }
 
 /**
- * Per-call options shared by every manager's `add` method.
+ * Per-call options for the record every manager's `add` method holds.
  *
  * @remarks
  * `id` overrides the minted record id. `TemplateManagerInterface#add` /
@@ -609,7 +604,7 @@ export interface RecordManagerInterface<TValue, TRecord extends RecordStamp> {
  * field when omitted; `SubjectManagerInterface#add` mints a fresh id when
  * omitted, since a `Subject` carries no `id` field of its own.
  */
-export interface ManagerAddOptions {
+export interface RecordOptions {
 	readonly id?: string
 }
 
@@ -627,7 +622,9 @@ export interface InterpretContextOptions {
  * @remarks
  * `templates` seeds the registry. `context` supplies a shared
  * {@link InterpretContextInterface} (a fresh one is constructed when
- * omitted). Each stage slot is BRING-YOUR-OWN — a supplied implementation is
+ * omitted); a supplied context stays the caller's to tear down, and
+ * `destroy()` leaves it alive for the other orchestrators sharing it. Each
+ * stage slot is BRING-YOUR-OWN — a supplied implementation is
  * used as-is, else the built-in stage is constructed with its own defaults,
  * so a caller who wants a configured stage constructs that stage and supplies
  * the instance. There are no per-stage option keys here: `floor` is the one
@@ -636,8 +633,10 @@ export interface InterpretContextOptions {
  * `DEFAULT_INTERPRET_SIMILARITY`) and `floor` (intent confidence floor,
  * default `DEFAULT_INTERPRET_FLOOR`) are two distinct, clearly named axes —
  * each honored wherever it applies, never a single overloaded `threshold`.
- * `history` caps the context's `previous()` ring buffer. `on` — initial event
- * listeners. `error` — the emitter's listener-error handler.
+ * `history` caps the context's `previous()` ring buffer. `narrator` groups the
+ * wording settings the orchestrator builds its own {@link NarratorInterface}
+ * from, keeping them clear of the `formatter` stage slot beside them. `on` —
+ * initial event listeners. `error` — the emitter's listener-error handler.
  */
 export interface InterpretOptions {
 	readonly templates?: readonly Template[]
@@ -650,8 +649,7 @@ export interface InterpretOptions {
 	readonly similarity?: number
 	readonly floor?: number
 	readonly history?: number
-	readonly lexicon?: Lexicon
-	readonly formatters?: Readonly<Record<string, NarratorFormatter>>
+	readonly narrator?: NarratorOptions
 	readonly on?: EmitterHooks<InterpretEventMap>
 	readonly error?: EmitterErrorHandler
 }
@@ -692,7 +690,16 @@ export interface FormatterInterface {
 	): FormatResult
 }
 
-/** The `Generator` stage contract: build the final subject/definition pair plus its field audit. */
+/**
+ * The `Generator` stage contract: build the final subject/definition pair plus
+ * its field audit.
+ *
+ * @remarks
+ * Every field the built subject carries comes from an entity the caller's own
+ * {@link Template} declared — a mapping, a default, or a
+ * {@link ComputedField}. The stage derives no field of its own, so a subject
+ * never gains a sibling the template author did not ask for.
+ */
 export interface GeneratorInterface {
 	generate(entities: readonly Entity[], template: Template): GenerateResult
 }
@@ -729,18 +736,17 @@ export interface NarratorInterface {
  * the singular/plural accessor pair and the batch `remove` overloads.
  *
  * @remarks
- * `size` (never `count` — this is the sole tally in scope) mirrors the
- * raters `ProgramManagerInterface` registry precedent. `remove`'s batch form
- * is all-or-nothing: any missing id in the list leaves the collection
- * untouched and returns `false`.
+ * `count` is the registry's lone tally. `remove`'s batch form is
+ * all-or-nothing: any missing id in the list leaves the collection untouched
+ * and returns `false`.
  */
 export interface TemplateManagerInterface {
 	readonly emitter: EmitterInterface<TemplateManagerEventMap>
-	readonly size: number
+	readonly count: number
 	has(id: string): boolean
 	template(id: string): TemplateRecord | undefined
 	templates(): readonly TemplateRecord[]
-	add(template: Template, options?: ManagerAddOptions): TemplateRecord
+	add(template: Template, options?: RecordOptions): TemplateRecord
 	remove(ids: readonly string[]): boolean
 	remove(id: string): boolean
 	remove(): void
@@ -753,11 +759,11 @@ export interface TemplateManagerInterface {
  */
 export interface SubjectManagerInterface {
 	readonly emitter: EmitterInterface<SubjectManagerEventMap>
-	readonly size: number
+	readonly count: number
 	has(id: string): boolean
 	subject(id: string): SubjectRecord | undefined
 	subjects(): readonly SubjectRecord[]
-	add(subject: Subject, options?: ManagerAddOptions): SubjectRecord
+	add(subject: Subject, options?: RecordOptions): SubjectRecord
 	remove(ids: readonly string[]): boolean
 	remove(id: string): boolean
 	remove(): void
@@ -767,11 +773,11 @@ export interface SubjectManagerInterface {
 /** The definition registry — a self-owning, versioned/hashed record-holder. */
 export interface DefinitionManagerInterface {
 	readonly emitter: EmitterInterface<DefinitionManagerEventMap>
-	readonly size: number
+	readonly count: number
 	has(id: string): boolean
 	definition(id: string): DefinitionRecord | undefined
 	definitions(): readonly DefinitionRecord[]
-	add(definition: Definition, options?: ManagerAddOptions): DefinitionRecord
+	add(definition: Definition, options?: RecordOptions): DefinitionRecord
 	remove(ids: readonly string[]): boolean
 	remove(id: string): boolean
 	remove(): void
@@ -807,21 +813,28 @@ export interface InterpretContextInterface {
  *
  * @remarks
  * `interpret` is genuinely SYNCHRONOUS — it returns its
- * {@link Interpretation} directly, never a `Promise`. `register` /
- * `unregister` / `template` / `templates`
- * delegate to an internal {@link TemplateManagerInterface} but expose plain
- * {@link Template} data, not the richer versioned record. `describe` /
+ * {@link Interpretation} directly, never a `Promise`. `add` / `remove` /
+ * `template` / `templates` name the same acts as the
+ * {@link TemplateManagerInterface} they delegate to, and expose plain
+ * {@link Template} data rather than the richer versioned record — which is why
+ * `add` returns `void` where `TemplateManagerInterface#add` returns the record
+ * it minted. `remove` carries the same batch overloads as that delegate, so
+ * the shared verb promises no form the orchestrator lacks. `describe` /
  * `narrate` are the reverse direction — structure-to-prose, complementing
  * (never duplicating) raters' `describe*` family. After `destroy()` every
  * method except the `emitter` getter and `destroy` itself throws
- * `InterpretError('DESTROYED', …)`; `destroy()` is idempotent and tears the
+ * `InterpretError('DESTROYED', …)`; `destroy()` is idempotent, tears down the
+ * template registry and the context it constructed itself — never a `context`
+ * the caller supplied, which outlives this orchestrator — and tears the
  * emitter down LAST.
  */
 export interface InterpretInterface {
 	readonly emitter: EmitterInterface<InterpretEventMap>
 	interpret(text: string): Interpretation
-	register(template: Template): void
-	unregister(id: string): boolean
+	add(template: Template): void
+	remove(ids: readonly string[]): boolean
+	remove(id: string): boolean
+	remove(): void
 	template(id: string): Template | undefined
 	templates(): readonly Template[]
 	describe(definition: Definition): string
