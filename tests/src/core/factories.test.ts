@@ -88,7 +88,7 @@ describe('createInterpret', () => {
 		expect(interpret.templates()).toHaveLength(1)
 	})
 
-	it('honors construction hooks via emitter events', () => {
+	it('honors construction hooks through emitter events', () => {
 		const interpretEvents = createRecorder<InterpretEventMap['interpret']>()
 		const interpret = createInterpret({
 			templates: [buildInterpretTemplate()],
@@ -180,7 +180,7 @@ describe('createTemplateManager', () => {
 		expect(manager.has('template-1')).toBe(true)
 	})
 
-	it('honors a custom id via add options', () => {
+	it('honors a custom id through add options', () => {
 		const manager = createTemplateManager()
 		const record = manager.add(buildInterpretTemplate(), { id: 'custom-id' })
 		expect(record.id).toBe('custom-id')
@@ -195,7 +195,7 @@ describe('createSubjectManager', () => {
 		expect(manager.count).toBe(1)
 	})
 
-	it('honors a custom id via add options', () => {
+	it('honors a custom id through add options', () => {
 		const manager = createSubjectManager()
 		const record = manager.add({ value: 1 }, { id: 'custom-subject' })
 		expect(record.id).toBe('custom-subject')
@@ -214,7 +214,7 @@ describe('createDefinitionManager', () => {
 		expect(manager.has('d1')).toBe(true)
 	})
 
-	it('honors a custom id via add options', () => {
+	it('honors a custom id through add options', () => {
 		const manager = createDefinitionManager()
 		const record = manager.add(definition, { id: 'custom-definition' })
 		expect(record.id).toBe('custom-definition')

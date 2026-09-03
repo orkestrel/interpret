@@ -21,7 +21,7 @@ describe('Normalizer', () => {
 			abbreviations: { yr: 'year' },
 			corrections: { cannot: 'CANNOT' },
 		})
-		// "can't" expands to "cannot" via the built-in contraction FIRST, so the
+		// "can't" expands to "cannot" through the built-in contraction FIRST, so the
 		// later correction stage (targeting "cannot") sees the already-expanded
 		// text and fires too — proving sequencing, not just independent maps.
 		const result = normalizer.normalize("can't wait 1 yr")

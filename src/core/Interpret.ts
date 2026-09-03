@@ -45,8 +45,8 @@ import { Normalizer } from './stages/Normalizer.js'
  *
  * @remarks
  * `interpret()` is genuinely SYNCHRONOUS — it returns its
- * {@link Interpretation} directly, never a `Promise` — and runs a fixed
- * five-stage pipeline —
+ * {@link Interpretation} directly, never a `Promise` — and runs the fixed
+ * pipeline
  * `[normalize, extract, clarify, format, generate]` — each producing one
  * {@link StageRecord}. Between `extract` and `clarify` the orchestrator matches
  * the classified {@link Intent} against its added {@link Template}s and,
@@ -451,7 +451,7 @@ export class Interpret implements InterpretInterface {
 	}
 
 	// Assemble a visible incomplete result: pad the un-run stages with skipped
-	// records so `stages` always holds exactly five, digest over the known
+	// records so `stages` always holds one record per phase, digest over the known
 	// pre-image, record the result in context, and emit `interpret` (an
 	// incomplete run is still a completed CALL — visibility is the point).
 	#assemble(

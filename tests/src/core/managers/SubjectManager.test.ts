@@ -5,7 +5,7 @@ import { captureError, createRecorders } from '@orkestrel/test'
 
 // The `SubjectManager` registry — mints its OWN identity per subject (defect 7),
 // content-hashed with content-derived version bumps, all-or-nothing batch
-// remove, DESTROYED after teardown (design §0/§8).
+// remove, DESTROYED after teardown.
 
 describe('SubjectManager', () => {
 	it('mints a fresh id for every added subject — successive turns never overwrite', () => {

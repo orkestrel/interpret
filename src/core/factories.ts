@@ -37,7 +37,7 @@ import { Normalizer } from './stages/Normalizer.js'
  * Creates an interpretation orchestrator.
  *
  * @remarks
- * `interpret()` is genuinely synchronous and runs the fixed five-stage
+ * `interpret()` is genuinely synchronous and runs the fixed
  * pipeline `[normalize, extract, clarify, format, generate]`. Every stage
  * slot (`normalizer` / `extractor` / `clarifier` / `formatter` / `generator`)
  * is bring-your-own — a supplied implementation is used as-is, else the

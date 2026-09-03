@@ -32,7 +32,7 @@ import type { Definition, ReasonResult, Subject, SymbolicExpression } from '@ork
 export type ProvenanceCategory = 'extracted' | 'carried' | 'default' | 'computed' | 'subject'
 
 /**
- * Names the five fixed pipeline phases an {@link InterpretInterface#interpret} run
+ * Names the fixed pipeline phases an {@link InterpretInterface#interpret} run
  * produces one {@link StageRecord} for, in order.
  *
  * @remarks
@@ -275,8 +275,8 @@ export interface GenerateResult {
  * `subject` / `definition` are absent on an incomplete `NO_TEMPLATE` /
  * `LOW_CONFIDENCE` result — there is never a fabricated fallback template. An
  * interpretation is complete when `ambiguities` and `failures` are both empty;
- * no stored flag repeats that fact. `stages` always holds
- * exactly five records, `[normalize, extract, clarify, format, generate]`,
+ * no stored flag repeats that fact. `stages` always holds one record per
+ * phase, `[normalize, extract, clarify, format, generate]`,
  * in order. `digest` is `digestValue` over `{text, templateId,
  * templateVersion, subject, definition}` — re-running the same original text
  * against the same template version reproduces the same digest (the replay

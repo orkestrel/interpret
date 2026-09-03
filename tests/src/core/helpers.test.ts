@@ -285,7 +285,7 @@ describe('classifyIntent', () => {
 		expect(Object.hasOwn(halfClassified, 'domain')).toBe(false)
 	})
 
-	it('never auto-classifies from a domain name absent from the caller vocabulary (ledger 18)', () => {
+	it('never auto-classifies from a domain name absent from the caller vocabulary', () => {
 		expect(classifyIntent('arithmetic please', {}, {})).toEqual({ confidence: 0 })
 	})
 

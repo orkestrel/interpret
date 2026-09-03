@@ -14,14 +14,15 @@
 > `describe*` family. Nothing here is an LLM, provider, or agent — the
 > `prompt` a result carries is FOR an external model, never consumed
 > internally. Every discriminant names its axis, never `kind` / `type`:
-> `stage` splits the five pipeline phases, `category` splits provenance, and
+> `stage` splits the `[normalize, extract, clarify, format, generate]` pipeline
+> phases, `category` splits provenance, and
 > `code` splits coded errors. Source: [`src/core`](../src/core).
 > Surfaced through the `@src/core` barrel.
 
 ## Surface
 
-Add a template, interpret text through the five-stage pipeline, then
-render the result back to prose:
+Add a template, interpret text through the normalize/extract/clarify/format/generate
+pipeline, then render the result back to prose:
 
 ```ts
 import { createExtractor, createInterpret } from '@orkestrel/interpret'
@@ -62,7 +63,7 @@ interpret.describe(result.definition ?? createQuantitativeDefinition('t1', 'Arit
 interpret.destroy()
 ```
 
-`interpret()` is genuinely SYNCHRONOUS and runs the fixed five-stage pipeline
+`interpret()` is genuinely SYNCHRONOUS and runs the fixed pipeline
 `[normalize, extract, clarify, format, generate]`; a `NO_TEMPLATE` /
 `LOW_CONFIDENCE` non-match, or a thrown stage, both yield a visible
 INCOMPLETE `Interpretation` (never an arbitrary fallback template) rather
@@ -74,7 +75,7 @@ than throwing. An interpretation is complete when `ambiguities` and
 | Type                         | Kind      | Shape                                                                                                                                                                                                                                                     |
 | ---------------------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ProvenanceCategory`         | type      | `'extracted' \| 'carried' \| 'default' \| 'computed' \| 'subject'` — how one value was obtained.                                                                                                                                                          |
-| `InterpretStage`             | type      | `'normalize' \| 'extract' \| 'clarify' \| 'format' \| 'generate'` — the five fixed pipeline phases, in order.                                                                                                                                             |
+| `InterpretStage`             | type      | `'normalize' \| 'extract' \| 'clarify' \| 'format' \| 'generate'` — the fixed pipeline phases, in order.                                                                                                                                                  |
 | `InterpretErrorCode`         | type      | `'NORMALIZE_FAILED' \| 'EXTRACT_FAILED' \| 'CLARIFY_FAILED' \| 'FORMAT_FAILED' \| 'GENERATE_FAILED' \| 'NO_TEMPLATE' \| 'LOW_CONFIDENCE' \| 'DESTROYED'` — coded `InterpretError` reasons.                                                                |
 | `EntityMapping`              | interface | `{ entity, aliases, field, required? }` — one entity-extraction rule pointing at a subject field.                                                                                                                                                         |
 | `FieldDefault`               | interface | `{ field, value }` — a fallback value filled onto an unresolved field.                                                                                                                                                                                    |
@@ -366,6 +367,7 @@ Digest, template matching, computed-field resolution, and the reverse
 direction:
 
 ```ts
+import type { Template } from '@orkestrel/interpret'
 import {
 	canonicalize,
 	canonicalizeNode,
@@ -400,7 +402,7 @@ resolveExpression(
 renderSubject({ age: 25, income: 50000 }, createNarrator()) // 'with age: 25, income: 50000'
 
 const gate = { action: 'compute', domain: 'rating', confidence: 1 }
-const template = {
+const template: Template = {
 	id: 't1',
 	name: 'T',
 	domain: 'rating',
@@ -408,7 +410,7 @@ const template = {
 	mappings: [],
 	defaults: [],
 	computations: [],
-	definition: { reasoning: 'symbolic' as const, id: 't1', name: 'T', equations: [], variables: {} },
+	definition: { reasoning: 'symbolic', id: 't1', name: 'T', equations: [], variables: {} },
 }
 scoreTemplate(gate, template) // 1
 ```
@@ -507,20 +509,20 @@ createDefinitionManager({
 
 ### Entities
 
-| API                 | Kind  | Summary                                                                                                                                |
-| ------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `Interpret`         | class | The interpretation orchestrator — runs the five-stage pipeline, owns the template registry and context, exposes the reverse direction. |
-| `Narrator`          | class | A stateless, total, lexicon-driven rendering engine for the reverse direction.                                                         |
-| `Normalizer`        | class | The `Normalizer` stage — contraction/abbreviation/correction substitutions plus whitespace collapse.                                   |
-| `Extractor`         | class | The `Extractor` stage — template-agnostic intent classification plus numeric mining.                                                   |
-| `Clarifier`         | class | The `Clarifier` stage — same-domain carry-over, defaults, and dependency-ordered computed fields.                                      |
-| `Formatter`         | class | The `Formatter` stage — renders the refined natural-language prompt.                                                                   |
-| `Generator`         | class | The `Generator` stage — builds the final subject/definition pair plus its field audit.                                                 |
-| `RecordManager`     | class | The shared registry engine every record manager composes — the collection, the content hash, the version rule, and teardown.           |
-| `TemplateManager`   | class | The self-owning, versioned/hashed template registry.                                                                                   |
-| `SubjectManager`    | class | The self-owning, versioned/hashed subject registry that mints its own record ids.                                                      |
-| `DefinitionManager` | class | The self-owning, versioned/hashed definition registry.                                                                                 |
-| `InterpretContext`  | class | Cross-turn interpretation context — a capped, replayable history plus the subject/definition registries.                               |
+| API                 | Kind  | Summary                                                                                                                                                                       |
+| ------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Interpret`         | class | The interpretation orchestrator — runs the `[normalize, extract, clarify, format, generate]` pipeline, owns the template registry and context, exposes the reverse direction. |
+| `Narrator`          | class | A stateless, total, lexicon-driven rendering engine for the reverse direction.                                                                                                |
+| `Normalizer`        | class | The `Normalizer` stage — contraction/abbreviation/correction substitutions plus whitespace collapse.                                                                          |
+| `Extractor`         | class | The `Extractor` stage — template-agnostic intent classification plus numeric mining.                                                                                          |
+| `Clarifier`         | class | The `Clarifier` stage — same-domain carry-over, defaults, and dependency-ordered computed fields.                                                                             |
+| `Formatter`         | class | The `Formatter` stage — renders the refined natural-language prompt.                                                                                                          |
+| `Generator`         | class | The `Generator` stage — builds the final subject/definition pair plus its field audit.                                                                                        |
+| `RecordManager`     | class | The shared registry engine every record manager composes — the collection, the content hash, the version rule, and teardown.                                                  |
+| `TemplateManager`   | class | The self-owning, versioned/hashed template registry.                                                                                                                          |
+| `SubjectManager`    | class | The self-owning, versioned/hashed subject registry that mints its own record ids.                                                                                             |
+| `DefinitionManager` | class | The self-owning, versioned/hashed definition registry.                                                                                                                        |
+| `InterpretContext`  | class | Cross-turn interpretation context — a capped, replayable history plus the subject/definition registries.                                                                      |
 
 ## Methods
 
@@ -952,16 +954,16 @@ supplied-context half of that rule: `InterpretInterface` publishes no context
 accessor, so nothing outside reads the state of a context the orchestrator
 constructed itself or subscribes to its emitter.
 
-| Method      | Returns                 | Behavior                                                                                               |
-| ----------- | ----------------------- | ------------------------------------------------------------------------------------------------------ |
-| `interpret` | `Interpretation`        | Run the five-stage pipeline over raw text, returning a complete or visible-incomplete result.          |
-| `add`       | `void`                  | Add one template; emits `add`.                                                                         |
-| `remove`    | `boolean` (or `void`)   | Remove LISTED templates by id, ONE template by id, or ALL templates.                                   |
-| `template`  | `Template \| undefined` | Look up ONE added template's plain data by id.                                                         |
-| `templates` | `readonly Template[]`   | List ALL added templates' plain data.                                                                  |
-| `describe`  | `string`                | Render a reasons `Definition` to a one-line, display-neutral description.                              |
-| `narrate`   | `string`                | Render a reasons `ReasonResult` to a one-line, display-neutral description.                            |
-| `destroy`   | `void`                  | Idempotent teardown — the template registry, the context it constructed itself, then the emitter LAST. |
+| Method      | Returns                 | Behavior                                                                                                                             |
+| ----------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `interpret` | `Interpretation`        | Run the `[normalize, extract, clarify, format, generate]` pipeline over raw text, returning a complete or visible-incomplete result. |
+| `add`       | `void`                  | Add one template; emits `add`.                                                                                                       |
+| `remove`    | `boolean` (or `void`)   | Remove LISTED templates by id, ONE template by id, or ALL templates.                                                                 |
+| `template`  | `Template \| undefined` | Look up ONE added template's plain data by id.                                                                                       |
+| `templates` | `readonly Template[]`   | List ALL added templates' plain data.                                                                                                |
+| `describe`  | `string`                | Render a reasons `Definition` to a one-line, display-neutral description.                                                            |
+| `narrate`   | `string`                | Render a reasons `ReasonResult` to a one-line, display-neutral description.                                                          |
+| `destroy`   | `void`                  | Idempotent teardown — the template registry, the context it constructed itself, then the emitter LAST.                               |
 
 ```ts
 import { createExtractor, createInterpret } from '@orkestrel/interpret'

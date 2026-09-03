@@ -14,7 +14,7 @@ import {
 
 // The interprets pure-leaf inventory — every function here is
 // a referentially-transparent computation with no instance state, exported
-// and independently unit-testable. Stateful orchestration (the five-stage
+// and independently unit-testable. Stateful orchestration (the fixed
 // pipeline, entity assignment sequencing, template registration) lives on the
 // `Interpret` orchestrator and its stage classes, never here.
 

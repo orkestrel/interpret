@@ -2,7 +2,7 @@ import { Extractor } from '@src/core'
 import { describe, expect, it } from 'vitest'
 
 // The `Extractor` stage — template-agnostic: intent classification + raw
-// number mining only, never entity assignment (design §2/§8, ledger 17).
+// number mining only, never entity assignment.
 
 describe('Extractor', () => {
 	it('extracts raw numbers and classifies intent from caller vocabulary', () => {

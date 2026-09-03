@@ -25,9 +25,10 @@ import {
 	createCorpusExtractor,
 } from '../../setup.js'
 
-// The `Interpret` orchestrator — registry, synchronous five-stage pipeline,
+// The `Interpret` orchestrator — registry, synchronous
+// `[normalize, extract, clarify, format, generate]` pipeline,
 // explicit NO_TEMPLATE / LOW_CONFIDENCE gates, visible stage-throw failures,
-// reverse passthroughs, emitter, and DESTROYED teardown (design §2/§8).
+// reverse passthroughs, emitter, and DESTROYED teardown.
 
 describe('Interpret', () => {
 	describe('registry', () => {
@@ -66,7 +67,7 @@ describe('Interpret', () => {
 	})
 
 	describe('pipeline', () => {
-		it('runs the five ordered stages and produces a complete result', () => {
+		it('runs the normalize/extract/clarify/format/generate stages in order and produces a complete result', () => {
 			const interpret = new Interpret({
 				templates: [buildInsuranceTemplate()],
 				extractor: createCorpusExtractor(),

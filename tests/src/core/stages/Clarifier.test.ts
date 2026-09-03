@@ -9,8 +9,8 @@ import {
 } from '../../../setup.js'
 
 // The `Clarifier` stage — carry-over, defaults, computed fields (topological,
-// gap-on-cycle), and floor-gated ambiguities (design §8). Drives a REAL
-// `InterpretContext` (via `seedInterpretContext`) — the Clarifier only ever
+// gap-on-cycle), and floor-gated ambiguities. Drives a REAL
+// `InterpretContext` (through `seedInterpretContext`) — the Clarifier only ever
 // calls `context.previous()`.
 
 const intent: Intent = { action: 'calculate', domain: 'arithmetic', confidence: 1 }
@@ -108,7 +108,7 @@ describe('Clarifier', () => {
 	})
 
 	describe('computed fields', () => {
-		it('resolves a computed field via resolveExpression against resolved bindings', () => {
+		it('resolves a computed field through resolveExpression against resolved bindings', () => {
 			const clarifier = new Clarifier()
 			const template = buildInterpretTemplate({
 				mappings: [{ entity: 'deductible', aliases: [], field: 'deductible' }],

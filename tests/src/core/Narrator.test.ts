@@ -22,7 +22,7 @@ import { TRICKY_KEYS } from '../../setup.js'
 // The `Narrator` — a stateless, total, lexicon-driven reverse rendering
 // engine (`AGENTS.md` § Design laws, mechanism not product policy). Every
 // wording decision is data
-// supplied via the lexicon/formatters seam, mirroring the forward
+// supplied through the lexicon/formatters seam, mirroring the forward
 // `Formatter`'s `verbs` option.
 
 const QUANTITATIVE = createQuantitativeDefinition('premium', 'Premium', [
@@ -452,7 +452,7 @@ describe('Narrator', () => {
 
 	describe('totality against a type-violating lexicon / formatters (defense-in-depth)', () => {
 		// Adversarial data built the same way the house convention builds off-shape
-		// input elsewhere (e.g. tests/src/core/raters/validators.test.ts) —
+		// input elsewhere (for example tests/src/core/raters/validators.test.ts) —
 		// `JSON.parse` assigned directly into a typed binding, no `as` cast.
 		it('a null sub-record under phrases degrades to fallback/key, never throws', () => {
 			const lexicon: Lexicon = JSON.parse('{"phrases":{"comparison":null}}')

@@ -63,14 +63,14 @@ result.subject // { value: 42 }
 interpret.destroy()
 ```
 
-`interpret()` is genuinely synchronous and runs the fixed five-stage
+`interpret()` is genuinely synchronous and runs the fixed
 pipeline `[normalize, extract, clarify, format, generate]`. A `NO_TEMPLATE`
 / `LOW_CONFIDENCE` non-match, or a thrown stage, both yield a visible
 INCOMPLETE result rather than an arbitrary fallback.
 
 ## Guide
 
-For the full surface — the `Interpret` orchestrator, the five pipeline
+For the full surface — the `Interpret` orchestrator, the pipeline
 stages, the template/subject/definition managers, the cross-turn context,
 the lexicon-driven `Narrator`, helpers, validators, factories, errors, and
 the observation surface — see

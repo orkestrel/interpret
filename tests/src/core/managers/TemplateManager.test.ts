@@ -6,7 +6,7 @@ import { buildInterpretTemplate } from '../../../setup.js'
 
 // The `TemplateManager` registry — versioned/hashed records, content-derived
 // version bumps (identical re-add keeps its version), all-or-nothing batch
-// remove, and DESTROYED after teardown (design §0/§8).
+// remove, and DESTROYED after teardown.
 
 describe('TemplateManager', () => {
 	it('adds a template as a versioned, content-hashed record keyed by its id', () => {

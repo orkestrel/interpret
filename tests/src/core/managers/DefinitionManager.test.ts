@@ -6,7 +6,7 @@ import { captureError, createRecorders } from '@orkestrel/test'
 
 // The `DefinitionManager` registry — versioned/hashed records keyed by the
 // definition id, content-derived version bumps, all-or-nothing batch remove,
-// DESTROYED after teardown (design §0/§8).
+// DESTROYED after teardown.
 
 describe('DefinitionManager', () => {
 	it('adds a definition keyed by its own id as a versioned, hashed record', () => {

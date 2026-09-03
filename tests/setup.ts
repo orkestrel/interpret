@@ -124,7 +124,7 @@ export function buildInterpretTemplate(overrides?: Partial<Template>): Template 
 /**
  * The neutral caller ACTION vocabulary the interprets integration corpus wires
  * into its `Extractor` (`token → action-name`). The redesign has no built-in
- * worldview (divergence ledger 6) — every domain/action word a template answers
+ * worldview — every domain/action word a template answers
  * to must be supplied here, not baked into core.
  */
 export const INTERPRET_ACTIONS: Readonly<Record<string, string>> = Object.freeze({
@@ -136,8 +136,8 @@ export const INTERPRET_ACTIONS: Readonly<Record<string, string>> = Object.freeze
 
 /**
  * The neutral caller DOMAIN vocabulary the interprets integration corpus wires
- * into its `Extractor` (`domain-name → keyword-list`). Per divergence ledger 18
- * a template's own `domain` no longer auto-classifies — a caller MUST list each
+ * into its `Extractor` (`domain-name → keyword-list`). A template's own `domain`
+ * no longer auto-classifies — a caller MUST list each
  * template's domain keywords here for domain classification to fire.
  */
 export const INTERPRET_DOMAINS: Readonly<Record<string, readonly string[]>> = Object.freeze({
@@ -320,7 +320,7 @@ export function buildInterpretation(overrides?: Partial<Interpretation>): Interp
 
 /**
  * Seed a REAL {@link InterpretContext} with `previous` — one `.add(...)` call per
- * given {@link Interpretation}, via the class's own public API — the canonical
+ * given {@link Interpretation}, through the class's own public API — the canonical
  * form the `Clarifier` carry-over scenarios seed a real context with
  * (`.claude/rules/tests.md` § Test contract: "Use real implementations and
  * small scenarios"). The real `InterpretContext` flattens

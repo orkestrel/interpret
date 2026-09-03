@@ -16,7 +16,7 @@ import {
 // 49-case suite (sync API; no-match is auditable-incomplete, never templates[0];
 // no durations): forward NL → subject/definition, cross-turn carry-over,
 // multi-template best-match, add-after-miss, computed fields, the numeric
-// corpus pins, full provenance, and determinism + digest-replay (design §8).
+// corpus pins, full provenance, and determinism + digest-replay.
 
 function build(templates = [buildInsuranceTemplate()]): Interpret {
 	return new Interpret({ templates, extractor: createCorpusExtractor() })
