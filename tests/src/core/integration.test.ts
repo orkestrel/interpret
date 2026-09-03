@@ -1,6 +1,6 @@
 import type { InterpretEventMap } from '@src/core'
 import { createOperation, createVariable } from '@orkestrel/reason'
-import { Extractor, Interpret } from '@src/core'
+import { Interpret } from '@src/core'
 import { createRecorders } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import {
@@ -9,8 +9,7 @@ import {
 	buildInterpretTemplate,
 	buildLoanTemplate,
 	buildStatisticsTemplate,
-	INTERPRET_ACTIONS,
-	INTERPRET_DOMAINS,
+	createCorpusExtractor,
 } from '../../setup.js'
 
 // The interprets integration corpus — the terrain-vocabulary redesign of scsr's
@@ -20,10 +19,7 @@ import {
 // corpus pins, full provenance, and determinism + digest-replay (design §8).
 
 function build(templates = [buildInsuranceTemplate()]): Interpret {
-	return new Interpret({
-		templates,
-		extractor: new Extractor({ actions: INTERPRET_ACTIONS, domains: INTERPRET_DOMAINS }),
-	})
+	return new Interpret({ templates, extractor: createCorpusExtractor() })
 }
 
 describe('interprets integration', () => {
@@ -33,7 +29,8 @@ describe('interprets integration', () => {
 		expect(result.intent).toEqual({ action: 'calculate', domain: 'insurance', confidence: 1 })
 		expect(result.definition?.id).toBe('insurance-auto')
 		expect(result.subject).toMatchObject({ age: 25, accidents: 0, coverage: 'standard' })
-		expect(result.complete).toBe(true)
+		expect(result.ambiguities).toEqual([])
+		expect(result.failures).toEqual([])
 		expect(result.prompt.length).toBeGreaterThan(0)
 		interpret.destroy()
 	})
@@ -56,15 +53,13 @@ describe('interprets integration', () => {
 	})
 
 	it('add-after-miss: an unmatched turn is incomplete, a later add completes it', () => {
-		const interpret = new Interpret({
-			extractor: new Extractor({ actions: INTERPRET_ACTIONS, domains: INTERPRET_DOMAINS }),
-		})
+		const interpret = new Interpret({ extractor: createCorpusExtractor() })
 		const first = interpret.interpret('calculate insurance age 25')
-		expect(first.complete).toBe(false)
-		expect(first.failures[0]?.code).toBe('NO_TEMPLATE')
+		expect(first.failures.map((failure) => failure.code)).toEqual(['NO_TEMPLATE'])
 		interpret.add(buildInsuranceTemplate())
 		const second = interpret.interpret('calculate insurance age 25')
-		expect(second.complete).toBe(true)
+		expect(second.ambiguities).toEqual([])
+		expect(second.failures).toEqual([])
 		expect(second.definition?.id).toBe('insurance-auto')
 		interpret.destroy()
 	})

@@ -2,7 +2,7 @@ import type { FieldPath } from '@orkestrel/contract'
 import type { EmitterErrorHandler, EmitterHooks, EmitterInterface } from '@orkestrel/emitter'
 import type { Definition, ReasonResult, Subject, SymbolicExpression } from '@orkestrel/reason'
 
-// Interprets — a zero-dependency, synchronous, deterministic bidirectional
+// Interprets — a synchronous, deterministic bidirectional
 // bridge between natural language and the reasons engine, plus the manager
 // that owns the interpretation lifecycle. FORWARD: raw text is normalized,
 // classified into an intent, matched against an added `Template`, mined
@@ -22,7 +22,7 @@ import type { Definition, ReasonResult, Subject, SymbolicExpression } from '@ork
  * Names how one {@link FieldMapping} / {@link Entity} value was obtained.
  *
  * @remarks
- * `extracted` — mined from the raw text via keyword / alias / positional
+ * `extracted` — mined from the raw text through keyword / alias / positional
  * matching. `carried` — reused from a same-domain prior turn in an
  * {@link InterpretContextInterface}. `default` — filled from a
  * {@link Template}'s {@link FieldDefault}. `computed` — derived by evaluating
@@ -245,14 +245,12 @@ export interface NormalizeResult {
 export interface ExtractResult {
 	readonly intent: Intent
 	readonly numbers: readonly number[]
-	readonly complete: boolean
 }
 
 /** Represents the `Clarifier` stage's output: resolved entities plus any remaining ambiguities. */
 export interface ClarifyResult {
 	readonly entities: readonly Entity[]
 	readonly ambiguities: readonly Ambiguity[]
-	readonly complete: boolean
 }
 
 /** Represents the `Formatter` stage's output: the refined natural-language prompt. */
@@ -275,8 +273,9 @@ export interface GenerateResult {
  *
  * @remarks
  * `subject` / `definition` are absent on an incomplete `NO_TEMPLATE` /
- * `LOW_CONFIDENCE` result — there is never a fabricated fallback template.
- * `stages` always holds
+ * `LOW_CONFIDENCE` result — there is never a fabricated fallback template. An
+ * interpretation is complete when `ambiguities` and `failures` are both empty;
+ * no stored flag repeats that fact. `stages` always holds
  * exactly five records, `[normalize, extract, clarify, format, generate]`,
  * in order. `digest` is `digestValue` over `{text, templateId,
  * templateVersion, subject, definition}` — re-running the same original text
@@ -295,7 +294,6 @@ export interface Interpretation {
 	readonly prompt: string
 	readonly stages: readonly StageRecord[]
 	readonly failures: readonly StageFailure[]
-	readonly complete: boolean
 	readonly confidence: number
 	readonly digest: string
 }
@@ -422,9 +420,9 @@ export type NarratorFormatter = (value: unknown) => string
  *
  * @remarks
  * `phrases` is a two-level lookup (`table` → `key` → phrase) for domain
- * vocabulary swaps (e.g. `comparison.equals` → `'is'`). `labels` maps a
+ * vocabulary swaps (for example `comparison.equals` → `'is'`). `labels` maps a
  * dotted `FieldPath` string to its display label, falling back to
- * `formatField` when absent. `templates` maps a template id (e.g.
+ * `formatField` when absent. `templates` maps a template id (for example
  * `'definition.quantitative'`, `'result.symbolic'`, `'subject.fields'`) to an
  * @orkestrel/template `fillTemplate` template string — see `DEFAULT_LEXICON`
  * for the pinned neutral key set. Token grammar (the `[^{}]` token class, the
@@ -799,7 +797,7 @@ export interface DefinitionManagerInterface {
  * configured `history` (default `DEFAULT_INTERPRET_HISTORY`). `entities()`
  * flattens every entity recorded across the buffered history, most recent
  * last — the read carry-over consults. `add` pushes one completed
- * {@link Interpretation}, dropping the oldest entry once the cap is reached.
+ * {@link Interpretation}, dropping the oldest entry after the cap is reached.
  */
 export interface InterpretContextInterface {
 	readonly emitter: EmitterInterface<InterpretContextEventMap>

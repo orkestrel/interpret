@@ -13,7 +13,7 @@ import { setField } from '../helpers.js'
  * entity set, plus its complete field audit.
  *
  * @remarks
- * `entity → field` via `template.mappings` (an `EntityMapping.entity` name
+ * `entity → field` through `template.mappings` (an `EntityMapping.entity` name
  * lookup); an entity whose name matches no mapping lands on the field named
  * by its OWN `name` — the shape `Clarifier` uses for its synthesized
  * default/computed entities, so one lookup rule serves both extraction-

@@ -370,7 +370,6 @@ export function isInterpretation(value: unknown): value is Interpretation {
 			prompt: isString,
 			stages: arrayOf(isStageRecord),
 			failures: arrayOf(isStageFailure),
-			complete: isBoolean,
 			confidence: isNumber,
 			digest: isString,
 		},

@@ -16,23 +16,18 @@ import {
 	createSymbolicReasoner,
 	createVariable,
 } from '@orkestrel/reason'
-import { createNarrator, Extractor, Interpret, InterpretContext, isInterpretError } from '@src/core'
+import { createNarrator, Interpret, InterpretContext, isInterpretError } from '@src/core'
 import { captureError, createRecorders } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import {
 	buildInsuranceTemplate,
 	buildInterpretTemplate,
-	INTERPRET_ACTIONS,
-	INTERPRET_DOMAINS,
+	createCorpusExtractor,
 } from '../../setup.js'
 
 // The `Interpret` orchestrator — registry, synchronous five-stage pipeline,
 // explicit NO_TEMPLATE / LOW_CONFIDENCE gates, visible stage-throw failures,
 // reverse passthroughs, emitter, and DESTROYED teardown (design §2/§8).
-
-function corpusExtractor(): ExtractorInterface {
-	return new Extractor({ actions: INTERPRET_ACTIONS, domains: INTERPRET_DOMAINS })
-}
 
 describe('Interpret', () => {
 	describe('registry', () => {
@@ -74,7 +69,7 @@ describe('Interpret', () => {
 		it('runs the five ordered stages and produces a complete result', () => {
 			const interpret = new Interpret({
 				templates: [buildInsuranceTemplate()],
-				extractor: corpusExtractor(),
+				extractor: createCorpusExtractor(),
 			})
 			const result = interpret.interpret('calculate insurance age 25')
 			expect(result.stages.map((stage) => stage.stage)).toEqual([
@@ -85,7 +80,7 @@ describe('Interpret', () => {
 				'generate',
 			])
 			expect(result.stages.every((stage) => !stage.failed)).toBe(true)
-			expect(result.complete).toBe(true)
+			expect(result.ambiguities).toEqual([])
 			expect(result.failures).toEqual([])
 			expect(result.subject).toMatchObject({ age: 25, accidents: 0, coverage: 'standard' })
 			expect(result.text).toBe('calculate insurance age 25')
@@ -93,10 +88,26 @@ describe('Interpret', () => {
 			interpret.destroy()
 		})
 
+		it('stores no completeness flag, so a reader derives it from ambiguities and failures', () => {
+			const interpret = new Interpret({
+				templates: [buildInsuranceTemplate()],
+				extractor: createCorpusExtractor(),
+			})
+			const resolved = interpret.interpret('calculate insurance age 25')
+			const unresolved = interpret.interpret('what is the meaning of life')
+
+			expect(Object.hasOwn(resolved, 'complete')).toBe(false)
+			expect(Object.hasOwn(unresolved, 'complete')).toBe(false)
+			expect(resolved.ambiguities).toEqual([])
+			expect(resolved.failures).toEqual([])
+			expect(unresolved.failures).not.toEqual([])
+			interpret.destroy()
+		})
+
 		it('records structured, non-blob per-stage input/output snapshots that chain across stages', () => {
 			const interpret = new Interpret({
 				templates: [buildInsuranceTemplate()],
-				extractor: corpusExtractor(),
+				extractor: createCorpusExtractor(),
 			})
 			const result = interpret.interpret('calculate insurance age 25')
 			const normalize = result.stages[0]
@@ -114,7 +125,7 @@ describe('Interpret', () => {
 		it('emits interpret once and error zero on the happy path', () => {
 			const interpret = new Interpret({
 				templates: [buildInsuranceTemplate()],
-				extractor: corpusExtractor(),
+				extractor: createCorpusExtractor(),
 			})
 			const events = createRecorders<InterpretEventMap, 'interpret' | 'error'>(interpret.emitter, [
 				'interpret',
@@ -131,10 +142,10 @@ describe('Interpret', () => {
 		it('yields an explicit incomplete result with a field:intent ambiguity, never a fallback template', () => {
 			const interpret = new Interpret({
 				templates: [buildInsuranceTemplate()],
-				extractor: corpusExtractor(),
+				extractor: createCorpusExtractor(),
 			})
 			const result = interpret.interpret('what is the meaning of life')
-			expect(result.complete).toBe(false)
+			expect(result.ambiguities).not.toEqual([])
 			expect(result.subject).toBeUndefined()
 			expect(result.definition).toBeUndefined()
 			expect(result.entities).toEqual([])
@@ -150,7 +161,7 @@ describe('Interpret', () => {
 		it('renders the gate question through the lexicon, so a caller rewords it', () => {
 			const interpret = new Interpret({
 				templates: [buildInsuranceTemplate()],
-				extractor: corpusExtractor(),
+				extractor: createCorpusExtractor(),
 				narrator: { lexicon: { templates: { 'ambiguity.intent': 'Which domain?' } } },
 			})
 			const result = interpret.interpret('what is the meaning of life')
@@ -161,10 +172,10 @@ describe('Interpret', () => {
 		it('fires NO_TEMPLATE even against a non-empty registry (no templates[0] fallback)', () => {
 			const interpret = new Interpret({
 				templates: [buildInsuranceTemplate()],
-				extractor: corpusExtractor(),
+				extractor: createCorpusExtractor(),
 			})
 			const result = interpret.interpret('compute statistics 42')
-			expect(result.complete).toBe(false)
+			expect(result.ambiguities).not.toEqual([])
 			expect(result.failures[0]?.code).toBe('NO_TEMPLATE')
 			interpret.destroy()
 		})
@@ -177,7 +188,6 @@ describe('Interpret', () => {
 					return {
 						intent: { action: 'calculate', domain: 'insurance', confidence: 0.1 },
 						numbers: [25],
-						complete: true,
 					}
 				},
 			}
@@ -186,7 +196,7 @@ describe('Interpret', () => {
 				extractor: weakExtractor,
 			})
 			const result = interpret.interpret('calculate insurance age 25')
-			expect(result.complete).toBe(false)
+			expect(result.ambiguities).not.toEqual([])
 			expect(result.subject).toBeUndefined()
 			expect(result.failures[0]?.code).toBe('LOW_CONFIDENCE')
 			expect(result.ambiguities[0]?.field).toBe('intent')
@@ -204,7 +214,7 @@ describe('Interpret', () => {
 			}
 			const interpret = new Interpret({
 				templates: [buildInsuranceTemplate()],
-				extractor: corpusExtractor(),
+				extractor: createCorpusExtractor(),
 				normalizer: throwingNormalizer,
 			})
 			const events = createRecorders<InterpretEventMap, 'interpret' | 'error'>(interpret.emitter, [
@@ -215,8 +225,7 @@ describe('Interpret', () => {
 			expect(result.stages[0]?.failed).toBe(true)
 			expect(result.stages[0]?.error).toBe('boom')
 			expect(result.stages).toHaveLength(5)
-			expect(result.failures[0]?.code).toBe('NORMALIZE_FAILED')
-			expect(result.complete).toBe(false)
+			expect(result.failures.map((failure) => failure.code)).toEqual(['NORMALIZE_FAILED'])
 			expect(events.error.count).toBe(1)
 			expect(events.interpret.count).toBe(1)
 			interpret.destroy()
@@ -236,8 +245,7 @@ describe('Interpret', () => {
 			expect(result.stages[1]?.failed).toBe(true)
 			expect(result.stages[1]?.error).toBe('extract boom')
 			expect(result.stages).toHaveLength(5)
-			expect(result.failures[0]?.code).toBe('EXTRACT_FAILED')
-			expect(result.complete).toBe(false)
+			expect(result.failures.map((failure) => failure.code)).toEqual(['EXTRACT_FAILED'])
 			interpret.destroy()
 		})
 
@@ -249,15 +257,14 @@ describe('Interpret', () => {
 			}
 			const interpret = new Interpret({
 				templates: [buildInsuranceTemplate()],
-				extractor: corpusExtractor(),
+				extractor: createCorpusExtractor(),
 				clarifier: throwingClarifier,
 			})
 			const result = interpret.interpret('calculate insurance age 25')
 			expect(result.stages[2]?.failed).toBe(true)
 			expect(result.stages[2]?.error).toBe('clarify boom')
 			expect(result.stages).toHaveLength(5)
-			expect(result.failures[0]?.code).toBe('CLARIFY_FAILED')
-			expect(result.complete).toBe(false)
+			expect(result.failures.map((failure) => failure.code)).toEqual(['CLARIFY_FAILED'])
 			interpret.destroy()
 		})
 
@@ -269,15 +276,14 @@ describe('Interpret', () => {
 			}
 			const interpret = new Interpret({
 				templates: [buildInsuranceTemplate()],
-				extractor: corpusExtractor(),
+				extractor: createCorpusExtractor(),
 				formatter: throwingFormatter,
 			})
 			const result = interpret.interpret('calculate insurance age 25')
 			expect(result.stages[3]?.failed).toBe(true)
 			expect(result.stages[3]?.error).toBe('format boom')
 			expect(result.stages).toHaveLength(5)
-			expect(result.failures[0]?.code).toBe('FORMAT_FAILED')
-			expect(result.complete).toBe(false)
+			expect(result.failures.map((failure) => failure.code)).toEqual(['FORMAT_FAILED'])
 			interpret.destroy()
 		})
 
@@ -289,15 +295,14 @@ describe('Interpret', () => {
 			}
 			const interpret = new Interpret({
 				templates: [buildInsuranceTemplate()],
-				extractor: corpusExtractor(),
+				extractor: createCorpusExtractor(),
 				generator: throwingGenerator,
 			})
 			const result = interpret.interpret('calculate insurance age 25')
 			expect(result.stages[4]?.failed).toBe(true)
 			expect(result.stages[4]?.error).toBe('generate boom')
 			expect(result.stages).toHaveLength(5)
-			expect(result.failures[0]?.code).toBe('GENERATE_FAILED')
-			expect(result.complete).toBe(false)
+			expect(result.failures.map((failure) => failure.code)).toEqual(['GENERATE_FAILED'])
 			interpret.destroy()
 		})
 	})

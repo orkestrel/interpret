@@ -2,17 +2,18 @@
 // Vitest project (`setupFiles[0]`). Keep this file free of `node:*` and of
 // `document` / `window` / Vue: DOM/Vue helpers live in `setupBrowser.ts`.
 //
-// Scoped to the `interprets` corpus this workspace ships today (AGENTS
-// §16.1): the interprets fixture builders and the reason-result narrower the
-// suites actually import. Generic test infrastructure — recorders, recorder
-// maps, error capture, unchecked invocation — comes from `@orkestrel/test`,
-// which every suite imports directly. A dep-originating symbol
-// (`@orkestrel/reason` / `@orkestrel/contract`) is imported from its OWN
-// package here, never from `@src/core` — the barrel re-exports only local
-// `interprets` modules (AGENTS §6).
+// Scoped to the `interprets` corpus this workspace ships today
+// (`.claude/rules/tests.md` § Test contract): the interprets fixture builders
+// and the reason-result narrower the suites actually import. Generic test
+// infrastructure — recorders, recorder maps, error capture, unchecked
+// invocation — comes from `@orkestrel/test`, which every suite imports
+// directly. A dep-originating symbol (`@orkestrel/reason` /
+// `@orkestrel/contract`) is imported from its OWN package here, never from
+// `@src/core` — the barrel re-exports only local `interprets` modules
+// (`.claude/rules/architecture.md` § Barrel exports).
 
 import type { ReasonResult, SymbolicResult } from '@orkestrel/reason'
-import type { Interpretation, Template } from '@src/core'
+import type { ExtractorInterface, Interpretation, Template } from '@src/core'
 import { isArray } from '@orkestrel/contract'
 import {
 	createConstant,
@@ -24,19 +25,14 @@ import {
 	createStaticFactor,
 	createVariable,
 } from '@orkestrel/reason'
-import { InterpretContext } from '@src/core'
-import { afterEach, vi } from 'vitest'
-
-afterEach(() => {
-	vi.restoreAllMocks()
-})
+import { Extractor, InterpretContext } from '@src/core'
 
 // ── Reason-result narrowing (environment-agnostic) ────────────────────────────
 
 /**
  * Narrow a `reason()` return to a `SymbolicResult` — throws on a batch array
  * or a result of another reasoning, so assertions read the narrowed result
- * with no casts (AGENTS §14).
+ * with no casts (`.claude/rules/patterns.md` § Validation and contracts).
  *
  * @param result - The single-or-batch return of a `reason()` call
  * @returns The result, narrowed to `SymbolicResult`
@@ -103,7 +99,8 @@ export const TRICKY_KEYS: readonly string[] = Object.freeze([
  * Build a small, neutral `Template` — a single `value` entity mapping onto a
  * one-factor quantitative definition — the shared fixture the `interprets`
  * validator, helper, stage, and orchestrator tests seed a registry with
- * instead of hand-writing the same literal repeatedly (AGENTS §16.1).
+ * instead of hand-writing the same literal repeatedly
+ * (`.claude/rules/tests.md` § Test contract).
  *
  * @param overrides - Fields merged over the neutral defaults
  * @returns The built template
@@ -150,6 +147,17 @@ export const INTERPRET_DOMAINS: Readonly<Record<string, readonly string[]>> = Ob
 	loan: ['loan'],
 	statistics: ['statistics', 'stats'],
 })
+
+/**
+ * Creates the corpus `Extractor` every suite that drives the interprets corpus
+ * wires — the one assembly of `INTERPRET_ACTIONS` and `INTERPRET_DOMAINS`, so
+ * the vocabulary pair cannot drift across the suites that consume it.
+ *
+ * @returns A fresh `Extractor` over the corpus action and domain vocabularies
+ */
+export function createCorpusExtractor(): ExtractorInterface {
+	return new Extractor({ actions: INTERPRET_ACTIONS, domains: INTERPRET_DOMAINS })
+}
 
 /**
  * Build the auto-insurance corpus template — the redesign's terrain-vocabulary
@@ -267,7 +275,8 @@ export function buildStatisticsTemplate(overrides?: Partial<Template>): Template
 /**
  * Build a minimal, complete-shaped {@link Interpretation} literal — the fixture
  * the `InterpretContext` history/carry-over tests push without running the full
- * orchestrator (AGENTS §16.1). Its single `age` entity and `intent.domain`
+ * orchestrator (`.claude/rules/tests.md` § Test contract). Its single `age`
+ * entity and `intent.domain`
  * drive same-domain carry-over reads.
  *
  * @param overrides - Fields merged over the neutral defaults
@@ -303,7 +312,6 @@ export function buildInterpretation(overrides?: Partial<Interpretation>): Interp
 		prompt: 'Calculate Auto Insurance with age: 25',
 		stages: [],
 		failures: [],
-		complete: true,
 		confidence: 1,
 		digest: '00000000',
 		...overrides,
@@ -313,8 +321,9 @@ export function buildInterpretation(overrides?: Partial<Interpretation>): Interp
 /**
  * Seed a REAL {@link InterpretContext} with `previous` — one `.add(...)` call per
  * given {@link Interpretation}, via the class's own public API — the canonical
- * form the `Clarifier` carry-over scenarios seed a real context with (AGENTS §16:
- * "No mocks — use real implementations"). The real `InterpretContext` flattens
+ * form the `Clarifier` carry-over scenarios seed a real context with
+ * (`.claude/rules/tests.md` § Test contract: "Use real implementations and
+ * small scenarios"). The real `InterpretContext` flattens
  * `previous`'s entities and exposes them the way the `Clarifier` reads them.
  *
  * @param previous - The prior interpretations to seed, in order

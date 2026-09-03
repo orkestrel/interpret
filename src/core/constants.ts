@@ -91,7 +91,7 @@ export const DEFAULT_CONTRACTIONS: Readonly<Record<string, string>> = Object.fre
  * would otherwise hardcode. The reverse direction is keyed by
  * `{table}.{reasoning}` per reasons kind, plus `result.quantitative.failed`
  * for the quantitative-result failure suffix and `subject.fields` /
- * `subject.empty` for `describeSubject`. The forward direction is keyed by
+ * `subject.empty` for `renderSubject`. The forward direction is keyed by
  * `prompt.*` for the `Formatter`'s clause assembly and `ambiguity.*` for the
  * questions a `Clarifier` and the orchestrator's match gates raise. Every
  * string is a plain @orkestrel/template `fillTemplate` template —

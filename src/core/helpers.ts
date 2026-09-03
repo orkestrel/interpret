@@ -87,7 +87,7 @@ export function setField(subject: Subject, field: FieldPath, value: unknown): Su
  *
  * @remarks
  * Word-boundary safe (`in` never matches inside `information`) and
- * case-insensitive; each key is regex-escaped via the core-root
+ * case-insensitive; each key is regex-escaped through the core-root
  * `escapeRegExp` before compiling, so a caller-supplied phrase containing
  * regex metacharacters is matched literally. Multiple keys apply in
  * `Object.entries` order — the `Normalizer` stage sequences its three maps
@@ -149,7 +149,7 @@ export function collapseWhitespace(text: string): string {
  * ```ts
  * import { tokenize } from '@src/core'
  *
- * tokenize('The rate is 85%.') // ['the', 'rate', 'is', '85%']
+ * tokenize('The rate is 85%.') // ['the', 'rate', 'is', '85%.']
  * ```
  */
 export function tokenize(text: string): readonly string[] {
@@ -204,7 +204,7 @@ export function extractNumbers(text: string): readonly number[] {
  * when more than one, a scalar otherwise) at `CONFIDENCE_COLLECT`. Otherwise,
  * per mapping, the rightmost token in the text that equals the entity name
  * (`CONFIDENCE_EXACT`), an alias exactly (`CONFIDENCE_ALIAS`), or an alias
- * fuzzily (via `matchAlias`, confidence = its returned score) becomes a
+ * fuzzily (through `matchAlias`, confidence = its returned score) becomes a
  * keyword anchor; anchors sort left-to-right and each claims its nearest
  * unused number by text position. (3) Any mapping still unfilled claims the
  * next unused number positionally, at `CONFIDENCE_POSITIONAL`. Every entity
@@ -213,7 +213,7 @@ export function extractNumbers(text: string): readonly number[] {
  * Runs ONLY after a template has matched (an orchestrator-owned step, never
  * inside `Extractor`, which stays template-agnostic).
  *
- * @param numbers - The numbers already extracted from `text` via `extractNumbers`
+ * @param numbers - The numbers already extracted from `text` through `extractNumbers`
  * @param mappings - The matched template's entity mappings
  * @param text - The same text `numbers` was extracted from (for keyword proximity)
  * @param similarity - The fuzzy alias-match score threshold (0..1)
@@ -228,7 +228,8 @@ export function extractNumbers(text: string): readonly number[] {
  * 	{ entity: 'score', aliases: ['credit score'], field: 'score' },
  * ]
  * assignEntities([25, 720], mappings, '25 year old with score 720', 0.8)
- * // [{ name: 'age', value: 25, ... }, { name: 'score', value: 720, ... }]
+ * // [{ name: 'score', value: 720, ... }, { name: 'age', value: 25, ... }]
+ * // — keyword anchors land first, then the positional fallback
  * ```
  */
 export function assignEntities(
@@ -277,7 +278,9 @@ export function assignEntities(
 		const entityToken = mapping.entity.toLowerCase()
 
 		for (const token of tokens) {
-			const tokenPosition = lowerText.indexOf(token)
+			const tokenPattern = new RegExp(`(?<![a-z0-9])${escapeRegExp(token)}(?![a-z0-9])`, 'g')
+			let tokenPosition = -1
+			for (const found of lowerText.matchAll(tokenPattern)) tokenPosition = found.index
 			if (token === entityToken) {
 				if (tokenPosition > matchedPosition) {
 					matchedPosition = tokenPosition
@@ -788,7 +791,7 @@ export function resolveExpression(
  * @remarks
  * Complements — never duplicates — the raters `describe*` family (which
  * describes RATERS artifacts); this describes REASONS artifacts. Every field
- * renders via `narrator.label` + `narrator.value` (looked up under the
+ * renders through `narrator.label` + `narrator.value` (looked up under the
  * `'units'` phrase table, falling back to `'plain'`) — the wording is fully
  * lexicon-driven, mechanism rather than policy; `Definition` /
  * `ReasonResult` narration lives on `Narrator#describe` / `Narrator#narrate`
@@ -800,12 +803,12 @@ export function resolveExpression(
  *
  * @example
  * ```ts
- * import { createNarrator, describeSubject } from '@src/core'
+ * import { createNarrator, renderSubject } from '@src/core'
  *
- * describeSubject({ age: 25, income: 50000 }, createNarrator()) // 'with age: 25, income: 50000'
+ * renderSubject({ age: 25, income: 50000 }, createNarrator()) // 'with age: 25, income: 50000'
  * ```
  */
-export function describeSubject(subject: Subject, narrator: NarratorInterface): string {
+export function renderSubject(subject: Subject, narrator: NarratorInterface): string {
 	const keys = Object.keys(subject).sort()
 	if (keys.length === 0) return narrator.line('subject.empty', {})
 	const parts = keys.map((key) => {

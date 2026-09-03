@@ -20,7 +20,7 @@ import { SubjectManager } from './managers/SubjectManager.js'
  * carry-over reads from.
  *
  * @remarks
- * `previous()` is a capped ring buffer (newest-last, oldest dropped once the
+ * `previous()` is a capped ring buffer (newest-last, oldest dropped after the
  * `history` cap is reached — `DEFAULT_INTERPRET_HISTORY` by default, ≥ 3
  * preserves the carry-over pin), never an unbounded array.
  * `entities()` flattens every entity across the buffered history, most recent

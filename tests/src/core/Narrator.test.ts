@@ -1,3 +1,4 @@
+import type { LogicalResult } from '@orkestrel/reason'
 import type { Lexicon, NarratorOptions } from '@src/core'
 import {
 	createAtom,
@@ -19,7 +20,8 @@ import { describe, expect, it } from 'vitest'
 import { TRICKY_KEYS } from '../../setup.js'
 
 // The `Narrator` — a stateless, total, lexicon-driven reverse rendering
-// engine (AGENTS §21 mechanism-never-policy). Every wording decision is data
+// engine (`AGENTS.md` § Design laws, mechanism not product policy). Every
+// wording decision is data
 // supplied via the lexicon/formatters seam, mirroring the forward
 // `Formatter`'s `verbs` option.
 
@@ -268,8 +270,8 @@ describe('Narrator', () => {
 
 		it('is deterministic across repeated calls', () => {
 			const narrator = new Narrator()
-			const result = {
-				reasoning: 'logical' as const,
+			const result: LogicalResult = {
+				reasoning: 'logical',
 				conclusion: true,
 				rules: [],
 				count: 1,

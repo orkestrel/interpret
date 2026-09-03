@@ -32,7 +32,7 @@ import { Narrator } from '../Narrator.js'
  * fills a mapping only from the SAME domain's most recent prior turn (a
  * domain change drops carry-over entirely) and never overwrites a fresh
  * value; template defaults fill any field still unresolved after carry-over;
- * computed fields resolve in dependency (topological) order via
+ * computed fields resolve in dependency (topological) order through
  * `resolveExpression` — an unresolved input, a non-finite result, or a
  * dependency cycle leaves the field a gap, never landing an entity. A
  * computation reads every resolved numeric field by name, and can address one
@@ -65,7 +65,7 @@ import { Narrator } from '../Narrator.js'
  * 	},
  * 	undefined,
  * 	{ action: 'calculate', domain: 'arithmetic', confidence: 1 },
- * ) // { entities: [], ambiguities: [{ field: 'value', ... }], complete: false }
+ * ) // { entities: [], ambiguities: [{ field: 'value', ... }] }
  * ```
  */
 export class Clarifier implements ClarifierInterface {
@@ -98,7 +98,7 @@ export class Clarifier implements ClarifierInterface {
 
 		const ambiguities = this.#collectAmbiguities(template, resolved)
 
-		return { entities: resolved, ambiguities, complete: ambiguities.length === 0 }
+		return { entities: resolved, ambiguities }
 	}
 
 	// Same-domain-only carry-over — a chaining pass over `context.previous()`
@@ -191,7 +191,7 @@ export class Clarifier implements ClarifierInterface {
 	}
 
 	// Kahn's-algorithm topological order over the computed fields' field-to-
-	// field dependency graph (via `variablesOf`) — a dependency cycle simply
+	// field dependency graph (through `variablesOf`) — a dependency cycle
 	// excludes every field it involves from the returned order, so a cyclic
 	// field (and anything depending on it) resolves to a gap rather than an
 	// arbitrary evaluation order. A compositional graph traversal, so it stays

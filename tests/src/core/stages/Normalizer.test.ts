@@ -1,7 +1,8 @@
 import { Normalizer } from '@src/core'
 import { describe, expect, it } from 'vitest'
 
-// The `Normalizer` stage — AGENTS §16: same inputs → same outputs, so every
+// The `Normalizer` stage — `.claude/rules/tests.md` § Test contract: same
+// inputs → same outputs, so every
 // scenario double-invokes to pin run-twice determinism directly.
 
 describe('Normalizer', () => {

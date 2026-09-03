@@ -14,12 +14,12 @@ import {
 	classifyIntent,
 	collapseWhitespace,
 	createNarrator,
-	describeSubject,
 	digestValue,
 	escapeRegExp,
 	extractNumbers,
 	matchAlias,
 	matchTemplate,
+	renderSubject,
 	resolveExpression,
 	scoreSimilarity,
 	scoreTemplate,
@@ -32,7 +32,8 @@ import { describe, expect, it } from 'vitest'
 import { buildInterpretTemplate, EXTREME_NUMBERS, expectSymbolic } from '../../setup.js'
 
 // The interprets pure leaves — every function is referentially transparent
-// (same inputs → same outputs, AGENTS §16), so most tests double-invoke to
+// (same inputs → same outputs, `.claude/rules/tests.md` § Test contract), so
+// most tests double-invoke to
 // pin run-twice determinism directly.
 
 describe('applyReplacements / collapseWhitespace / tokenize', () => {
@@ -203,6 +204,35 @@ describe('assignEntities', () => {
 			expect(entity.confidence).toBeGreaterThan(0)
 			expect(entity.confidence).toBeLessThanOrEqual(1)
 		}
+	})
+
+	it('returns keyword-anchored entities before positionally filled ones', () => {
+		const mappings = [
+			{ entity: 'age', aliases: ['years old'], field: 'age' },
+			{ entity: 'score', aliases: ['credit score'], field: 'score' },
+		]
+		const entities = assignEntities([25, 720], mappings, '25 year old with score 720', 0.8)
+		expect(entities.map((entity) => entity.name)).toEqual(['score', 'age'])
+		expect(entities.map((entity) => entity.value)).toEqual([720, 25])
+		expect(entities.map((entity) => entity.provenance.detail)).toEqual(['keyword', 'positional'])
+	})
+
+	it('anchors a keyword on a whole word, never on the same letters inside a longer word', () => {
+		const mappings = [
+			{ entity: 'age', aliases: [], field: 'age' },
+			{ entity: 'value', aliases: [], field: 'value' },
+		]
+		const entities = assignEntities([50, 25], mappings, 'the average is 50 and age 25', 0.8)
+		expect(entities.find((entity) => entity.name === 'age')?.value).toBe(25)
+	})
+
+	it('anchors a repeated keyword on its rightmost occurrence, as the contract states', () => {
+		const mappings = [
+			{ entity: 'age', aliases: [], field: 'age' },
+			{ entity: 'value', aliases: [], field: 'value' },
+		]
+		const entities = assignEntities([25, 30], mappings, 'age 25 and age 30', 0.8)
+		expect(entities.find((entity) => entity.name === 'age')?.value).toBe(30)
 	})
 
 	it('returns empty for an empty mapping list or no numbers', () => {
@@ -573,13 +603,11 @@ describe('resolveExpression', () => {
 	})
 })
 
-describe('describeSubject', () => {
-	it('describes a subject with sorted fields, through a narrator', () => {
+describe('renderSubject', () => {
+	it('renders a subject with sorted fields, through a narrator', () => {
 		const narrator = createNarrator()
-		expect(describeSubject({ income: 50000, age: 25 }, narrator)).toBe(
-			'with age: 25, income: 50000',
-		)
-		expect(describeSubject({}, narrator)).toBe('with no fields')
+		expect(renderSubject({ income: 50000, age: 25 }, narrator)).toBe('with age: 25, income: 50000')
+		expect(renderSubject({}, narrator)).toBe('with no fields')
 	})
 
 	it('renders through a narrator with a labels override, a phrases.units entry, and a matching formatter', () => {
@@ -590,12 +618,12 @@ describe('describeSubject', () => {
 			},
 			formatters: { money: (value) => `$${String(value)}` },
 		})
-		expect(describeSubject({ income: 50000 }, narrator)).toBe('with Annual income: $50000')
+		expect(renderSubject({ income: 50000 }, narrator)).toBe('with Annual income: $50000')
 	})
 
-	it('describes a subject with an array-of-fields value and a non-number value through the plain path', () => {
+	it('renders a subject with an array-of-fields value and a non-number value through the plain path', () => {
 		const narrator = createNarrator()
-		expect(describeSubject({ tags: ['a', 'b'], name: 'Ada' }, narrator)).toBe(
+		expect(renderSubject({ tags: ['a', 'b'], name: 'Ada' }, narrator)).toBe(
 			'with name: Ada, tags: a,b',
 		)
 	})

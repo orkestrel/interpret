@@ -8,7 +8,6 @@ import {
 } from '@orkestrel/reason'
 import {
 	createInterpret,
-	Extractor,
 	isAmbiguity,
 	isComputedField,
 	isEntity,
@@ -26,12 +25,12 @@ import { describe, expect, it } from 'vitest'
 import {
 	buildInsuranceTemplate,
 	buildInterpretTemplate,
-	INTERPRET_ACTIONS,
-	INTERPRET_DOMAINS,
+	createCorpusExtractor,
 	TRICKY_KEYS,
 } from '../../setup.js'
 
-// The interprets validators — deep TOTAL guards (AGENTS §14): adversarial
+// The interprets validators — deep TOTAL guards
+// (`.claude/rules/patterns.md` § Validation and contracts): adversarial
 // junk (cycles, hostile prototypes, wrong shapes) returns `false`, never
 // throws. Input record guards are exact; foreign-result guards are open.
 
@@ -480,7 +479,6 @@ describe('isInterpretation', () => {
 			prompt: 'Calculate Arithmetic',
 			stages: [{ stage: 'normalize', input: 'raw', output: 'normalized', failed: false }],
 			failures: [],
-			complete: true,
 			confidence: Number.NaN,
 			digest: 'abc123',
 			extra: true,
@@ -510,7 +508,6 @@ describe('isInterpretation', () => {
 			prompt: 'Calculate Arithmetic',
 			stages: [],
 			failures: [],
-			complete: true,
 			confidence: 1,
 			digest: 'abc123',
 		}
@@ -523,7 +520,6 @@ describe('isInterpretation', () => {
 		expect(isInterpretation({ ...interpretation, prompt: 1 })).toBe(false)
 		expect(isInterpretation({ ...interpretation, stages: [{}] })).toBe(false)
 		expect(isInterpretation({ ...interpretation, failures: [{}] })).toBe(false)
-		expect(isInterpretation({ ...interpretation, complete: 'yes' })).toBe(false)
 		expect(isInterpretation({ ...interpretation, confidence: 'high' })).toBe(false)
 		expect(isInterpretation({ ...interpretation, digest: 1 })).toBe(false)
 		expect(isInterpretation([])).toBe(false)
@@ -540,7 +536,6 @@ describe('isInterpretation', () => {
 			prompt: '',
 			stages: [],
 			failures: [],
-			complete: false,
 			confidence: 0,
 			digest: 'digest',
 		}
@@ -563,18 +558,19 @@ describe('isInterpretation', () => {
 	})
 
 	it('accepts a real result from the complete branch, subject and definition populated', () => {
-		// The NO_TEMPLATE round trip above never reaches the branch that builds
+		// The preceding NO_TEMPLATE round trip never reaches the branch that builds
 		// `subject`, `definition`, `entities`, and `mappings`. This vector is
-		// proven to complete in Interpret.test.ts, and the `complete` assertion
-		// pins that the populated branch was actually reached — a guard pass on
-		// the refusal branch would not count.
+		// proven to complete in Interpret.test.ts, and the empty-ambiguity and
+		// populated-subject assertions pin that the populated branch was actually
+		// reached — a guard pass on the refusal branch would not count.
 		const interpret = createInterpret({
 			templates: [buildInsuranceTemplate()],
-			extractor: new Extractor({ actions: INTERPRET_ACTIONS, domains: INTERPRET_DOMAINS }),
+			extractor: createCorpusExtractor(),
 		})
 		try {
 			const result = interpret.interpret('calculate insurance age 25')
-			expect(result.complete).toBe(true)
+			expect(result.ambiguities).toEqual([])
+			expect(result.subject).toBeDefined()
 			expect(isInterpretation(result)).toBe(true)
 		} finally {
 			interpret.destroy()

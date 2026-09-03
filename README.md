@@ -1,6 +1,6 @@
 # @orkestrel/interpret
 
-A zero-dependency, synchronous, deterministic bidirectional bridge between
+A synchronous, deterministic bidirectional bridge between
 natural language and the [`@orkestrel/reason`](https://github.com/orkestrel/reason)
 engine. FORWARD: raw text is normalized, classified into an intent, matched
 against an added `Template`, mined for numeric entities, clarified
@@ -19,11 +19,12 @@ npm install @orkestrel/interpret
 
 ## Requirements
 
-- Node.js >= 22
-- ESM-only (no CommonJS build)
+- Node.js >= 22.12.0
+- ESM and CommonJS builds, published through the `exports` map
 - Runtime dependencies: [`@orkestrel/reason`](https://github.com/orkestrel/reason),
   [`@orkestrel/contract`](https://github.com/orkestrel/contract),
-  [`@orkestrel/emitter`](https://github.com/orkestrel/emitter)
+  [`@orkestrel/emitter`](https://github.com/orkestrel/emitter),
+  [`@orkestrel/template`](https://github.com/orkestrel/template)
 
 ## Usage
 

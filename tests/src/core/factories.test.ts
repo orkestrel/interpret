@@ -82,7 +82,8 @@ describe('createInterpret', () => {
 			extractor: createExtractor({ actions: INTERPRET_ACTIONS, domains: INTERPRET_DOMAINS }),
 		})
 		const result = interpret.interpret('calculate arithmetic 42')
-		expect(result.complete).toBe(true)
+		expect(result.ambiguities).toEqual([])
+		expect(result.failures).toEqual([])
 		expect(result.subject).toEqual({ value: 42 })
 		expect(interpret.templates()).toHaveLength(1)
 	})
@@ -136,7 +137,6 @@ describe('createClarifier', () => {
 			domain: 'arithmetic',
 			confidence: 1,
 		})
-		expect(result.complete).toBe(true)
 		expect(result.ambiguities).toEqual([])
 	})
 })

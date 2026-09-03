@@ -1,3 +1,4 @@
+import type { Entity } from '@src/core'
 import { Generator } from '@src/core'
 import { describe, expect, it } from 'vitest'
 import { buildInterpretTemplate, TRICKY_KEYS } from '../../../setup.js'
@@ -10,8 +11,8 @@ describe('Generator', () => {
 
 	it('maps an entity to its template field and builds the subject', () => {
 		const template = buildInterpretTemplate()
-		const entities = [
-			{ name: 'value', value: 42, provenance: { category: 'extracted' as const }, confidence: 0.9 },
+		const entities: readonly Entity[] = [
+			{ name: 'value', value: 42, provenance: { category: 'extracted' }, confidence: 0.9 },
 		]
 		const result = generator.generate(entities, template)
 		expect(result.subject).toEqual({ value: 42 })
@@ -30,8 +31,8 @@ describe('Generator', () => {
 
 	it('falls back to the entity name itself as the field when no mapping matches', () => {
 		const template = buildInterpretTemplate({ mappings: [] })
-		const entities = [
-			{ name: 'term', value: 12, provenance: { category: 'default' as const }, confidence: 1 },
+		const entities: readonly Entity[] = [
+			{ name: 'term', value: 12, provenance: { category: 'default' }, confidence: 1 },
 		]
 		const result = generator.generate(entities, template)
 		expect(result.subject).toEqual({ term: 12 })
@@ -40,11 +41,11 @@ describe('Generator', () => {
 
 	it('unwraps a single-element array value to its scalar', () => {
 		const template = buildInterpretTemplate()
-		const entities = [
+		const entities: readonly Entity[] = [
 			{
 				name: 'value',
 				value: [42],
-				provenance: { category: 'extracted' as const, detail: 'collect' },
+				provenance: { category: 'extracted', detail: 'collect' },
 				confidence: 0.9,
 			},
 		]
@@ -54,11 +55,11 @@ describe('Generator', () => {
 
 	it('keeps a multi-element numeric array as it stands, deriving no sibling field', () => {
 		const template = buildInterpretTemplate()
-		const entities = [
+		const entities: readonly Entity[] = [
 			{
 				name: 'value',
 				value: [10, 20, 30],
-				provenance: { category: 'extracted' as const, detail: 'collect' },
+				provenance: { category: 'extracted', detail: 'collect' },
 				confidence: 0.9,
 			},
 		]
@@ -72,11 +73,11 @@ describe('Generator', () => {
 		const template = buildInterpretTemplate({
 			mappings: [{ entity: 'value', aliases: [], field: ['address', 'amounts'] }],
 		})
-		const entities = [
+		const entities: readonly Entity[] = [
 			{
 				name: 'value',
 				value: [10, 20, 30],
-				provenance: { category: 'extracted' as const, detail: 'collect' },
+				provenance: { category: 'extracted', detail: 'collect' },
 				confidence: 0.9,
 			},
 		]
@@ -87,11 +88,11 @@ describe('Generator', () => {
 
 	it('leaves a multi-element NON-numeric array untouched', () => {
 		const template = buildInterpretTemplate()
-		const entities = [
+		const entities: readonly Entity[] = [
 			{
 				name: 'value',
 				value: ['a', 'b'],
-				provenance: { category: 'extracted' as const },
+				provenance: { category: 'extracted' },
 				confidence: 0.5,
 			},
 		]
@@ -102,13 +103,13 @@ describe('Generator', () => {
 
 	it('emits a FieldMapping for EVERY field, including defaults and computed entries', () => {
 		const template = buildInterpretTemplate()
-		const entities = [
-			{ name: 'value', value: 42, provenance: { category: 'extracted' as const }, confidence: 0.9 },
-			{ name: 'term', value: 12, provenance: { category: 'default' as const }, confidence: 1 },
+		const entities: readonly Entity[] = [
+			{ name: 'value', value: 42, provenance: { category: 'extracted' }, confidence: 0.9 },
+			{ name: 'term', value: 12, provenance: { category: 'default' }, confidence: 1 },
 			{
 				name: 'monthly',
 				value: 500,
-				provenance: { category: 'computed' as const },
+				provenance: { category: 'computed' },
 				confidence: 0.9,
 			},
 		]
@@ -124,9 +125,9 @@ describe('Generator', () => {
 	it('confidence is the mean of the input entities, 0 for an empty set', () => {
 		const template = buildInterpretTemplate()
 		expect(generator.generate([], template).confidence).toBe(0)
-		const entities = [
-			{ name: 'a', value: 1, provenance: { category: 'extracted' as const }, confidence: 1 },
-			{ name: 'b', value: 2, provenance: { category: 'extracted' as const }, confidence: 0.5 },
+		const entities: readonly Entity[] = [
+			{ name: 'a', value: 1, provenance: { category: 'extracted' }, confidence: 1 },
+			{ name: 'b', value: 2, provenance: { category: 'extracted' }, confidence: 0.5 },
 		]
 		expect(generator.generate(entities, buildInterpretTemplate({ mappings: [] })).confidence).toBe(
 			0.75,
@@ -142,11 +143,11 @@ describe('Generator', () => {
 			const template = buildInterpretTemplate({
 				mappings: [{ entity: 'value', aliases: [], field: key }],
 			})
-			const entities = [
+			const entities: readonly Entity[] = [
 				{
 					name: 'value',
 					value: 42,
-					provenance: { category: 'extracted' as const },
+					provenance: { category: 'extracted' },
 					confidence: 1,
 				},
 			]
@@ -171,11 +172,11 @@ describe('Generator', () => {
 
 	it('is deterministic across repeated calls', () => {
 		const template = buildInterpretTemplate()
-		const entities = [
+		const entities: readonly Entity[] = [
 			{
 				name: 'value',
 				value: [10, 20, 30],
-				provenance: { category: 'extracted' as const },
+				provenance: { category: 'extracted' },
 				confidence: 0.9,
 			},
 		]
@@ -185,10 +186,10 @@ describe('Generator', () => {
 	describe('immutability', () => {
 		it('never mutates the input entities array or its element objects', () => {
 			const template = buildInterpretTemplate()
-			const entity = {
+			const entity: Entity = {
 				name: 'value',
 				value: 42,
-				provenance: { category: 'extracted' as const },
+				provenance: { category: 'extracted' },
 				confidence: 0.9,
 			}
 			const entities = Object.freeze([entity])
@@ -201,8 +202,8 @@ describe('Generator', () => {
 		it('never mutates a multi-element array entity value while building the subject', () => {
 			const template = buildInterpretTemplate()
 			const value = Object.freeze([10, 20, 30])
-			const entities = [
-				{ name: 'value', value, provenance: { category: 'extracted' as const }, confidence: 0.9 },
+			const entities: readonly Entity[] = [
+				{ name: 'value', value, provenance: { category: 'extracted' }, confidence: 0.9 },
 			]
 			const result = generator.generate(entities, template)
 			// `value` stays frozen and unchanged (a mutation would throw under
@@ -214,8 +215,8 @@ describe('Generator', () => {
 
 		it('builds a fresh subject reference on every call — no shared mutable state across calls', () => {
 			const template = buildInterpretTemplate()
-			const entities = [
-				{ name: 'value', value: 1, provenance: { category: 'extracted' as const }, confidence: 1 },
+			const entities: readonly Entity[] = [
+				{ name: 'value', value: 1, provenance: { category: 'extracted' }, confidence: 1 },
 			]
 			const first = generator.generate(entities, template)
 			const second = generator.generate(entities, template)

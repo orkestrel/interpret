@@ -1,3 +1,4 @@
+import type { Entity } from '@src/core'
 import { Formatter, Narrator } from '@src/core'
 import { describe, expect, it } from 'vitest'
 import { buildInterpretTemplate } from '../../../setup.js'
@@ -31,8 +32,8 @@ describe('Formatter', () => {
 	it('appends a `with {label}: {value}` clause for non-default entities', () => {
 		const formatter = new Formatter({ verbs: { calculate: 'Calculate' } })
 		const template = buildInterpretTemplate()
-		const entities = [
-			{ name: 'value', value: 42, provenance: { category: 'extracted' as const }, confidence: 0.9 },
+		const entities: readonly Entity[] = [
+			{ name: 'value', value: 42, provenance: { category: 'extracted' }, confidence: 0.9 },
 		]
 		expect(formatter.format(intent, template, entities, []).prompt).toBe(
 			'Calculate Arithmetic with value: 42',
@@ -42,9 +43,9 @@ describe('Formatter', () => {
 	it('separates default-provenance entities into a `(defaults: …)` clause', () => {
 		const formatter = new Formatter({ verbs: { calculate: 'Calculate' } })
 		const template = buildInterpretTemplate()
-		const entities = [
-			{ name: 'value', value: 42, provenance: { category: 'extracted' as const }, confidence: 0.9 },
-			{ name: 'term', value: 12, provenance: { category: 'default' as const }, confidence: 1 },
+		const entities: readonly Entity[] = [
+			{ name: 'value', value: 42, provenance: { category: 'extracted' }, confidence: 0.9 },
+			{ name: 'term', value: 12, provenance: { category: 'default' }, confidence: 1 },
 		]
 		expect(formatter.format(intent, template, entities, []).prompt).toBe(
 			'Calculate Arithmetic with value: 42 (defaults: term: 12)',
@@ -65,9 +66,9 @@ describe('Formatter', () => {
 	it('composes all three clauses together', () => {
 		const formatter = new Formatter({ verbs: { calculate: 'Calculate' } })
 		const template = buildInterpretTemplate()
-		const entities = [
-			{ name: 'value', value: 42, provenance: { category: 'extracted' as const }, confidence: 0.9 },
-			{ name: 'term', value: 12, provenance: { category: 'default' as const }, confidence: 1 },
+		const entities: readonly Entity[] = [
+			{ name: 'value', value: 42, provenance: { category: 'extracted' }, confidence: 0.9 },
+			{ name: 'term', value: 12, provenance: { category: 'default' }, confidence: 1 },
 		]
 		const ambiguities = [
 			{ field: 'age', question: 'What is your age?', candidates: [], required: true },
@@ -92,9 +93,9 @@ describe('Formatter', () => {
 			}),
 		})
 		const template = buildInterpretTemplate()
-		const entities = [
-			{ name: 'value', value: 42, provenance: { category: 'extracted' as const }, confidence: 0.9 },
-			{ name: 'term', value: 12, provenance: { category: 'default' as const }, confidence: 1 },
+		const entities: readonly Entity[] = [
+			{ name: 'value', value: 42, provenance: { category: 'extracted' }, confidence: 0.9 },
+			{ name: 'term', value: 12, provenance: { category: 'default' }, confidence: 1 },
 		]
 		const ambiguities = [
 			{ field: 'age', question: 'What is your age?', candidates: [], required: true },
@@ -107,8 +108,8 @@ describe('Formatter', () => {
 	it('is deterministic across repeated calls', () => {
 		const formatter = new Formatter({ verbs: { calculate: 'Calculate' } })
 		const template = buildInterpretTemplate()
-		const entities = [
-			{ name: 'value', value: 42, provenance: { category: 'extracted' as const }, confidence: 0.9 },
+		const entities: readonly Entity[] = [
+			{ name: 'value', value: 42, provenance: { category: 'extracted' }, confidence: 0.9 },
 		]
 		expect(formatter.format(intent, template, entities, [])).toEqual(
 			formatter.format(intent, template, entities, []),

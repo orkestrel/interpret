@@ -22,7 +22,7 @@ import { classifyIntent, extractNumbers } from '../helpers.js'
  * 	domains: { rating: ['rate'] },
  * })
  * extractor.extract('calculate my rate at 85')
- * // { intent: { action: 'compute', domain: 'rating', confidence: 1 }, numbers: [85], complete: true }
+ * // { intent: { action: 'compute', domain: 'rating', confidence: 1 }, numbers: [85] }
  * ```
  */
 export class Extractor implements ExtractorInterface {
@@ -37,6 +37,6 @@ export class Extractor implements ExtractorInterface {
 	extract(text: string): ExtractResult {
 		const numbers = extractNumbers(text)
 		const intent = classifyIntent(text, this.#actions, this.#domains)
-		return { intent, numbers, complete: numbers.length > 0 && intent.confidence > 0 }
+		return { intent, numbers }
 	}
 }

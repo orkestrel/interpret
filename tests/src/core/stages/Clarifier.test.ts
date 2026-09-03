@@ -25,7 +25,7 @@ describe('Clarifier', () => {
 		const result = clarifier.clarify(entities, template, undefined, intent)
 		expect(result.entities).toEqual(entities)
 		expect(result.ambiguities).toEqual([])
-		expect(result.complete).toBe(true)
+		expect(Object.hasOwn(result, 'complete')).toBe(false)
 	})
 
 	describe('carry-over', () => {
@@ -274,7 +274,6 @@ describe('Clarifier', () => {
 			expect(result.ambiguities).toEqual([
 				{ field: 'value', question: 'What is your value?', candidates: [], required: true },
 			])
-			expect(result.complete).toBe(false)
 		})
 
 		it('renders the question through the injected narrator, so a lexicon rewords it', () => {
@@ -311,7 +310,6 @@ describe('Clarifier', () => {
 			]
 			const result = clarifier.clarify(fresh, template, undefined, intent)
 			expect(result.ambiguities).toHaveLength(1)
-			expect(result.complete).toBe(false)
 		})
 
 		it('a low floor accepts the same entity as resolved', () => {
@@ -324,7 +322,6 @@ describe('Clarifier', () => {
 			]
 			const result = clarifier.clarify(fresh, template, undefined, intent)
 			expect(result.ambiguities).toEqual([])
-			expect(result.complete).toBe(true)
 		})
 	})
 

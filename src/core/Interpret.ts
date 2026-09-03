@@ -309,7 +309,6 @@ export class Interpret implements InterpretInterface {
 			prompt: formatted.prompt,
 			stages,
 			failures: [],
-			complete: clarified.complete,
 			confidence: generated.confidence,
 			digest,
 		}
@@ -487,7 +486,6 @@ export class Interpret implements InterpretInterface {
 			prompt: '',
 			stages,
 			failures: [...failures],
-			complete: false,
 			confidence: 0,
 			digest,
 		}

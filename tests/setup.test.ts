@@ -14,6 +14,7 @@
 // file drives no stage, no manager, and no narrator: it asserts only what the fixtures are.
 
 import type { Template } from '@src/core'
+import { Extractor } from '@src/core'
 import { resolveField } from '@orkestrel/contract'
 import {
 	createConstant,
@@ -34,6 +35,7 @@ import {
 	buildInterpretTemplate,
 	buildLoanTemplate,
 	buildStatisticsTemplate,
+	createCorpusExtractor,
 	EXTREME_NUMBERS,
 	expectSymbolic,
 	INTERPRET_ACTIONS,
@@ -205,6 +207,15 @@ describe('INTERPRET_DOMAINS', () => {
 	})
 })
 
+describe('createCorpusExtractor', () => {
+	it('returns a real Extractor, distinct per call, so one suite cannot reach another', () => {
+		const extractor = createCorpusExtractor()
+
+		expect(extractor).toBeInstanceOf(Extractor)
+		expect(extractor).not.toBe(createCorpusExtractor())
+	})
+})
+
 describe('the interprets corpus builders', () => {
 	it('return a fresh graph on every call, so one suite cannot reach another', () => {
 		const first = buildInsuranceTemplate()
@@ -279,7 +290,7 @@ describe('buildInterpretation', () => {
 	it('builds a completed turn whose entities, mappings, and subject agree', () => {
 		const interpretation = buildInterpretation()
 
-		expect(interpretation.complete).toBe(true)
+		expect(interpretation.ambiguities).toEqual([])
 		expect(interpretation.failures).toEqual([])
 		expect(interpretation.entities.map((entity) => entity.name)).toEqual(
 			interpretation.mappings.map((mapping) => mapping.entity),
@@ -292,10 +303,10 @@ describe('buildInterpretation', () => {
 	})
 
 	it('merges an override over the default turn and returns a fresh graph each call', () => {
-		const overridden = buildInterpretation({ text: 'second turn', complete: false })
+		const overridden = buildInterpretation({ text: 'second turn', confidence: 0 })
 
 		expect(overridden.text).toBe('second turn')
-		expect(overridden.complete).toBe(false)
+		expect(overridden.confidence).toBe(0)
 		expect(overridden.intent).toEqual(buildInterpretation().intent)
 		expect(buildInterpretation().entities).not.toBe(buildInterpretation().entities)
 	})

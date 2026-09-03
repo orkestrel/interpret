@@ -56,10 +56,7 @@ export class Normalizer implements NormalizerInterface {
 	// One substitution pass over `map`, recording only the keys that actually
 	// matched. A chaining pass over the leaf `applyReplacements`, so it stays a
 	// private orchestration step rather than a leaf of its own.
-	#applyStage(
-		text: string,
-		map: Readonly<Record<string, string>>,
-	): { text: string; changes: readonly TextChange[] } {
+	#applyStage(text: string, map: Readonly<Record<string, string>>): NormalizeResult {
 		let working = text
 		const changes: TextChange[] = []
 		for (const [from, to] of Object.entries(map)) {

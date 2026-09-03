@@ -13,7 +13,6 @@ describe('Extractor', () => {
 		const result = extractor.extract('calculate my rate at 85')
 		expect(result.numbers).toEqual([85])
 		expect(result.intent).toEqual({ action: 'compute', domain: 'rating', confidence: 1 })
-		expect(result.complete).toBe(true)
 	})
 
 	it('produces NO entities — extraction never assigns numbers to a template', () => {
@@ -29,11 +28,19 @@ describe('Extractor', () => {
 		expect(result.intent).toEqual({ confidence: 0 })
 	})
 
-	it('complete requires BOTH numbers present and a positive-confidence intent', () => {
+	it('reports numbers and intent confidence separately, storing no completeness of its own', () => {
 		const extractor = new Extractor({ actions: { calculate: 'compute' } })
-		expect(extractor.extract('calculate please').complete).toBe(false) // no numbers
-		expect(extractor.extract('85').complete).toBe(false) // no intent confidence
-		expect(extractor.extract('calculate 85').complete).toBe(true)
+		const unnumbered = extractor.extract('calculate please')
+		const unclassified = extractor.extract('85')
+		const both = extractor.extract('calculate 85')
+
+		expect(unnumbered.numbers).toEqual([])
+		expect(unnumbered.intent.confidence).toBeGreaterThan(0)
+		expect(unclassified.numbers).toEqual([85])
+		expect(unclassified.intent.confidence).toBe(0)
+		expect(both.numbers).toEqual([85])
+		expect(both.intent.confidence).toBeGreaterThan(0)
+		expect(Object.hasOwn(both, 'complete')).toBe(false)
 	})
 
 	it('is deterministic across repeated calls', () => {
