@@ -119,7 +119,10 @@ export function isComputedField(value: unknown): value is ComputedField {
  * @remarks
  * `definition` is validated with reasons' `isDefinition` — a `Template`'s
  * definition is already expressed in terrain reasons vocabulary, so no
- * parallel interprets-owned definition guard exists.
+ * parallel interprets-owned definition guard exists. Each computation's
+ * `expression` is validated with reasons' `isSymbolicExpression`, already
+ * recursive through `lazyOf`, so this module mints no expression guard of its
+ * own.
  *
  * @param value - The value to test
  * @returns True if `value` is a well-formed template; false otherwise
@@ -159,6 +162,11 @@ export function isTemplate(value: unknown): value is Template {
 
 /**
  * Determines whether a value is an open {@link Provenance} result record.
+ *
+ * @remarks
+ * `category` is checked against `PROVENANCE_CATEGORIES` and the optional
+ * `detail` against `isString`; an unknown member passes, because a foreign
+ * engine's return is not this package's to narrow.
  *
  * @param value - The value to test
  * @returns True if the published provenance members conform; false otherwise
@@ -262,6 +270,10 @@ export function isFieldMapping(value: unknown): value is FieldMapping {
 /**
  * Determines whether a value is an open {@link Ambiguity} result record.
  *
+ * @remarks
+ * `field`, `question`, the string `candidates` list, and `required` are each
+ * checked; an unknown member passes.
+ *
  * @param value - The value to test
  * @returns True if the published ambiguity members conform; false otherwise
  *
@@ -314,6 +326,11 @@ export function isStageRecord(value: unknown): value is StageRecord {
 
 /**
  * Determines whether a value is an open {@link StageFailure} result record.
+ *
+ * @remarks
+ * `stage` is checked against `INTERPRET_STAGES`, `code` against
+ * `INTERPRET_ERROR_CODES`, and `message` against `isString`; an unknown member
+ * passes.
  *
  * @param value - The value to test
  * @returns True if the published stage-failure members conform; false otherwise

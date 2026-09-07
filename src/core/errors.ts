@@ -4,7 +4,8 @@ import type { InterpretErrorCode } from './types.js'
 // machine-readable `code`, so a `catch` branches on `error.code`.
 
 /**
- * Represents an error thrown by the interprets layer.
+ * Represents an error thrown by the interprets layer, carrying an
+ * {@link InterpretErrorCode} and an optional `context` record.
  *
  * @remarks
  * `DESTROYED` is the code that throws, on any use of a destroyed `Interpret`

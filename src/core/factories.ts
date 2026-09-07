@@ -34,7 +34,8 @@ import { Generator } from './stages/Generator.js'
 import { Normalizer } from './stages/Normalizer.js'
 
 /**
- * Creates an interpretation orchestrator.
+ * Creates an interpretation orchestrator, returning an {@link InterpretInterface}
+ * seeded from {@link InterpretOptions}.
  *
  * @remarks
  * `interpret()` is genuinely synchronous and runs the fixed
@@ -50,13 +51,20 @@ import { Normalizer } from './stages/Normalizer.js'
  *   `similarity` / `floor` axes, and emitter hooks
  * @returns A working {@link InterpretInterface}
  *
- * @example
+ * @example Interpret text against an added template
  * ```ts
- * import { createFactorGroup, createFieldFactor, createQuantitativeDefinition } from '@orkestrel/reason'
- * import { createExtractor, createInterpret } from '@src/core'
+ * import { createExtractor, createInterpret } from '@orkestrel/interpret'
+ * import {
+ * 	createFactorGroup,
+ * 	createFieldFactor,
+ * 	createQuantitativeDefinition,
+ * } from '@orkestrel/reason'
  *
  * const interpret = createInterpret({
- * 	extractor: createExtractor({ actions: { calculate: 'calculate' }, domains: { arithmetic: ['arithmetic'] } }),
+ * 	extractor: createExtractor({
+ * 		actions: { calculate: 'calculate' },
+ * 		domains: { arithmetic: ['arithmetic'] },
+ * 	}),
  * 	templates: [
  * 		{
  * 			id: 't1',
@@ -72,7 +80,15 @@ import { Normalizer } from './stages/Normalizer.js'
  * 		},
  * 	],
  * })
- * interpret.interpret('calculate arithmetic 42').subject // { value: 42 }
+ *
+ * const result = interpret.interpret('calculate arithmetic 42')
+ * result.subject // { value: 42 }
+ * result.ambiguities // []
+ * result.failures // []
+ *
+ * interpret.emitter.on('interpret', (interpretation) => interpretation.digest)
+ * interpret.describe(result.definition ?? createQuantitativeDefinition('t1', 'Arithmetic', []))
+ * interpret.destroy()
  * ```
  */
 export function createInterpret(options?: InterpretOptions): InterpretInterface {
@@ -80,7 +96,7 @@ export function createInterpret(options?: InterpretOptions): InterpretInterface 
 }
 
 /**
- * Creates a text normalizer.
+ * Creates a text normalizer, returning a stateless {@link NormalizerInterface}.
  *
  * @param options - Optional contraction / abbreviation / correction maps,
  *   merged over the neutral built-in defaults
@@ -98,7 +114,8 @@ export function createNormalizer(options?: NormalizerOptions): NormalizerInterfa
 }
 
 /**
- * Creates a template-agnostic intent classifier and number extractor.
+ * Creates a template-agnostic intent classifier and number extractor, returning a
+ * stateless {@link ExtractorInterface}.
  *
  * @param options - Optional caller `actions` / `domains` vocabularies
  * @returns A stateless {@link ExtractorInterface}
@@ -120,7 +137,7 @@ export function createExtractor(options?: ExtractorOptions): ExtractorInterface 
 
 /**
  * Creates a clarifier — carry-over, defaults, and computed-field resolution
- * against an assigned entity set.
+ * against an assigned entity set — returning a stateless {@link ClarifierInterface}.
  *
  * @param options - Optional confidence `floor` for raised ambiguities
  * @returns A stateless {@link ClarifierInterface}
@@ -137,7 +154,7 @@ export function createClarifier(options?: ClarifierOptions): ClarifierInterface 
 }
 
 /**
- * Creates a prompt formatter.
+ * Creates a prompt formatter, returning a stateless {@link FormatterInterface}.
  *
  * @param options - Optional caller intent-verb phrasing map
  * @returns A stateless {@link FormatterInterface}
@@ -154,7 +171,8 @@ export function createFormatter(options?: FormatterOptions): FormatterInterface 
 }
 
 /**
- * Creates a subject/definition generator.
+ * Creates a subject and definition generator, returning a stateless
+ * {@link GeneratorInterface}.
  *
  * @returns A stateless {@link GeneratorInterface}
  *
@@ -170,7 +188,7 @@ export function createGenerator(): GeneratorInterface {
 }
 
 /**
- * Creates a template registry.
+ * Creates a template registry, returning a working {@link TemplateManagerInterface}.
  *
  * @param options - Optional initial seed collection
  * @returns A working {@link TemplateManagerInterface}
@@ -195,7 +213,7 @@ export function createTemplateManager(options?: TemplateManagerOptions): Templat
 }
 
 /**
- * Creates a subject registry.
+ * Creates a subject registry, returning a working {@link SubjectManagerInterface}.
  *
  * @remarks
  * Mints its own record ids on `add` when none is supplied — a `Subject`
@@ -217,7 +235,8 @@ export function createSubjectManager(options?: SubjectManagerOptions): SubjectMa
 }
 
 /**
- * Creates a definition registry.
+ * Creates a definition registry, returning a working
+ * {@link DefinitionManagerInterface}.
  *
  * @param options - Optional initial seed collection
  * @returns A working {@link DefinitionManagerInterface}
@@ -240,7 +259,8 @@ export function createDefinitionManager(
 }
 
 /**
- * Creates a cross-turn interpretation context.
+ * Creates a cross-turn interpretation context, returning a working
+ * {@link InterpretContextInterface}.
  *
  * @param options - Optional `session` label and `history` ring-buffer cap
  * @returns A working {@link InterpretContextInterface}
@@ -260,7 +280,8 @@ export function createInterpretContext(
 }
 
 /**
- * Creates a lexicon-driven reverse-direction rendering engine.
+ * Creates a lexicon-driven reverse-direction rendering engine, returning a stateless
+ * {@link NarratorInterface}.
  *
  * @remarks
  * Stateless — `phrase` / `label` / `line` / `value` are total lookups into a

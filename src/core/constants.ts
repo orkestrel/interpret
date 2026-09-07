@@ -7,8 +7,8 @@ import type { InterpretErrorCode, InterpretStage, Lexicon, ProvenanceCategory } 
 // options rather than baked in here.
 
 /**
- * Names the default `similarity` for `createInterpret` / `matchAlias` — the
- * fuzzy alias-match score threshold (0..1).
+ * Names the default `similarity` for `createInterpret` and `matchAlias`, 0.8 — the
+ * fuzzy alias-match score threshold, between 0 and 1.
  *
  * @remarks
  * Domain-qualified (not a bare `DEFAULT_SIMILARITY`) so the name stays free
@@ -18,34 +18,37 @@ import type { InterpretErrorCode, InterpretStage, Lexicon, ProvenanceCategory } 
 export const DEFAULT_INTERPRET_SIMILARITY = 0.8
 
 /**
- * Names the default `floor` for `createInterpret` / `matchTemplate` — the
- * minimum intent confidence a template match (or the classified intent itself) must
+ * Names the default `floor` for `createInterpret` and `matchTemplate`, 0.3 — the
+ * minimum intent confidence a template match, or the classified intent itself, must
  * clear.
  */
 export const DEFAULT_INTERPRET_FLOOR = 0.3
 
-/** Names the default `history` cap for an `InterpretContext`'s `previous()` ring buffer. */
+/** Names the default `history` cap for an `InterpretContext`'s `previous()` ring buffer, 16. */
 export const DEFAULT_INTERPRET_HISTORY = 16
 
-/** Names the confidence assigned to an exact keyword-proximity entity match. */
+/** Names the confidence assigned to an exact keyword-proximity entity match, 1. */
 export const CONFIDENCE_EXACT = 1
 
-/** Names the confidence assigned to an exact alias-phrase entity match. */
+/** Names the confidence assigned to an exact alias-phrase entity match, 0.9. */
 export const CONFIDENCE_ALIAS = 0.9
 
-/** Names the confidence assigned when a single entity mapping collects every extracted number. */
+/**
+ * Names the confidence assigned when a single entity mapping collects every extracted
+ * number, 0.9.
+ */
 export const CONFIDENCE_COLLECT = 0.9
 
-/** Names the confidence assigned to a positional (order-based) entity match fallback. */
+/** Names the confidence assigned to a positional (order-based) entity match fallback, 0.7. */
 export const CONFIDENCE_POSITIONAL = 0.7
 
-/** Names the confidence assigned to a same-domain carried-over field. */
+/** Names the confidence assigned to a same-domain carried-over field, 0.7. */
 export const CONFIDENCE_CARRIED = 0.7
 
-/** Names the confidence assigned to a template default fill. */
+/** Names the confidence assigned to a template default fill, 1. */
 export const CONFIDENCE_DEFAULT = 1
 
-/** Names the confidence assigned to a successfully resolved computed field. */
+/** Names the confidence assigned to a successfully resolved computed field, 0.9. */
 export const CONFIDENCE_COMPUTED = 0.9
 
 /**
@@ -61,8 +64,9 @@ export const CONFIDENCE_COMPUTED = 0.9
 export const NUMBER_PATTERN = /(?:\$\s*)?(\d+(?:,\d{3})*(?:\.\d+)?)\s*%?/g
 
 /**
- * Lists the prototype-pollution-unsafe field-path segments — `setField` refuses
- * to write ANY path containing one, returning its input unchanged.
+ * Lists the prototype-pollution-unsafe field-path segments, `__proto__`, `prototype`,
+ * and `constructor` — `setField` refuses to write any path containing one, and returns
+ * its input unchanged.
  */
 export const UNSAFE_FIELD_SEGMENTS: readonly string[] = Object.freeze([
 	'__proto__',

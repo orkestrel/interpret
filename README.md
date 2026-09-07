@@ -1,15 +1,16 @@
 # @orkestrel/interpret
 
-A synchronous, deterministic bidirectional bridge between
-natural language and the [`@orkestrel/reason`](https://github.com/orkestrel/reason)
-engine. FORWARD: raw text is normalized, classified into an intent, matched
-against an added `Template`, mined for numeric entities, clarified
-(carry-over / defaults / computed fields), formatted into a refined prompt,
-then generated into a `Subject` + `Definition` pair ready for
-`Reason.reason`. REVERSE: a `Definition` / `Subject` / `ReasonResult`
-renders to display-neutral prose through a lexicon-driven `Narrator`.
-Nothing here is an LLM, provider, or agent. Environment-agnostic — no I/O,
-no browser or server assumptions. Part of the `@orkestrel` line.
+> A synchronous, deterministic bidirectional bridge between natural language and the
+> `@orkestrel/reason` engine: a forward pipeline that normalizes raw text, classifies its
+> intent, matches an added `Template`, clarifies the fields extraction left open, and
+> generates a `Subject` and `Definition` pair ready for `Reason.reason`, plus a reverse
+> direction that renders a `Definition`, a `Subject`, or a `ReasonResult` to
+> display-neutral prose through a lexicon-driven `Narrator`.
+
+Install the package, wire an orchestrator with the action and domain vocabularies your
+domain speaks, add the templates it answers, and call `interpret()` on each turn of raw
+text. Environment-agnostic — no I/O, and no browser or server assumptions. Part of the
+`@orkestrel` line.
 
 ## Install
 
@@ -63,10 +64,10 @@ result.subject // { value: 42 }
 interpret.destroy()
 ```
 
-`interpret()` is genuinely synchronous and runs the fixed
-pipeline `[normalize, extract, clarify, format, generate]`. A `NO_TEMPLATE`
-/ `LOW_CONFIDENCE` non-match, or a thrown stage, both yield a visible
-INCOMPLETE result rather than an arbitrary fallback.
+`interpret()` is genuinely synchronous and runs the fixed pipeline
+`[normalize, extract, clarify, format, generate]`. A `NO_TEMPLATE` or `LOW_CONFIDENCE`
+non-match, and a thrown stage, each yield a visible incomplete result rather than an arbitrary
+fallback.
 
 ## Guide
 

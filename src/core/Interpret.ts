@@ -41,7 +41,9 @@ import { Normalizer } from './stages/Normalizer.js'
 
 /**
  * Implements the interpretation orchestrator — the sole public entry point of the
- * `interprets` module, mirroring the reasons `Reason` orchestrator shape.
+ * `interprets` module, mirroring the reasons `Reason` orchestrator shape: it runs the
+ * `[normalize, extract, clarify, format, generate]` pipeline, owns the template
+ * registry and the context, and exposes the reverse direction.
  *
  * @remarks
  * `interpret()` is genuinely SYNCHRONOUS — it returns its

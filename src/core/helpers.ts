@@ -595,8 +595,8 @@ export function canonicalize(value: unknown): string {
 }
 
 /**
- * Computes a canonical structural digest of a pure-JSON value — a key-order-
- * stable FNV-1a hash rendered as an 8-hex-digit string.
+ * Computes a canonical structural digest of a pure-JSON value — a
+ * key-order-stable FNV-1a hash rendered as an 8-hex-digit string.
  *
  * @remarks
  * Pure ECMAScript, no host crypto — the same algorithm as the
