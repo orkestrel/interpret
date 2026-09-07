@@ -23,7 +23,7 @@ describe('Normalizer', () => {
 		})
 		// "can't" expands to "cannot" through the built-in contraction FIRST, so the
 		// later correction stage (targeting "cannot") sees the already-expanded
-		// text and fires too — proving sequencing, not just independent maps.
+		// text and fires too — proving sequencing, not independent maps.
 		const result = normalizer.normalize("can't wait 1 yr")
 		expect(result.text).toBe('CANNOT wait 1 year')
 		expect(result.changes.map((change) => change.from)).toEqual(["can't", 'yr', 'cannot'])

@@ -30,7 +30,7 @@ import { Extractor, InterpretContext } from '@src/core'
 // ── Reason-result narrowing (environment-agnostic) ────────────────────────────
 
 /**
- * Narrow a `reason()` return to a `SymbolicResult` — throws on a batch array
+ * Narrows a `reason()` return to a `SymbolicResult` — throws on a batch array
  * or a result of another reasoning, so assertions read the narrowed result
  * with no casts (`.claude/rules/patterns.md` § Validation and contracts).
  *
@@ -48,7 +48,7 @@ export function expectSymbolic(result: ReasonResult | readonly ReasonResult[]): 
 // ── Scale & edge-case fixtures (environment-agnostic) ─────────────────────────
 
 /**
- * The curated JavaScript numeric edge values the numeric-quirk tests probe — signed
+ * Lists the curated JavaScript numeric edge values the numeric-quirk tests probe — signed
  * zero, the safe-integer and representable-magnitude bounds, `EPSILON`, an overflow-scale
  * pair, and the classic `0.1 + 0.2 !== 0.3` floats. Every entry is FINITE; the non-finite
  * cases (`NaN` / `±Infinity`) are named explicitly at their own sites, never smuggled in
@@ -72,7 +72,7 @@ export const EXTREME_NUMBERS: readonly number[] = Object.freeze([
 ])
 
 /**
- * The curated adversarial / unicode object keys the field-path, subject-key, id, and
+ * Lists the curated adversarial / unicode object keys the field-path, subject-key, id, and
  * lookup-table tests probe — the `Object.prototype` / prototype-pollution names, an empty
  * key, a surrogate-pair (astral) key, and two precomposed accented keys (`é` LATIN SMALL
  * LETTER E WITH ACUTE, `Å` LATIN CAPITAL LETTER A WITH RING ABOVE) that are NFC-stable but
@@ -96,7 +96,7 @@ export const TRICKY_KEYS: readonly string[] = Object.freeze([
 // ── Interprets fixtures (environment-agnostic) ────────────────────────────────
 
 /**
- * Build a small, neutral `Template` — a single `value` entity mapping onto a
+ * Builds a small, neutral `Template` — a single `value` entity mapping onto a
  * one-factor quantitative definition — the shared fixture the `interprets`
  * validator, helper, stage, and orchestrator tests seed a registry with
  * instead of hand-writing the same literal repeatedly
@@ -122,7 +122,7 @@ export function buildInterpretTemplate(overrides?: Partial<Template>): Template 
 }
 
 /**
- * The neutral caller ACTION vocabulary the interprets integration corpus wires
+ * Lists the neutral caller ACTION vocabulary the interprets integration corpus wires
  * into its `Extractor` (`token → action-name`). The redesign has no built-in
  * worldview — every domain/action word a template answers
  * to must be supplied here, not baked into core.
@@ -135,7 +135,7 @@ export const INTERPRET_ACTIONS: Readonly<Record<string, string>> = Object.freeze
 })
 
 /**
- * The neutral caller DOMAIN vocabulary the interprets integration corpus wires
+ * Lists the neutral caller DOMAIN vocabulary the interprets integration corpus wires
  * into its `Extractor` (`domain-name → keyword-list`). A template's own `domain`
  * no longer auto-classifies — a caller MUST list each
  * template's domain keywords here for domain classification to fire.
@@ -160,7 +160,7 @@ export function createCorpusExtractor(): ExtractorInterface {
 }
 
 /**
- * Build the auto-insurance corpus template — the redesign's terrain-vocabulary
+ * Builds the auto-insurance corpus template — the redesign's terrain-vocabulary
  * analog of scsr's `DEFAULT_TEMPLATES` insurance fixture: a required `age`
  * mapping, `accidents`/`coverage`/`deductible` defaults, and a declarative
  * `monthly = deductible / 12` computation (`createOperation('divide', …)` — the
@@ -199,7 +199,7 @@ export function buildInsuranceTemplate(overrides?: Partial<Template>): Template 
 }
 
 /**
- * Build the eligibility corpus template — two optional mappings (`age`,
+ * Builds the eligibility corpus template — two optional mappings (`age`,
  * `score`) whose aliases exercise fuzzy keyword-proximity assignment against a
  * complex sentence, over an (empty-rule) logical definition.
  *
@@ -224,7 +224,7 @@ export function buildEligibilityTemplate(overrides?: Partial<Template>): Templat
 }
 
 /**
- * Build the personal-loan corpus template — a distinct `loan` domain used to
+ * Builds the personal-loan corpus template — a distinct `loan` domain used to
  * pin multi-template best-match selection (the domain/action pair that scores
  * highest wins; no arbitrary `templates[0]` fallback).
  *
@@ -248,7 +248,7 @@ export function buildLoanTemplate(overrides?: Partial<Template>): Template {
 }
 
 /**
- * Build the statistics corpus template — a SINGLE `value` mapping so extraction
+ * Builds the statistics corpus template — a SINGLE `value` mapping so extraction
  * collects every number: one number lands as a scalar, several as an array the
  * `Generator` keeps as it stands. An aggregate over that array is a
  * `ComputedField` the caller declares through `overrides`.
@@ -273,7 +273,7 @@ export function buildStatisticsTemplate(overrides?: Partial<Template>): Template
 }
 
 /**
- * Build a minimal, complete-shaped {@link Interpretation} literal — the fixture
+ * Builds a minimal, complete-shaped {@link Interpretation} literal — the fixture
  * the `InterpretContext` history/carry-over tests push without running the full
  * orchestrator (`.claude/rules/tests.md` § Test contract). Its single `age`
  * entity and `intent.domain`
@@ -319,7 +319,7 @@ export function buildInterpretation(overrides?: Partial<Interpretation>): Interp
 }
 
 /**
- * Seed a REAL {@link InterpretContext} with `previous` — one `.add(...)` call per
+ * Seeds a REAL {@link InterpretContext} with `previous` — one `.add(...)` call per
  * given {@link Interpretation}, through the class's own public API — the canonical
  * form the `Clarifier` carry-over scenarios seed a real context with
  * (`.claude/rules/tests.md` § Test contract: "Use real implementations and
