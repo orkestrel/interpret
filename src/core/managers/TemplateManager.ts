@@ -27,7 +27,7 @@ import { RecordManager } from './RecordManager.js'
  * @example
  * ```ts
  * import { createFactorGroup, createFieldFactor, createQuantitativeDefinition } from '@orkestrel/reason'
- * import { TemplateManager } from '@src/core'
+ * import { TemplateManager } from '@orkestrel/interpret'
  *
  * const manager = new TemplateManager()
  * const record = manager.add({

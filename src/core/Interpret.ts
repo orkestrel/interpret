@@ -70,7 +70,7 @@ import { Normalizer } from './stages/Normalizer.js'
  * @example
  * ```ts
  * import { createFactorGroup, createFieldFactor, createQuantitativeDefinition } from '@orkestrel/reason'
- * import { Interpret, Extractor } from '@src/core'
+ * import { Interpret, Extractor } from '@orkestrel/interpret'
  *
  * const interpret = new Interpret({
  * 	extractor: new Extractor({ actions: { calculate: 'calculate' }, domains: { arithmetic: ['arithmetic'] } }),

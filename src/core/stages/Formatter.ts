@@ -31,7 +31,7 @@ import { Narrator } from '../Narrator.js'
  *
  * @example
  * ```ts
- * import { Formatter } from '@src/core'
+ * import { Formatter } from '@orkestrel/interpret'
  *
  * const formatter = new Formatter({ verbs: { calculate: 'Calculate' } })
  * formatter.format(

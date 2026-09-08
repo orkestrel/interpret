@@ -32,7 +32,7 @@ import { SubjectManager } from './managers/SubjectManager.js'
  *
  * @example
  * ```ts
- * import { InterpretContext } from '@src/core'
+ * import { InterpretContext } from '@orkestrel/interpret'
  *
  * const context = new InterpretContext({ session: 's1', history: 8 })
  * context.session // 's1'

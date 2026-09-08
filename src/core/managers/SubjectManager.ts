@@ -26,7 +26,7 @@ import { RecordManager } from './RecordManager.js'
  *
  * @example
  * ```ts
- * import { SubjectManager } from '@src/core'
+ * import { SubjectManager } from '@orkestrel/interpret'
  *
  * const manager = new SubjectManager()
  * const first = manager.add({ age: 25 })

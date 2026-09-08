@@ -29,7 +29,7 @@ import { setField } from '../helpers.js'
  *
  * @example
  * ```ts
- * import { Generator } from '@src/core'
+ * import { Generator } from '@orkestrel/interpret'
  *
  * const generator = new Generator()
  * generator.generate(

@@ -25,7 +25,7 @@ import { RecordManager } from './RecordManager.js'
  * @example
  * ```ts
  * import { createSymbolicDefinition } from '@orkestrel/reason'
- * import { DefinitionManager } from '@src/core'
+ * import { DefinitionManager } from '@orkestrel/interpret'
  *
  * const manager = new DefinitionManager()
  * const record = manager.add(createSymbolicDefinition('rate', 'Rate', []))

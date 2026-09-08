@@ -22,7 +22,7 @@ import { DEFAULT_LEXICON } from './constants.js'
  *
  * @example
  * ```ts
- * import { Narrator } from '@src/core'
+ * import { Narrator } from '@orkestrel/interpret'
  *
  * const narrator = new Narrator({
  * 	lexicon: { phrases: { comparison: { equals: 'is' } } },

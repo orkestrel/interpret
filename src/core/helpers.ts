@@ -29,7 +29,7 @@ import {
  *
  * @example
  * ```ts
- * import { escapeRegExp } from '@src/core'
+ * import { escapeRegExp } from '@orkestrel/interpret'
  *
  * escapeRegExp('a.b*c') // 'a\\.b\\*c'
  * new RegExp(escapeRegExp('a.b*c')).test('a.b*c') // true
@@ -61,7 +61,7 @@ export function escapeRegExp(text: string): string {
  *
  * @example
  * ```ts
- * import { setField } from '@src/core'
+ * import { setField } from '@orkestrel/interpret'
  *
  * setField({ age: 25 }, 'age', 30)               // { age: 30 }
  * setField({}, ['address', 'city'], 'Reno')      // { address: { city: 'Reno' } }
@@ -99,7 +99,7 @@ export function setField(subject: Subject, field: FieldPath, value: unknown): Su
  *
  * @example
  * ```ts
- * import { applyReplacements } from '@src/core'
+ * import { applyReplacements } from '@orkestrel/interpret'
  *
  * applyReplacements("can't stop", { "can't": 'cannot' }) // 'cannot stop'
  * applyReplacements('information', { in: 'IN' })          // 'information' — word-boundary safe
@@ -122,7 +122,7 @@ export function applyReplacements(text: string, map: Readonly<Record<string, str
  *
  * @example
  * ```ts
- * import { collapseWhitespace } from '@src/core'
+ * import { collapseWhitespace } from '@orkestrel/interpret'
  *
  * collapseWhitespace('  a   b\t c ') // 'a b c'
  * ```
@@ -147,7 +147,7 @@ export function collapseWhitespace(text: string): string {
  *
  * @example
  * ```ts
- * import { tokenize } from '@src/core'
+ * import { tokenize } from '@orkestrel/interpret'
  *
  * tokenize('The rate is 85%.') // ['the', 'rate', 'is', '85%.']
  * ```
@@ -176,7 +176,7 @@ export function tokenize(text: string): readonly string[] {
  *
  * @example
  * ```ts
- * import { extractNumbers } from '@src/core'
+ * import { extractNumbers } from '@orkestrel/interpret'
  *
  * extractNumbers('income was $50,000, age 25') // [50000, 25]
  * ```
@@ -221,7 +221,7 @@ export function extractNumbers(text: string): readonly number[] {
  *
  * @example
  * ```ts
- * import { assignEntities } from '@src/core'
+ * import { assignEntities } from '@orkestrel/interpret'
  *
  * const mappings = [
  * 	{ entity: 'age', aliases: ['years old'], field: 'age' },
@@ -399,7 +399,7 @@ export function assignEntities(
  *
  * @example
  * ```ts
- * import { classifyIntent } from '@src/core'
+ * import { classifyIntent } from '@orkestrel/interpret'
  *
  * classifyIntent('calculate my rate', { calculate: 'compute' }, { rating: ['rate'] })
  * // { action: 'compute', domain: 'rating', confidence: 1 }
@@ -464,7 +464,7 @@ export function classifyIntent(
  *
  * @example
  * ```ts
- * import { scoreSimilarity } from '@src/core'
+ * import { scoreSimilarity } from '@orkestrel/interpret'
  *
  * scoreSimilarity('rate', 'rate')  // 1
  * scoreSimilarity('rate', 'value') // 0 — no shared bigrams
@@ -506,7 +506,7 @@ export function scoreSimilarity(a: string, b: string): number {
  *
  * @example
  * ```ts
- * import { matchAlias } from '@src/core'
+ * import { matchAlias } from '@orkestrel/interpret'
  *
  * matchAlias('valu', ['value', 'amount'], 0.6) // ~0.86 — fuzzy hit on 'value'
  * matchAlias('xyz', ['value', 'amount'], 0.6)  // 0 — no alias clears the threshold
@@ -546,7 +546,7 @@ export function matchAlias(token: string, aliases: readonly string[], threshold:
  *
  * @example
  * ```ts
- * import { canonicalizeNode } from '@src/core'
+ * import { canonicalizeNode } from '@orkestrel/interpret'
  *
  * canonicalizeNode({ b: 1, a: 2 }, new Set()) // '{"a":2,"b":1}'
  * const cyclic = { name: 'root' }
@@ -585,7 +585,7 @@ export function canonicalizeNode(value: unknown, ancestors: ReadonlySet<object>)
  *
  * @example
  * ```ts
- * import { canonicalize } from '@src/core'
+ * import { canonicalize } from '@orkestrel/interpret'
  *
  * canonicalize({ b: 1, a: 2 }) === canonicalize({ a: 2, b: 1 }) // true
  * ```
@@ -608,7 +608,7 @@ export function canonicalize(value: unknown): string {
  *
  * @example
  * ```ts
- * import { digestValue } from '@src/core'
+ * import { digestValue } from '@orkestrel/interpret'
  *
  * digestValue({ a: 1 }) === digestValue({ a: 1 }) // true — deterministic
  * ```
@@ -639,7 +639,7 @@ export function digestValue(value: unknown): string {
  *
  * @example
  * ```ts
- * import { scoreTemplate } from '@src/core'
+ * import { scoreTemplate } from '@orkestrel/interpret'
  *
  * scoreTemplate(
  * 	{ action: 'compute', domain: 'rating', confidence: 1 },
@@ -675,7 +675,7 @@ export function scoreTemplate(intent: Intent, template: Template): number {
  *
  * @example
  * ```ts
- * import { matchTemplate } from '@src/core'
+ * import { matchTemplate } from '@orkestrel/interpret'
  *
  * matchTemplate({ confidence: 0 }, [], 0.3) // undefined — empty registry
  * ```
@@ -709,7 +709,7 @@ export function matchTemplate(
  * @example
  * ```ts
  * import { createConstant, createOperation, createVariable } from '@orkestrel/reason'
- * import { variablesOf } from '@src/core'
+ * import { variablesOf } from '@orkestrel/interpret'
  *
  * variablesOf(createOperation('divide', createVariable('deductible'), createConstant(12))) // ['deductible']
  * ```
@@ -758,7 +758,7 @@ export function variablesOf(expression: SymbolicExpression): readonly string[] {
  * @example
  * ```ts
  * import { createConstant, createOperation, createVariable } from '@orkestrel/reason'
- * import { resolveExpression } from '@src/core'
+ * import { resolveExpression } from '@orkestrel/interpret'
  *
  * resolveExpression(createOperation('divide', createVariable('deductible'), createConstant(12)), { deductible: 6000 }) // 500
  * resolveExpression(createOperation('divide', createConstant(1), createConstant(0)), {}) // undefined — NaN gap
@@ -803,7 +803,7 @@ export function resolveExpression(
  *
  * @example
  * ```ts
- * import { createNarrator, renderSubject } from '@src/core'
+ * import { createNarrator, renderSubject } from '@orkestrel/interpret'
  *
  * renderSubject({ age: 25, income: 50000 }, createNarrator()) // 'with age: 25, income: 50000'
  * ```

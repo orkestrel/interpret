@@ -48,7 +48,7 @@ import { INTERPRET_ERROR_CODES, INTERPRET_STAGES, PROVENANCE_CATEGORIES } from '
  *
  * @example
  * ```ts
- * import { isEntityMapping } from '@src/core'
+ * import { isEntityMapping } from '@orkestrel/interpret'
  *
  * isEntityMapping({ entity: 'age', aliases: ['years old'], field: 'age' }) // true
  * isEntityMapping({ entity: 'age', aliases: [/\d+/], field: 'age' })      // false — RegExp alias
@@ -80,7 +80,7 @@ export function isEntityMapping(value: unknown): value is EntityMapping {
  *
  * @example
  * ```ts
- * import { isFieldDefault } from '@src/core'
+ * import { isFieldDefault } from '@orkestrel/interpret'
  *
  * isFieldDefault({ field: 'term', value: 12 })   // true
  * isFieldDefault({ field: 'term' })               // false — value missing
@@ -101,7 +101,7 @@ export function isFieldDefault(value: unknown): value is FieldDefault {
  * @example
  * ```ts
  * import { createConstant, createOperation, createVariable } from '@orkestrel/reason'
- * import { isComputedField } from '@src/core'
+ * import { isComputedField } from '@orkestrel/interpret'
  *
  * isComputedField({
  * 	field: 'monthly',
@@ -132,7 +132,7 @@ export function isComputedField(value: unknown): value is ComputedField {
  * @example
  * ```ts
  * import { createFactorGroup, createFieldFactor, createQuantitativeDefinition } from '@orkestrel/reason'
- * import { isTemplate } from '@src/core'
+ * import { isTemplate } from '@orkestrel/interpret'
  *
  * isTemplate({
  * 	id: 't1',
@@ -175,7 +175,7 @@ export function isTemplate(value: unknown): value is Template {
  *
  * @example
  * ```ts
- * import { isProvenance } from '@src/core'
+ * import { isProvenance } from '@orkestrel/interpret'
  *
  * isProvenance({ category: 'extracted', detail: 'alias', metadata: true }) // true
  * isProvenance({ category: 'external' })                                  // false
@@ -203,7 +203,7 @@ export function isProvenance(value: unknown): value is Provenance {
  *
  * @example
  * ```ts
- * import { isIntent } from '@src/core'
+ * import { isIntent } from '@orkestrel/interpret'
  *
  * isIntent({ action: 'calculate', domain: 'arithmetic', confidence: 1, metadata: true }) // true
  * isIntent({ confidence: 0 })                                                            // true
@@ -229,7 +229,7 @@ export function isIntent(value: unknown): value is Intent {
  *
  * @example
  * ```ts
- * import { isEntity } from '@src/core'
+ * import { isEntity } from '@orkestrel/interpret'
  *
  * isEntity({ name: 'age', value: 25, provenance: { category: 'extracted' }, confidence: 1 }) // true
  * isEntity({ name: 'age', provenance: { category: 'external' }, confidence: 1 })             // false
@@ -251,7 +251,7 @@ export function isEntity(value: unknown): value is Entity {
  *
  * @example
  * ```ts
- * import { isFieldMapping } from '@src/core'
+ * import { isFieldMapping } from '@orkestrel/interpret'
  *
  * isFieldMapping({ field: 'age', provenance: { category: 'extracted' }, confidence: 1 }) // true
  * isFieldMapping({ field: [1], provenance: { category: 'extracted' }, confidence: 1 })   // false
@@ -281,7 +281,7 @@ export function isFieldMapping(value: unknown): value is FieldMapping {
  *
  * @example
  * ```ts
- * import { isAmbiguity } from '@src/core'
+ * import { isAmbiguity } from '@orkestrel/interpret'
  *
  * isAmbiguity({ field: 'age', question: 'Which age?', candidates: ['25'], required: true }) // true
  * isAmbiguity({ field: 'age', question: 'Which age?', candidates: [25], required: true })   // false
@@ -309,7 +309,7 @@ export function isAmbiguity(value: unknown): value is Ambiguity {
  *
  * @example
  * ```ts
- * import { isStageRecord } from '@src/core'
+ * import { isStageRecord } from '@orkestrel/interpret'
  *
  * isStageRecord({ stage: 'normalize', input: 'raw', output: 'clean', failed: false }) // true
  * isStageRecord({ stage: 'publish', failed: false })                                  // false
@@ -339,7 +339,7 @@ export function isStageRecord(value: unknown): value is StageRecord {
  *
  * @example
  * ```ts
- * import { isStageFailure } from '@src/core'
+ * import { isStageFailure } from '@orkestrel/interpret'
  *
  * isStageFailure({ stage: 'format', code: 'FORMAT_FAILED', message: 'failed' }) // true
  * isStageFailure({ stage: 'format', code: 'UNKNOWN', message: 'failed' })       // false
@@ -369,7 +369,7 @@ export function isStageFailure(value: unknown): value is StageFailure {
  *
  * @example
  * ```ts
- * import { createInterpret, isInterpretation } from '@src/core'
+ * import { createInterpret, isInterpretation } from '@orkestrel/interpret'
  *
  * isInterpretation(createInterpret().interpret('unmatched text')) // true
  * isInterpretation({ text: 'incomplete' })                         // false

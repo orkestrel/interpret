@@ -48,7 +48,7 @@ import { Narrator } from '../Narrator.js'
  *
  * @example
  * ```ts
- * import { Clarifier } from '@src/core'
+ * import { Clarifier } from '@orkestrel/interpret'
  *
  * const clarifier = new Clarifier({ floor: 0.3 })
  * clarifier.clarify(

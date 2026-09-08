@@ -15,7 +15,7 @@ import { classifyIntent, extractNumbers } from '../helpers.js'
  *
  * @example
  * ```ts
- * import { Extractor } from '@src/core'
+ * import { Extractor } from '@orkestrel/interpret'
  *
  * const extractor = new Extractor({
  * 	actions: { calculate: 'compute' },

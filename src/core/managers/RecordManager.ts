@@ -31,7 +31,7 @@ import { digestValue } from '../helpers.js'
  *
  * @example
  * ```ts
- * import { RecordManager } from '@src/core'
+ * import { RecordManager } from '@orkestrel/interpret'
  *
  * interface NoteRecord {
  * 	readonly id: string

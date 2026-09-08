@@ -21,7 +21,7 @@ import { isTemplate } from './validators.js'
  *
  * @example
  * ```ts
- * import { parseTemplate } from '@src/core'
+ * import { parseTemplate } from '@orkestrel/interpret'
  *
  * parseTemplate('not json') // undefined
  * ```

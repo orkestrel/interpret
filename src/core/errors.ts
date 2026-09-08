@@ -40,7 +40,7 @@ export class InterpretError extends Error {
  *
  * @example
  * ```ts
- * import { isInterpretError } from '@src/core'
+ * import { isInterpretError } from '@orkestrel/interpret'
  *
  * try {
  * 	interpret.template('missing')

@@ -19,7 +19,7 @@ import type { Definition, ReasonResult, Subject, SymbolicExpression } from '@ork
 // === Vocabulary
 
 /**
- * Names how one {@link FieldMapping} / {@link Entity} value was obtained.
+ * Names how one {@link FieldMapping} or {@link Entity} value was obtained.
  *
  * @remarks
  * `extracted` — mined from the raw text through keyword / alias / positional
@@ -43,7 +43,7 @@ export type ProvenanceCategory = 'extracted' | 'carried' | 'default' | 'computed
 export type InterpretStage = 'normalize' | 'extract' | 'clarify' | 'format' | 'generate'
 
 /**
- * Names the coded misuse / failure conditions thrown as an {@link InterpretError} or
+ * Names the coded misuse or failure conditions thrown as an {@link InterpretError} or
  * carried on a {@link StageFailure}.
  *
  * @remarks
@@ -364,7 +364,7 @@ export type InterpretEventMap = {
 
 /**
  * Represents the push observation surface shared by every record registry — an id-keyed
- * collection, so `add` / `remove` are the events (never ordered-list
+ * collection, so `add` and `remove` are the events (never ordered-list
  * `append`/`prepend`).
  */
 export type RecordEventMap = {

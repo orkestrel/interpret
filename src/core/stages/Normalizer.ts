@@ -24,7 +24,7 @@ import { applyReplacements, collapseWhitespace, escapeRegExp } from '../helpers.
  *
  * @example
  * ```ts
- * import { Normalizer } from '@src/core'
+ * import { Normalizer } from '@orkestrel/interpret'
  *
  * const normalizer = new Normalizer({ contractions: { "can't": 'cannot' } })
  * normalizer.normalize("can't   stop")
