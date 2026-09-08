@@ -104,7 +104,7 @@ export function createInterpret(options?: InterpretOptions): InterpretInterface 
  *
  * @example
  * ```ts
- * import { createNormalizer } from '@src/core'
+ * import { createNormalizer } from '@orkestrel/interpret'
  *
  * createNormalizer().normalize("it's  cold") // { text: 'it is cold', changes: [{ from: "it's", to: 'it is' }] }
  * ```
@@ -122,7 +122,7 @@ export function createNormalizer(options?: NormalizerOptions): NormalizerInterfa
  *
  * @example
  * ```ts
- * import { createExtractor } from '@src/core'
+ * import { createExtractor } from '@orkestrel/interpret'
  *
  * const extractor = createExtractor({
  * 	actions: { calculate: 'calculate' },
@@ -144,7 +144,7 @@ export function createExtractor(options?: ExtractorOptions): ExtractorInterface 
  *
  * @example
  * ```ts
- * import { createClarifier } from '@src/core'
+ * import { createClarifier } from '@orkestrel/interpret'
  *
  * const clarifier = createClarifier({ floor: 0.5 })
  * ```
@@ -161,7 +161,7 @@ export function createClarifier(options?: ClarifierOptions): ClarifierInterface 
  *
  * @example
  * ```ts
- * import { createFormatter } from '@src/core'
+ * import { createFormatter } from '@orkestrel/interpret'
  *
  * const formatter = createFormatter({ verbs: { calculate: 'Calculate' } })
  * ```
@@ -178,7 +178,7 @@ export function createFormatter(options?: FormatterOptions): FormatterInterface 
  *
  * @example
  * ```ts
- * import { createGenerator } from '@src/core'
+ * import { createGenerator } from '@orkestrel/interpret'
  *
  * const generator = createGenerator()
  * ```
@@ -196,7 +196,7 @@ export function createGenerator(): GeneratorInterface {
  * @example
  * ```ts
  * import { createFactorGroup, createFieldFactor, createQuantitativeDefinition } from '@orkestrel/reason'
- * import { createTemplateManager } from '@src/core'
+ * import { createTemplateManager } from '@orkestrel/interpret'
  *
  * const templates = createTemplateManager({
  * 	templates: [{
@@ -224,7 +224,7 @@ export function createTemplateManager(options?: TemplateManagerOptions): Templat
  *
  * @example
  * ```ts
- * import { createSubjectManager } from '@src/core'
+ * import { createSubjectManager } from '@orkestrel/interpret'
  *
  * const subjects = createSubjectManager({ subjects: [{ value: 1 }] })
  * subjects.count // 1
@@ -244,7 +244,7 @@ export function createSubjectManager(options?: SubjectManagerOptions): SubjectMa
  * @example
  * ```ts
  * import { createFactorGroup, createFieldFactor, createQuantitativeDefinition } from '@orkestrel/reason'
- * import { createDefinitionManager } from '@src/core'
+ * import { createDefinitionManager } from '@orkestrel/interpret'
  *
  * const definitions = createDefinitionManager({
  * 	definitions: [createQuantitativeDefinition('d1', 'D1', [createFactorGroup('total', 'sum', [createFieldFactor('value', 'value')])])],
@@ -267,7 +267,7 @@ export function createDefinitionManager(
  *
  * @example
  * ```ts
- * import { createInterpretContext } from '@src/core'
+ * import { createInterpretContext } from '@orkestrel/interpret'
  *
  * const context = createInterpretContext({ session: 'turn-1', history: 4 })
  * context.previous() // []
@@ -293,7 +293,7 @@ export function createInterpretContext(
  *
  * @example
  * ```ts
- * import { createNarrator } from '@src/core'
+ * import { createNarrator } from '@orkestrel/interpret'
  *
  * const narrator = createNarrator({ lexicon: { templates: { 'subject.empty': 'nothing here' } } })
  * narrator.line('subject.empty', {}) // 'nothing here'

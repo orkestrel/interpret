@@ -21,10 +21,10 @@ import { digestValue } from '../helpers.js'
  * {@link DefinitionManager} each compose one instance rather than repeating
  * the same registry. A concrete manager keeps only what actually differs: its
  * accessor noun pair, its id source, and the {@link RecordFunction} that names
- * its record's value field. `add` derives `hash` from the value's CONTENT
- * (id-independent) and bumps `version` ONLY when that hash changes at a reused
+ * its record's value field. `add` derives `hash` from the value's content
+ * (id-independent) and bumps `version` only when that hash changes at a reused
  * id, so an identical re-add keeps its version. The batch `remove(ids)` form
- * is ALL-OR-NOTHING — any id absent from the registry leaves the collection
+ * is all-or-nothing — any id absent from the registry leaves the collection
  * untouched and returns `false`. `destroy()` is idempotent, and every method
  * afterwards throws `InterpretError('DESTROYED', …)` naming the configured
  * `entity`.

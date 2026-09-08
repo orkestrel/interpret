@@ -12,11 +12,11 @@ import { applyReplacements, collapseWhitespace, escapeRegExp } from '../helpers.
  * substitutions in order, then collapses whitespace.
  *
  * @remarks
- * The caller's `contractions` map is merged OVER `DEFAULT_CONTRACTIONS`;
+ * The caller's `contractions` map is merged over `DEFAULT_CONTRACTIONS`;
  * `abbreviations` and `corrections` carry no built-in vocabulary, so each is
  * exactly what the caller supplied. `text` is never mutated, and every
  * substitution actually applied
- * (one entry per matching map KEY, not per occurrence) is recorded on the
+ * (one entry per matching map key, not per occurrence) is recorded on the
  * result's `changes`, in `contractions → abbreviations → corrections` order,
  * so the audit trail explains every character difference between `text` and
  * `NormalizeResult.text` (the final whitespace collapse carries no entry of

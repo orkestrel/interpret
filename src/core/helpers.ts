@@ -48,7 +48,7 @@ export function escapeRegExp(text: string): string {
  * Never mutates `subject` — every level a `field` array descends through is
  * freshly copied, so the input and every intermediate record stay untouched.
  * Prototype-pollution-safe: a `field` containing `__proto__`,
- * `prototype`, or `constructor` at ANY segment (checked against
+ * `prototype`, or `constructor` at any segment (checked against
  * `UNSAFE_FIELD_SEGMENTS`) is refused as a no-op, returning `subject`
  * unchanged. A non-record value already sitting at an intermediate segment is
  * replaced by a fresh record rather than descended into.
@@ -200,7 +200,7 @@ export function extractNumbers(text: string): readonly number[] {
  * Assigns already-extracted numbers to a matched template's entity mappings.
  *
  * @remarks
- * Strategy, in order: (1) a SINGLE mapping collects every number (an array
+ * Strategy, in order: (1) a single mapping collects every number (an array
  * when more than one, a scalar otherwise) at `CONFIDENCE_COLLECT`. Otherwise,
  * per mapping, the rightmost token in the text that equals the entity name
  * (`CONFIDENCE_EXACT`), an alias exactly (`CONFIDENCE_ALIAS`), or an alias
@@ -210,7 +210,7 @@ export function extractNumbers(text: string): readonly number[] {
  * next unused number positionally, at `CONFIDENCE_POSITIONAL`. Every entity
  * carries provenance `category: 'extracted'` with `detail` naming the
  * strategy that filled it (`'collect' | 'keyword' | 'alias' | 'positional'`).
- * Runs ONLY after a template has matched (an orchestrator-owned step, never
+ * Runs only after a template has matched (an orchestrator-owned step, never
  * inside `Extractor`, which stays template-agnostic).
  *
  * @param numbers - The numbers already extracted from `text` through `extractNumbers`
@@ -384,13 +384,13 @@ export function assignEntities(
  * name to its keyword list — the domain with the most matching tokens wins
  * (ties keep the earliest-declared domain), also at `CONFIDENCE_EXACT`. An
  * unmatched axis is left `undefined` rather than an empty string, so an
- * unclassified intent is visibly absent. Combined confidence (PINNED): both
- * fire → their average; exactly one fires → its value times `0.5`; neither →
- * `0`. There is no built-in worldview and no auto-classification from an
- * added template's own `domain` name — a caller MUST list a template's
- * domain among `domains` for it to classify. No `floor` parameter: the
- * confidence floor gate lives at the orchestrator's `matchTemplate` step,
- * never inside classification itself.
+ * unclassified intent is visibly absent. Combined confidence (pinned): the
+ * action and the domain both fire → their average; exactly one fires → its
+ * value times `0.5`; neither → `0`. There is no built-in worldview and no
+ * auto-classification from an added template's own `domain` name — a caller
+ * must list a template's domain among `domains` for it to classify. No
+ * `floor` parameter: the confidence floor gate lives at the orchestrator's
+ * `matchTemplate` step, never inside classification itself.
  *
  * @param text - The (normalized) text to classify
  * @param actions - The caller's token → action-name vocabulary
@@ -532,7 +532,7 @@ export function matchAlias(token: string, aliases: readonly string[], threshold:
  * the one place `ancestors` is a real parameter rather than a seeded default.
  * Record keys sort before serialization, so a re-ordered object canonicalizes
  * identically; arrays keep position order, because position is meaningful.
- * `ancestors` tracks the objects along the CURRENT recursion path rather than
+ * `ancestors` tracks the objects along the current recursion path rather than
  * a global "seen" set, so the same object reachable twice through non-cyclic
  * sibling branches still canonicalizes normally; a node already on the path
  * renders as the literal string `'[cycle]'` instead of recursing —
@@ -740,10 +740,10 @@ export function variablesOf(expression: SymbolicExpression): readonly string[] {
  * Evaluates a symbolic expression tree against resolved bindings.
  *
  * @remarks
- * THE critical leaf (design-pinned, engine-parity semantics): an absent
+ * The critical leaf (design-pinned, engine-parity semantics): an absent
  * `right` operand on a binary operation defaults to `0` — matching
  * `SymbolicReasoner`'s internal `#evaluate` — and is always passed as an
- * EXPLICIT numeric operand, so the same tree evaluates identically here and
+ * explicit numeric operand, so the same tree evaluates identically here and
  * inside the engine. Each arithmetic step delegates to the reasons
  * `applyOperation` pure function, mapping the node's `.operator` field onto
  * its `operator` parameter. An unresolved input variable, or a non-finite
@@ -790,7 +790,7 @@ export function resolveExpression(
  *
  * @remarks
  * Complements — never duplicates — the raters `describe*` family (which
- * describes RATERS artifacts); this describes REASONS artifacts. Every field
+ * describes raters artifacts); this describes reasons artifacts. Every field
  * renders through `narrator.label` + `narrator.value` (looked up under the
  * `'units'` phrase table, falling back to `'plain'`) — the wording is fully
  * lexicon-driven, mechanism rather than policy; `Definition` /

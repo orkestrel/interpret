@@ -11,8 +11,8 @@ import { DEFAULT_LEXICON } from './constants.js'
  * `verbs` seam, supplying mechanism rather than wording policy.
  *
  * @remarks
- * Every wording decision is DATA — a caller-supplied `Lexicon` merged, per
- * sub-record (`phrases` / `labels` / `templates`), OVER `DEFAULT_LEXICON`.
+ * Every wording decision is data — a caller-supplied `Lexicon` merged, per
+ * sub-record (`phrases`, `labels`, and `templates`), over `DEFAULT_LEXICON`.
  * Stateless and holds no resources: no emitter, no `destroy()` (deliberate —
  * there is nothing to release). Every method is total (never throws); a
  * lexicon or formatter miss degrades to its documented fallback rather than

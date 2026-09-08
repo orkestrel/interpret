@@ -19,7 +19,7 @@ import { RecordManager } from './RecordManager.js'
  * pair (`template` / `templates`) and the batch `remove` overloads.
  * A composed {@link RecordManager} owns the collection, the content-derived
  * `hash`, and the version rule, so an identical re-add keeps its version and
- * the batch `remove(ids)` form stays ALL-OR-NOTHING. This class adds what is
+ * the batch `remove(ids)` form stays all-or-nothing. This class adds what is
  * template-specific: the accessor nouns, the record id defaulting to
  * `template.id`, and the `template` field on each record. `destroy()` is
  * idempotent; every method afterwards throws `InterpretError('DESTROYED', …)`.

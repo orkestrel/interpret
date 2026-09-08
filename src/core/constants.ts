@@ -2,7 +2,7 @@ import type { InterpretErrorCode, InterpretStage, Lexicon, ProvenanceCategory } 
 
 // Frozen default data for the interprets module — the sole home for its
 // module-scope literal defaults. Every vocabulary map here is intentionally
-// NEUTRAL and small: domain worldview (insurance verbs, en-US misspelling
+// neutral and small: domain worldview (insurance verbs, en-US misspelling
 // corrections, business domains) is the caller's business, supplied through
 // options rather than baked in here.
 

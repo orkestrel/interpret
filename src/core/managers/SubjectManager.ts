@@ -20,7 +20,7 @@ import { RecordManager } from './RecordManager.js'
  * `RecordOptions.id`, so successive same-domain turns never overwrite one
  * shared subject. A composed {@link RecordManager} owns the collection, the
  * content-derived `hash` (id-independent), and the version rule, so `version`
- * bumps ONLY when the hash changes at a reused id and the batch `remove(ids)`
+ * bumps only when the hash changes at a reused id and the batch `remove(ids)`
  * form stays all-or-nothing. `destroy()` is idempotent and every method
  * afterwards throws `InterpretError('DESTROYED', …)`.
  *

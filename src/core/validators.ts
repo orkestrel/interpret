@@ -26,21 +26,22 @@ import {
 import { isDefinition, isFieldPath, isSymbolicExpression } from '@orkestrel/reason'
 import { INTERPRET_ERROR_CODES, INTERPRET_STAGES, PROVENANCE_CATEGORIES } from './constants.js'
 
-// Every guard here is a TOTAL function — adversarial input (junk, hostile
+// Every guard here is a total function — adversarial input (junk, hostile
 // prototypes, cyclic/deep nesting) returns `false`, never throws.
-// Input-record guards are EXACT (`recordOf`): an extra key fails. Foreign
-// result guards are OPEN (`objectOf`): unknown members, class instances, and
+// Input-record guards are exact (`recordOf`): an extra key fails. Foreign
+// result guards are open (`objectOf`): unknown members, class instances, and
 // prototype accessors pass when the published members conform. `isTemplate`
 // composes reasons' exported `isSymbolicExpression` (already recursive
 // through `lazyOf`) and `isDefinition` rather than minting local duplicates —
 // a second `isSymbolicExpression` would collide under the shared `@src/core`
-// barrel's `export *` (TypeScript silently drops BOTH conflicting star
+// barrel's `export *` (TypeScript silently drops both conflicting star
 // re-exports), breaking reasons' own guard and failing the guides-parity
 // gate. `interprets` therefore owns no recursive expression guard of its own.
 
 /**
- * Determines whether a value is an {@link EntityMapping} — a literal
- * alias-phrase extraction rule pointing at a subject field.
+ * Determines whether a value is an exact {@link EntityMapping} input
+ * record — a literal alias-phrase extraction rule pointing at a subject
+ * field.
  *
  * @param value - The value to test
  * @returns True if `value` is a well-formed entity mapping; false otherwise
@@ -66,8 +67,8 @@ export function isEntityMapping(value: unknown): value is EntityMapping {
 }
 
 /**
- * Determines whether a value is a {@link FieldDefault} — a fallback value a
- * {@link Template} fills onto an unresolved field.
+ * Determines whether a value is an exact {@link FieldDefault} input record —
+ * a fallback value a {@link Template} fills onto an unresolved field.
  *
  * @remarks
  * `value` is unconstrained (any value, including `null` or `undefined`) as
@@ -90,8 +91,9 @@ export function isFieldDefault(value: unknown): value is FieldDefault {
 }
 
 /**
- * Determines whether a value is a {@link ComputedField} — a declaratively
- * computed field carrying a reasons {@link SymbolicExpression} tree.
+ * Determines whether a value is an exact {@link ComputedField} input record —
+ * a declaratively computed field carrying a reasons
+ * {@link SymbolicExpression} tree.
  *
  * @param value - The value to test
  * @returns True if `value` is a well-formed computed field; false otherwise
@@ -113,8 +115,8 @@ export function isComputedField(value: unknown): value is ComputedField {
 }
 
 /**
- * Determines whether a value is a {@link Template} — a named, versionable
- * interpretation template.
+ * Determines whether a value is an exact {@link Template} input record — a
+ * named, versionable interpretation template.
  *
  * @remarks
  * `definition` is validated with reasons' `isDefinition` — a `Template`'s

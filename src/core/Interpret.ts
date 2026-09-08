@@ -46,18 +46,16 @@ import { Normalizer } from './stages/Normalizer.js'
  * registry and the context, and exposes the reverse direction.
  *
  * @remarks
- * `interpret()` is genuinely SYNCHRONOUS — it returns its
- * {@link Interpretation} directly, never a `Promise` — and runs the fixed
- * pipeline
- * `[normalize, extract, clarify, format, generate]` — each producing one
- * {@link StageRecord}. Between `extract` and `clarify` the orchestrator matches
+ * `interpret()` is genuinely synchronous — it returns its
+ * {@link Interpretation} directly, never a `Promise` — each phase producing
+ * one {@link StageRecord}. Between `extract` and `clarify` the orchestrator matches
  * the classified {@link Intent} against its added {@link Template}s and,
  * on a match, assigns the extracted numbers to that template's mappings
  * (`assignEntities`) — a template-owned step, not a sixth stage. No match, or a
  * matched template whose intent confidence falls below the configured `floor`,
- * yields an explicit, auditable INCOMPLETE result (a `field: 'intent'`
+ * yields an explicit, auditable incomplete result (a `field: 'intent'`
  * ambiguity, absent subject/definition) rather than an arbitrary fallback
- * template. A stage THROW is caught, marked on its record AND on
+ * template. A stage throw is caught, marked on its record and on
  * `failures`, emitted as `error`, and still yields a visible incomplete result
  * — never a silent fallback. Every result carries a `digest` over its original
  * text plus the matched template id/version and the built subject/definition,
@@ -66,7 +64,7 @@ import { Normalizer } from './stages/Normalizer.js'
  * direction (structure → prose). `destroy()` is idempotent, tears down the
  * registry and the context it constructed itself — a context supplied through
  * `options.context` is shared, so it stays alive for whoever else holds it —
- * then destroys the emitter LAST; every method afterwards except the
+ * then destroys the emitter last; every method afterwards except the
  * {@link emitter} getter throws `InterpretError('DESTROYED', …)`.
  *
  * @example
@@ -417,7 +415,7 @@ export class Interpret implements InterpretInterface {
 		)
 	}
 
-	// A stage THROW — mark the failed stage's record, emit `error` with the raw
+	// A stage throw — mark the failed stage's record, emit `error` with the raw
 	// thrown value, and assemble a visible incomplete result. The one site the
 	// thrown value is rendered to a message (folded here, its sole use).
 	#fail(
@@ -455,7 +453,7 @@ export class Interpret implements InterpretInterface {
 	// Assemble a visible incomplete result: pad the un-run stages with skipped
 	// records so `stages` always holds one record per phase, digest over the known
 	// pre-image, record the result in context, and emit `interpret` (an
-	// incomplete run is still a completed CALL — visibility is the point).
+	// incomplete run is still a completed call — visibility is the point).
 	#assemble(
 		text: string,
 		normalized: string,

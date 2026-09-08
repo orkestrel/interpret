@@ -25,9 +25,10 @@ import { SubjectManager } from './managers/SubjectManager.js'
  * preserves the carry-over pin), never an unbounded array.
  * `entities()` flattens every entity across the buffered history, most recent
  * last — the read a `Clarifier`'s same-domain carry-over consults. `add` pushes
- * one result and trims to the cap; `clear` resets the history and both
- * registries WITHOUT tearing the context down; `destroy()` is idempotent and
- * every method afterwards throws `InterpretError('DESTROYED', …)`.
+ * one result and trims to the cap; `clear` resets the history, the subject
+ * registry, and the definition registry without tearing the context down;
+ * `destroy()` is idempotent and every method afterwards throws
+ * `InterpretError('DESTROYED', …)`.
  *
  * @example
  * ```ts

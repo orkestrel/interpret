@@ -29,7 +29,7 @@ import { Narrator } from '../Narrator.js'
  *
  * @remarks
  * Resolution order: fresh (already-assigned) entities always win; carry-over
- * fills a mapping only from the SAME domain's most recent prior turn (a
+ * fills a mapping only from the same domain's most recent prior turn (a
  * domain change drops carry-over entirely) and never overwrites a fresh
  * value; template defaults fill any field still unresolved after carry-over;
  * computed fields resolve in dependency (topological) order through
@@ -37,7 +37,7 @@ import { Narrator } from '../Narrator.js'
  * dependency cycle leaves the field a gap, never landing an entity. A
  * computation reads every resolved numeric field by name, and can address one
  * numeric element of an array-valued field as `{field}.{index}`, so an
- * aggregate over a collection of KNOWN length is declarable while a collection
+ * aggregate over a collection of known length is declarable while a collection
  * whose length varies per turn has none — an unbound element abandons the
  * whole expression. `floor` comes from {@link ClarifierOptions} rather than a
  * hardcoded constant, and gates whether a resolved entity's confidence counts

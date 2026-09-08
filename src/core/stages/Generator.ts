@@ -15,7 +15,7 @@ import { setField } from '../helpers.js'
  * @remarks
  * `entity → field` through `template.mappings` (an `EntityMapping.entity` name
  * lookup); an entity whose name matches no mapping lands on the field named
- * by its OWN `name` — the shape `Clarifier` uses for its synthesized
+ * by its own `name` — the shape `Clarifier` uses for its synthesized
  * default/computed entities, so one lookup rule serves both extraction-
  * mapped and template-data-derived fields. A single-element array value
  * unwraps to its scalar; every other value lands as it stands, so a
@@ -23,7 +23,7 @@ import { setField } from '../helpers.js'
  * an aggregate over an array-valued entity is a `ComputedField` the template
  * author declares, resolved by `Clarifier` before this stage runs.
  * `confidence` is the mean of the input entities' own confidences (`0` for
- * an empty entity set). A `FieldMapping` is emitted for EVERY field that
+ * an empty entity set). A `FieldMapping` is emitted for every field that
  * lands on the subject, including defaults and computed fields. The stage
  * takes no options, so construction takes no arguments.
  *
