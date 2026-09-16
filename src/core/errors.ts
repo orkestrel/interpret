@@ -1,4 +1,5 @@
 import type { InterpretErrorCode } from './types.js'
+import { isInstance } from '@orkestrel/contract'
 
 // Misuse of the interprets layer `throw`s an `InterpretError` carrying a
 // machine-readable `code`, so a `catch` branches on `error.code`.
@@ -50,5 +51,5 @@ export class InterpretError extends Error {
  * ```
  */
 export function isInterpretError(value: unknown): value is InterpretError {
-	return value instanceof InterpretError
+	return isInstance(value, InterpretError)
 }

@@ -26,6 +26,7 @@ import type {
 	StageRecord,
 	Template,
 } from './types.js'
+import { isError, isString } from '@orkestrel/contract'
 import { Emitter } from '@orkestrel/emitter'
 import { DEFAULT_INTERPRET_FLOOR, DEFAULT_INTERPRET_SIMILARITY } from './constants.js'
 import { InterpretError } from './errors.js'
@@ -332,7 +333,7 @@ export class Interpret implements InterpretInterface {
 	remove(target?: string | readonly string[]): boolean | void {
 		this.#ensureAlive()
 		if (target === undefined) return this.#templates.remove()
-		if (typeof target === 'string') return this.#templates.remove(target)
+		if (isString(target)) return this.#templates.remove(target)
 		return this.#templates.remove(target)
 	}
 
@@ -433,7 +434,7 @@ export class Interpret implements InterpretInterface {
 		templateId: string | undefined,
 		templateVersion: number | undefined,
 	): Interpretation {
-		const message = error instanceof Error ? error.message : String(error)
+		const message = isError(error) ? error.message : String(error)
 		stages.push({ stage, input, output: undefined, failed: true, error: message })
 		this.#emitter.emit('error', error)
 		return this.#assemble(

@@ -10,7 +10,7 @@ import type {
 	NarratorInterface,
 	Template,
 } from '../types.js'
-import { isFiniteNumber } from '@orkestrel/contract'
+import { isArray, isFiniteNumber } from '@orkestrel/contract'
 import { formatField } from '@orkestrel/reason'
 import {
 	CONFIDENCE_CARRIED,
@@ -166,7 +166,7 @@ export class Clarifier implements ClarifierInterface {
 				bindings[field] = value
 				continue
 			}
-			if (!Array.isArray(value)) continue
+			if (!isArray(value)) continue
 			for (let index = 0; index < value.length; index += 1) {
 				const item = value[index]
 				if (isFiniteNumber(item)) bindings[`${field}.${index}`] = item

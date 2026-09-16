@@ -1,6 +1,7 @@
 import type { FieldPath } from '@orkestrel/contract'
 import type { Definition, ReasonResult } from '@orkestrel/reason'
 import type { Lexicon, NarratorFormatter, NarratorInterface, NarratorOptions } from './types.js'
+import { isString } from '@orkestrel/contract'
 import { formatField } from '@orkestrel/reason'
 import { fillTemplate } from '@orkestrel/template'
 import { DEFAULT_LEXICON } from './constants.js'
@@ -51,7 +52,7 @@ export class Narrator implements NarratorInterface {
 			const row = this.#lexicon.phrases[table]
 			if (row !== null && row !== undefined && Object.hasOwn(row, key)) {
 				const value = row[key]
-				if (typeof value === 'string') return value
+				if (isString(value)) return value
 			}
 		}
 		return fallback ?? key
@@ -61,7 +62,7 @@ export class Narrator implements NarratorInterface {
 		const key = formatField(field)
 		if (Object.hasOwn(this.#lexicon.labels, key)) {
 			const value = this.#lexicon.labels[key]
-			if (typeof value === 'string') return value
+			if (isString(value)) return value
 		}
 		return key
 	}
@@ -69,7 +70,7 @@ export class Narrator implements NarratorInterface {
 	line(id: string, values: Readonly<Record<string, unknown>>): string {
 		if (!Object.hasOwn(this.#lexicon.templates, id)) return ''
 		const template = this.#lexicon.templates[id]
-		return typeof template === 'string' ? fillTemplate(template, values, { missing: 'empty' }) : ''
+		return isString(template) ? fillTemplate(template, values, { missing: 'empty' }) : ''
 	}
 
 	value(unit: string, raw: unknown): string {

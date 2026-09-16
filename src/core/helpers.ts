@@ -1,7 +1,7 @@
 import type { FieldPath } from '@orkestrel/contract'
 import type { Subject, SymbolicExpression } from '@orkestrel/reason'
 import type { Entity, EntityMapping, Intent, NarratorInterface, Template } from './types.js'
-import { isFiniteNumber, isRecord } from '@orkestrel/contract'
+import { isArray, isFiniteNumber, isRecord } from '@orkestrel/contract'
 import { applyOperation } from '@orkestrel/reason'
 import {
 	CONFIDENCE_ALIAS,
@@ -69,7 +69,7 @@ export function escapeRegExp(text: string): string {
  * ```
  */
 export function setField(subject: Subject, field: FieldPath, value: unknown): Subject {
-	const path = Array.isArray(field) ? field : [field]
+	const path = isArray(field) ? field : [field]
 	if (path.length === 0) return subject
 	if (path.some((segment) => UNSAFE_FIELD_SEGMENTS.includes(segment))) return subject
 	const [key, ...rest] = path
@@ -189,7 +189,7 @@ export function extractNumbers(text: string): readonly number[] {
 		const raw = match[1]
 		if (raw !== undefined) {
 			const value = Number(raw.replace(/,/g, ''))
-			if (Number.isFinite(value)) numbers.push(value)
+			if (isFiniteNumber(value)) numbers.push(value)
 		}
 		match = pattern.exec(text)
 	}
@@ -554,7 +554,7 @@ export function matchAlias(token: string, aliases: readonly string[], threshold:
  * ```
  */
 export function canonicalizeNode(value: unknown, ancestors: ReadonlySet<object>): string {
-	if (Array.isArray(value)) {
+	if (isArray(value)) {
 		if (ancestors.has(value)) return JSON.stringify('[cycle]')
 		const nested = new Set(ancestors)
 		nested.add(value)

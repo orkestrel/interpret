@@ -7,6 +7,7 @@ import type {
 	DefinitionRecord,
 	RecordOptions,
 } from '../types.js'
+import { isString } from '@orkestrel/contract'
 import { RecordManager } from './RecordManager.js'
 
 /**
@@ -79,7 +80,7 @@ export class DefinitionManager implements DefinitionManagerInterface {
 	remove(): void
 	remove(target?: string | readonly string[]): boolean | void {
 		if (target === undefined) return this.#records.remove()
-		if (typeof target === 'string') return this.#records.remove(target)
+		if (isString(target)) return this.#records.remove(target)
 		return this.#records.remove(target)
 	}
 

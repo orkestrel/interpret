@@ -6,6 +6,7 @@ import type {
 	RecordManagerOptions,
 	RecordStamp,
 } from '../types.js'
+import { isString } from '@orkestrel/contract'
 import { Emitter } from '@orkestrel/emitter'
 import { InterpretError } from '../errors.js'
 import { digestValue } from '../helpers.js'
@@ -115,7 +116,7 @@ export class RecordManager<TValue, TRecord extends RecordStamp> implements Recor
 			this.#records.clear()
 			return
 		}
-		if (typeof target === 'string') {
+		if (isString(target)) {
 			const removed = this.#records.delete(target)
 			if (removed) this.#emitter.emit('remove', target)
 			return removed

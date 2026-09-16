@@ -6,6 +6,7 @@ import type {
 	GeneratorInterface,
 	Template,
 } from '../types.js'
+import { isArray } from '@orkestrel/contract'
 import { setField } from '../helpers.js'
 
 /**
@@ -64,7 +65,7 @@ export class Generator implements GeneratorInterface {
 			const field = mapping === undefined ? entity.name : mapping.field
 			const value = entity.value
 
-			if (Array.isArray(value) && value.length === 1) {
+			if (isArray(value) && value.length === 1) {
 				const scalar = value[0]
 				subject = setField(subject, field, scalar)
 				mappings.push({
