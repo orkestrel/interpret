@@ -57,17 +57,16 @@ import { setField } from '../helpers.js'
  */
 export class Generator implements GeneratorInterface {
 	generate(entities: readonly Entity[], template: Template): GenerateResult {
-		let subject: Subject = {}
 		const mappings: FieldMapping[] = []
 
-		for (const entity of entities) {
+		const subject = Iterator.from(entities).reduce<Subject>((prior, entity) => {
 			const mapping = template.mappings.find((candidate) => candidate.entity === entity.name)
 			const field = mapping === undefined ? entity.name : mapping.field
 			const value = entity.value
 
 			if (isArray(value) && value.length === 1) {
 				const scalar = value[0]
-				subject = setField(subject, field, scalar)
+				const next = setField(prior, field, scalar)
 				mappings.push({
 					field,
 					entity: entity.name,
@@ -75,10 +74,10 @@ export class Generator implements GeneratorInterface {
 					provenance: entity.provenance,
 					confidence: entity.confidence,
 				})
-				continue
+				return next
 			}
 
-			subject = setField(subject, field, value)
+			const next = setField(prior, field, value)
 			mappings.push({
 				field,
 				entity: entity.name,
@@ -86,7 +85,8 @@ export class Generator implements GeneratorInterface {
 				provenance: entity.provenance,
 				confidence: entity.confidence,
 			})
-		}
+			return next
+		}, {})
 
 		const confidence =
 			entities.length === 0

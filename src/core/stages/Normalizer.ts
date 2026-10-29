@@ -44,12 +44,14 @@ export class Normalizer implements NormalizerInterface {
 
 	normalize(text: string): NormalizeResult {
 		const changes: TextChange[] = []
-		let working = text
-		for (const map of [this.#contractions, this.#abbreviations, this.#corrections]) {
-			const applied = this.#applyStage(working, map)
-			working = applied.text
-			changes.push(...applied.changes)
-		}
+		const working = [this.#contractions, this.#abbreviations, this.#corrections].reduce(
+			(prior, map) => {
+				const applied = this.#applyStage(prior, map)
+				changes.push(...applied.changes)
+				return applied.text
+			},
+			text,
+		)
 		return { text: collapseWhitespace(working), changes }
 	}
 
@@ -57,15 +59,16 @@ export class Normalizer implements NormalizerInterface {
 	// matched. A chaining pass over the leaf `applyReplacements`, so it stays a
 	// private orchestration step rather than a leaf of its own.
 	#applyStage(text: string, map: Readonly<Record<string, string>>): NormalizeResult {
-		let working = text
 		const changes: TextChange[] = []
-		for (const [from, to] of Object.entries(map)) {
+		const working = Object.entries(map).reduce((prior, [from, to]) => {
 			const pattern = new RegExp(`\\b${escapeRegExp(from)}\\b`, 'i')
-			if (pattern.test(working)) {
-				working = applyReplacements(working, { [from]: to })
+			if (pattern.test(prior)) {
+				const replaced = applyReplacements(prior, { [from]: to })
 				changes.push({ from, to })
+				return replaced
 			}
-		}
+			return prior
+		}, text)
 		return { text: working, changes }
 	}
 }

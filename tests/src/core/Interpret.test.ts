@@ -1,7 +1,6 @@
 import type {
 	ClarifierInterface,
 	ExtractorInterface,
-	ExtractResult,
 	FormatterInterface,
 	GeneratorInterface,
 	InterpretEventMap,
@@ -23,6 +22,8 @@ import {
 	buildInsuranceTemplate,
 	buildInterpretTemplate,
 	createCorpusExtractor,
+	createWeakInterpretExtractor,
+	createInterpretStageFailures,
 } from '../../setup.js'
 
 // The `Interpret` orchestrator — registry, synchronous
@@ -184,14 +185,7 @@ describe('Interpret', () => {
 
 	describe('LOW_CONFIDENCE gate', () => {
 		it('honors the configured floor: a matched template with sub-floor intent is incomplete, entities still assigned', () => {
-			const weakExtractor: ExtractorInterface = {
-				extract(): ExtractResult {
-					return {
-						intent: { action: 'calculate', domain: 'insurance', confidence: 0.1 },
-						numbers: [25],
-					}
-				},
-			}
+			const weakExtractor: ExtractorInterface = createWeakInterpretExtractor()
 			const interpret = new Interpret({
 				templates: [buildInsuranceTemplate()],
 				extractor: weakExtractor,
@@ -208,11 +202,7 @@ describe('Interpret', () => {
 
 	describe('stage failures', () => {
 		it('marks a throwing stage on its record AND on failures, emits error, and stays visible-incomplete', () => {
-			const throwingNormalizer: NormalizerInterface = {
-				normalize() {
-					throw new Error('boom')
-				},
-			}
+			const throwingNormalizer: NormalizerInterface = createInterpretStageFailures().normalizer
 			const interpret = new Interpret({
 				templates: [buildInsuranceTemplate()],
 				extractor: createCorpusExtractor(),
@@ -233,11 +223,7 @@ describe('Interpret', () => {
 		})
 
 		it('marks EXTRACT_FAILED on a throwing extractor', () => {
-			const throwingExtractor: ExtractorInterface = {
-				extract() {
-					throw new Error('extract boom')
-				},
-			}
+			const throwingExtractor: ExtractorInterface = createInterpretStageFailures().extractor
 			const interpret = new Interpret({
 				templates: [buildInsuranceTemplate()],
 				extractor: throwingExtractor,
@@ -251,11 +237,7 @@ describe('Interpret', () => {
 		})
 
 		it('marks CLARIFY_FAILED on a throwing clarifier', () => {
-			const throwingClarifier: ClarifierInterface = {
-				clarify() {
-					throw new Error('clarify boom')
-				},
-			}
+			const throwingClarifier: ClarifierInterface = createInterpretStageFailures().clarifier
 			const interpret = new Interpret({
 				templates: [buildInsuranceTemplate()],
 				extractor: createCorpusExtractor(),
@@ -270,11 +252,7 @@ describe('Interpret', () => {
 		})
 
 		it('marks FORMAT_FAILED on a throwing formatter', () => {
-			const throwingFormatter: FormatterInterface = {
-				format() {
-					throw new Error('format boom')
-				},
-			}
+			const throwingFormatter: FormatterInterface = createInterpretStageFailures().formatter
 			const interpret = new Interpret({
 				templates: [buildInsuranceTemplate()],
 				extractor: createCorpusExtractor(),
@@ -289,11 +267,7 @@ describe('Interpret', () => {
 		})
 
 		it('marks GENERATE_FAILED on a throwing generator', () => {
-			const throwingGenerator: GeneratorInterface = {
-				generate() {
-					throw new Error('generate boom')
-				},
-			}
+			const throwingGenerator: GeneratorInterface = createInterpretStageFailures().generator
 			const interpret = new Interpret({
 				templates: [buildInsuranceTemplate()],
 				extractor: createCorpusExtractor(),

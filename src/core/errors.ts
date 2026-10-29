@@ -1,5 +1,5 @@
 import type { InterpretErrorCode } from './types.js'
-import { isInstance } from '@orkestrel/contract'
+import { holds, INTRINSICS, isError, isFunction, isObject } from '@orkestrel/contract'
 
 // Misuse of the interprets layer `throw`s an `InterpretError` carrying a
 // machine-readable `code`, so a `catch` branches on `error.code`.
@@ -27,6 +27,7 @@ export class InterpretError extends Error {
 		context?: Readonly<Record<string, unknown>>,
 	) {
 		super(message)
+		INTRINSICS.define(this, Symbol.for('@orkestrel/interpret.InterpretError'), { value: this })
 		this.name = 'InterpretError'
 		this.code = code
 		if (context !== undefined) this.context = context
@@ -35,6 +36,9 @@ export class InterpretError extends Error {
 
 /**
  * Narrows an unknown caught value to an {@link InterpretError}.
+ *
+ * @remarks
+ * Recognizes branded errors across package copies, including subclasses, and refuses transparent proxies.
  *
  * @param value - The value to test (typically a `catch` binding)
  * @returns True if `value` is an {@link InterpretError}; false otherwise
@@ -51,5 +55,23 @@ export class InterpretError extends Error {
  * ```
  */
 export function isInterpretError(value: unknown): value is InterpretError {
-	return isInstance(value, InterpretError)
+	return holds(() => {
+		if (!isError(value) || INTRINSICS.prototype(value) === Error.prototype) return false
+		const brand = INTRINSICS.describe(value, Symbol.for('@orkestrel/interpret.InterpretError'))
+		if (brand === undefined || brand.value !== value) return false
+		const code: unknown = INTRINSICS.reflect.read(value, 'code')
+		if (
+			code !== 'NORMALIZE_FAILED' &&
+			code !== 'EXTRACT_FAILED' &&
+			code !== 'CLARIFY_FAILED' &&
+			code !== 'FORMAT_FAILED' &&
+			code !== 'GENERATE_FAILED' &&
+			code !== 'NO_TEMPLATE' &&
+			code !== 'LOW_CONFIDENCE' &&
+			code !== 'DESTROYED'
+		)
+			return false
+		const context: unknown = INTRINSICS.reflect.read(value, 'context')
+		return context === undefined || isObject(context) || isFunction(context)
+	})
 }

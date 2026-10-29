@@ -1,16 +1,10 @@
 import type { FieldPath } from '@orkestrel/contract'
 import type { Subject, SymbolicExpression } from '@orkestrel/reason'
-import type { Entity, EntityMapping, Intent, NarratorInterface, Template } from './types.js'
+import type { Intent, NarratorInterface, Template } from './types.js'
 import { isArray, isFiniteNumber, isRecord } from '@orkestrel/contract'
 import { applyOperation } from '@orkestrel/reason'
-import {
-	CONFIDENCE_ALIAS,
-	CONFIDENCE_COLLECT,
-	CONFIDENCE_EXACT,
-	CONFIDENCE_POSITIONAL,
-	NUMBER_PATTERN,
-	UNSAFE_FIELD_SEGMENTS,
-} from './constants.js'
+import { BigramCounter } from './BigramCounter.js'
+import { CONFIDENCE_EXACT, NUMBER_PATTERN, UNSAFE_FIELD_SEGMENTS } from './constants.js'
 
 // The interprets pure-leaf inventory — every function here is
 // a referentially-transparent computation with no instance state, exported
@@ -106,12 +100,10 @@ export function setField(subject: Subject, field: FieldPath, value: unknown): Su
  * ```
  */
 export function applyReplacements(text: string, map: Readonly<Record<string, string>>): string {
-	let result = text
-	for (const [from, to] of Object.entries(map)) {
+	return Object.entries(map).reduce((result, [from, to]) => {
 		const pattern = new RegExp(`\\b${escapeRegExp(from)}\\b`, 'gi')
-		result = result.replace(pattern, to)
-	}
-	return result
+		return result.replace(pattern, to)
+	}, text)
 }
 
 /**
@@ -183,193 +175,14 @@ export function tokenize(text: string): readonly string[] {
  */
 export function extractNumbers(text: string): readonly number[] {
 	const pattern = new RegExp(NUMBER_PATTERN.source, NUMBER_PATTERN.flags)
-	const numbers: number[] = []
-	let match = pattern.exec(text)
-	while (match !== null) {
-		const raw = match[1]
-		if (raw !== undefined) {
+	return Iterator.from(text.matchAll(pattern))
+		.flatMap((match) => {
+			const raw = match[1]
+			if (raw === undefined) return []
 			const value = Number(raw.replace(/,/g, ''))
-			if (isFiniteNumber(value)) numbers.push(value)
-		}
-		match = pattern.exec(text)
-	}
-	return numbers
-}
-
-/**
- * Assigns already-extracted numbers to a matched template's entity mappings.
- *
- * @remarks
- * Strategy, in order: (1) a single mapping collects every number (an array
- * when more than one, a scalar otherwise) at `CONFIDENCE_COLLECT`. Otherwise,
- * per mapping, the rightmost token in the text that equals the entity name
- * (`CONFIDENCE_EXACT`), an alias exactly (`CONFIDENCE_ALIAS`), or an alias
- * fuzzily (through `matchAlias`, confidence = its returned score) becomes a
- * keyword anchor; anchors sort left-to-right and each claims its nearest
- * unused number by text position. (3) Any mapping still unfilled claims the
- * next unused number positionally, at `CONFIDENCE_POSITIONAL`. Every entity
- * carries provenance `category: 'extracted'` with `detail` naming the
- * strategy that filled it (`'collect' | 'keyword' | 'alias' | 'positional'`).
- * Runs only after a template has matched (an orchestrator-owned step, never
- * inside `Extractor`, which stays template-agnostic).
- *
- * @param numbers - The numbers already extracted from `text` through `extractNumbers`
- * @param mappings - The matched template's entity mappings
- * @param text - The same text `numbers` was extracted from (for keyword proximity)
- * @param similarity - The fuzzy alias-match score threshold (0..1)
- * @returns The assigned entities, one per filled mapping
- *
- * @example
- * ```ts
- * import { assignEntities } from '@orkestrel/interpret'
- *
- * const mappings = [
- * 	{ entity: 'age', aliases: ['years old'], field: 'age' },
- * 	{ entity: 'score', aliases: ['credit score'], field: 'score' },
- * ]
- * assignEntities([25, 720], mappings, '25 year old with score 720', 0.8)
- * // [{ name: 'score', value: 720, ... }, { name: 'age', value: 25, ... }]
- * // — keyword anchors land first, then the positional fallback
- * ```
- */
-export function assignEntities(
-	numbers: readonly number[],
-	mappings: readonly EntityMapping[],
-	text: string,
-	similarity: number,
-): readonly Entity[] {
-	if (mappings.length === 0 || numbers.length === 0) return []
-
-	if (mappings.length === 1) {
-		const mapping = mappings[0]
-		if (mapping === undefined) return []
-		return [
-			{
-				name: mapping.entity,
-				value: numbers.length === 1 ? numbers[0] : numbers,
-				provenance: { category: 'extracted', detail: 'collect' },
-				confidence: CONFIDENCE_COLLECT,
-			},
-		]
-	}
-
-	const tokens = tokenize(text)
-	const lowerText = text.toLowerCase()
-
-	const positions: number[] = []
-	const positionPattern = new RegExp(NUMBER_PATTERN.source, NUMBER_PATTERN.flags)
-	let positionMatch = positionPattern.exec(text)
-	while (positionMatch !== null) {
-		positions.push(positionMatch.index)
-		positionMatch = positionPattern.exec(text)
-	}
-
-	const keywordMatches: Array<{
-		mapping: EntityMapping
-		position: number
-		confidence: number
-		detail: 'keyword' | 'alias'
-	}> = []
-
-	for (const mapping of mappings) {
-		let matchedPosition = -1
-		let matchedConfidence = 0
-		let matchedDetail: 'keyword' | 'alias' = 'keyword'
-		const entityToken = mapping.entity.toLowerCase()
-
-		for (const token of tokens) {
-			const tokenPattern = new RegExp(`(?<![a-z0-9])${escapeRegExp(token)}(?![a-z0-9])`, 'g')
-			let tokenPosition = -1
-			for (const found of lowerText.matchAll(tokenPattern)) tokenPosition = found.index
-			if (token === entityToken) {
-				if (tokenPosition > matchedPosition) {
-					matchedPosition = tokenPosition
-					matchedConfidence = CONFIDENCE_EXACT
-					matchedDetail = 'keyword'
-				}
-				continue
-			}
-			const aliasExact = mapping.aliases.some((alias) => alias.toLowerCase() === token)
-			if (aliasExact) {
-				if (tokenPosition > matchedPosition) {
-					matchedPosition = tokenPosition
-					matchedConfidence = CONFIDENCE_ALIAS
-					matchedDetail = 'alias'
-				}
-				continue
-			}
-			const fuzzy = matchAlias(token, mapping.aliases, similarity)
-			if (fuzzy > 0 && tokenPosition > matchedPosition) {
-				matchedPosition = tokenPosition
-				matchedConfidence = fuzzy
-				matchedDetail = 'alias'
-			}
-		}
-
-		if (matchedPosition >= 0) {
-			keywordMatches.push({
-				mapping,
-				position: matchedPosition,
-				confidence: matchedConfidence,
-				detail: matchedDetail,
-			})
-		}
-	}
-
-	keywordMatches.sort((a, b) => a.position - b.position)
-
-	const used = new Set<number>()
-	const filled = new Set<string>()
-	const entities: Entity[] = []
-
-	for (const match of keywordMatches) {
-		let bestIndex = -1
-		let bestDistance = Number.POSITIVE_INFINITY
-		for (let index = 0; index < numbers.length; index += 1) {
-			if (used.has(index)) continue
-			const position = positions[index]
-			if (position === undefined) continue
-			const distance = Math.abs(position - match.position)
-			if (distance < bestDistance) {
-				bestDistance = distance
-				bestIndex = index
-			}
-		}
-		if (bestIndex >= 0) {
-			const value = numbers[bestIndex]
-			if (value !== undefined) {
-				used.add(bestIndex)
-				filled.add(match.mapping.entity)
-				entities.push({
-					name: match.mapping.entity,
-					value,
-					provenance: { category: 'extracted', detail: match.detail },
-					confidence: match.confidence,
-				})
-			}
-		}
-	}
-
-	let numberIndex = 0
-	for (const mapping of mappings) {
-		if (filled.has(mapping.entity)) continue
-		while (numberIndex < numbers.length && used.has(numberIndex)) numberIndex += 1
-		if (numberIndex >= numbers.length) break
-		const value = numbers[numberIndex]
-		if (value !== undefined) {
-			used.add(numberIndex)
-			filled.add(mapping.entity)
-			entities.push({
-				name: mapping.entity,
-				value,
-				provenance: { category: 'extracted', detail: 'positional' },
-				confidence: CONFIDENCE_POSITIONAL,
-			})
-		}
-		numberIndex += 1
-	}
-
-	return entities
+			return isFiniteNumber(value) ? [value] : []
+		})
+		.toArray()
 }
 
 // === Intent classification
@@ -413,32 +226,26 @@ export function classifyIntent(
 ): Intent {
 	const tokens = tokenize(text)
 
-	let action: string | undefined
-	let actionConfidence = 0
-	for (const token of tokens) {
-		const mapped = actions[token]
-		if (mapped !== undefined) {
-			action = mapped
-			actionConfidence = CONFIDENCE_EXACT
-			break
-		}
-	}
-
-	let domain: string | undefined
-	let domainConfidence = 0
-	let bestMatches = 0
-	for (const [name, keywords] of Object.entries(domains)) {
-		const lowerKeywords = keywords.map((keyword) => keyword.toLowerCase())
-		let matches = 0
-		for (const token of tokens) {
-			if (lowerKeywords.includes(token)) matches += 1
-		}
-		if (matches > bestMatches) {
-			bestMatches = matches
-			domain = name
-			domainConfidence = CONFIDENCE_EXACT
-		}
-	}
+	const action = Iterator.from(tokens)
+		.map((token) => actions[token])
+		.find((mapped) => mapped !== undefined)
+	const actionConfidence = action === undefined ? 0 : CONFIDENCE_EXACT
+	const selected = Object.entries(domains).reduce<{
+		readonly domain: string | undefined
+		readonly matches: number
+	}>(
+		(best, [name, keywords]) => {
+			const lowerKeywords = keywords.map((keyword) => keyword.toLowerCase())
+			const matches = tokens.reduce(
+				(count, token) => count + Number(lowerKeywords.includes(token)),
+				0,
+			)
+			return matches > best.matches ? { domain: name, matches } : best
+		},
+		{ domain: undefined, matches: 0 },
+	)
+	const domain = selected.domain
+	const domainConfidence = domain === undefined ? 0 : CONFIDENCE_EXACT
 
 	const confidence =
 		actionConfidence > 0 && domainConfidence > 0
@@ -476,22 +283,7 @@ export function scoreSimilarity(a: string, b: string): number {
 	if (left === right) return 1
 	if (left.length < 2 || right.length < 2) return 0
 
-	const bigrams = new Map<string, number>()
-	for (let index = 0; index < left.length - 1; index += 1) {
-		const bigram = left.slice(index, index + 2)
-		bigrams.set(bigram, (bigrams.get(bigram) ?? 0) + 1)
-	}
-
-	let matches = 0
-	for (let index = 0; index < right.length - 1; index += 1) {
-		const bigram = right.slice(index, index + 2)
-		const count = bigrams.get(bigram)
-		if (count !== undefined && count > 0) {
-			bigrams.set(bigram, count - 1)
-			matches += 1
-		}
-	}
-
+	const matches = new BigramCounter(left).match(right)
 	return (2 * matches) / (left.length - 1 + (right.length - 1))
 }
 
@@ -513,11 +305,10 @@ export function scoreSimilarity(a: string, b: string): number {
  * ```
  */
 export function matchAlias(token: string, aliases: readonly string[], threshold: number): number {
-	let best = 0
-	for (const alias of aliases) {
-		const score = scoreSimilarity(token, alias)
-		if (score > best) best = score
-	}
+	const best = Iterator.from(aliases).reduce(
+		(score, alias) => Math.max(score, scoreSimilarity(token, alias)),
+		0,
+	)
 	return best >= threshold ? best : 0
 }
 
@@ -615,11 +406,12 @@ export function canonicalize(value: unknown): string {
  */
 export function digestValue(value: unknown): string {
 	const canonical = canonicalizeNode(value, new Set())
-	let hash = 0x811c9dc5
-	for (let index = 0; index < canonical.length; index += 1) {
-		hash ^= canonical.charCodeAt(index)
-		hash = Math.imul(hash, 0x01000193)
-	}
+	const hash = Array.prototype.keys
+		.call(canonical)
+		.reduce(
+			(current, index) => Math.imul(current ^ canonical.charCodeAt(index), 0x01000193),
+			0x811c9dc5,
+		)
 	return (hash >>> 0).toString(16).padStart(8, '0')
 }
 
@@ -685,16 +477,17 @@ export function matchTemplate(
 	templates: readonly Template[],
 	floor: number,
 ): Template | undefined {
-	let best: Template | undefined
-	let bestScore = -1
-	for (const template of templates) {
-		const score = scoreTemplate(intent, template)
-		if (score > bestScore) {
-			bestScore = score
-			best = template
-		}
-	}
-	return best !== undefined && bestScore >= floor ? best : undefined
+	const best = Iterator.from(templates).reduce<{
+		readonly template: Template | undefined
+		readonly score: number
+	}>(
+		(current, template) => {
+			const score = scoreTemplate(intent, template)
+			return score > current.score ? { template, score } : current
+		},
+		{ template: undefined, score: -1 },
+	)
+	return best.template !== undefined && best.score >= floor ? best.template : undefined
 }
 
 // === Computed fields

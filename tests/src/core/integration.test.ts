@@ -1,15 +1,14 @@
 import type { InterpretEventMap } from '@src/core'
 import { createOperation, createVariable } from '@orkestrel/reason'
-import { Interpret } from '@src/core'
 import { createRecorders } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import {
+	buildCorpusInterpret,
 	buildEligibilityTemplate,
 	buildInsuranceTemplate,
 	buildInterpretTemplate,
 	buildLoanTemplate,
 	buildStatisticsTemplate,
-	createCorpusExtractor,
 } from '../../setup.js'
 
 // The interprets integration corpus — the terrain-vocabulary redesign of scsr's
@@ -18,13 +17,9 @@ import {
 // multi-template best-match, add-after-miss, computed fields, the numeric
 // corpus pins, full provenance, and determinism + digest-replay.
 
-function build(templates = [buildInsuranceTemplate()]): Interpret {
-	return new Interpret({ templates, extractor: createCorpusExtractor() })
-}
-
 describe('interprets integration', () => {
 	it('forward: natural language → structured subject + definition', () => {
-		const interpret = build()
+		const interpret = buildCorpusInterpret()
 		const result = interpret.interpret('calculate insurance age 25')
 		expect(result.intent).toEqual({ action: 'calculate', domain: 'insurance', confidence: 1 })
 		expect(result.definition?.id).toBe('insurance-auto')
@@ -36,7 +31,7 @@ describe('interprets integration', () => {
 	})
 
 	it('carries entities across same-domain turns when a field is missing', () => {
-		const interpret = build()
+		const interpret = buildCorpusInterpret()
 		interpret.interpret('calculate insurance age 25')
 		const second = interpret.interpret('calculate insurance')
 		expect(second.subject?.age).toBe(25)
@@ -46,14 +41,14 @@ describe('interprets integration', () => {
 	})
 
 	it('selects the best-matching template among several — never an arbitrary fallback', () => {
-		const interpret = build([buildInsuranceTemplate(), buildLoanTemplate()])
+		const interpret = buildCorpusInterpret([buildInsuranceTemplate(), buildLoanTemplate()])
 		expect(interpret.interpret('calculate insurance age 25').definition?.id).toBe('insurance-auto')
 		expect(interpret.interpret('calculate loan 5000').definition?.id).toBe('loan-personal')
 		interpret.destroy()
 	})
 
 	it('add-after-miss: an unmatched turn is incomplete, a later add completes it', () => {
-		const interpret = new Interpret({ extractor: createCorpusExtractor() })
+		const interpret = buildCorpusInterpret([])
 		const first = interpret.interpret('calculate insurance age 25')
 		expect(first.failures.map((failure) => failure.code)).toEqual(['NO_TEMPLATE'])
 		interpret.add(buildInsuranceTemplate())
@@ -65,14 +60,14 @@ describe('interprets integration', () => {
 	})
 
 	it('resolves a declaratively computed field (monthly = deductible / 12)', () => {
-		const interpret = build()
+		const interpret = buildCorpusInterpret()
 		const result = interpret.interpret('calculate insurance age 25')
 		expect(result.subject?.monthly).toBeCloseTo(500 / 12, 5)
 		interpret.destroy()
 	})
 
 	it('numeric corpus: "no accidents" fires the default (0), not negation parsing', () => {
-		const interpret = build()
+		const interpret = buildCorpusInterpret()
 		const result = interpret.interpret('calculate insurance age 25 no accidents')
 		expect(result.subject?.age).toBe(25)
 		expect(result.subject?.accidents).toBe(0)
@@ -82,7 +77,7 @@ describe('interprets integration', () => {
 	})
 
 	it('numeric corpus: extracts multiple entities from a complex sentence (age 25, score 720)', () => {
-		const interpret = build([buildEligibilityTemplate()])
+		const interpret = buildCorpusInterpret([buildEligibilityTemplate()])
 		const result = interpret.interpret('check if a 25 year old with a 720 credit score qualifies')
 		expect(result.subject?.age).toBe(25)
 		expect(result.subject?.score).toBe(720)
@@ -90,7 +85,7 @@ describe('interprets integration', () => {
 	})
 
 	it('numeric corpus: "$50,000" parses to 50000 and lands on a single-mapping collect', () => {
-		const interpret = build([
+		const interpret = buildCorpusInterpret([
 			buildInterpretTemplate({ mappings: [{ entity: 'income', aliases: [], field: 'income' }] }),
 		])
 		const result = interpret.interpret('calculate arithmetic income was $50,000')
@@ -99,7 +94,7 @@ describe('interprets integration', () => {
 	})
 
 	it('numeric corpus: a statistics turn keeps its collected array and derives no field of its own', () => {
-		const interpret = build([buildStatisticsTemplate()])
+		const interpret = buildCorpusInterpret([buildStatisticsTemplate()])
 		expect(interpret.interpret('compute statistics 42').subject?.value).toBe(42)
 		const many = interpret.interpret('compute statistics 10 20 30')
 		expect(many.subject).toEqual({ value: [10, 20, 30] })
@@ -107,7 +102,7 @@ describe('interprets integration', () => {
 	})
 
 	it('numeric corpus: a declared computation aggregates the collected array by element', () => {
-		const interpret = build([
+		const interpret = buildCorpusInterpret([
 			buildStatisticsTemplate({
 				computations: [
 					{
@@ -129,7 +124,7 @@ describe('interprets integration', () => {
 	})
 
 	it('provenance: every built subject field carries a FieldMapping', () => {
-		const interpret = build()
+		const interpret = buildCorpusInterpret()
 		const result = interpret.interpret('calculate insurance age 25')
 		const subjectFields = Object.keys(result.subject ?? {}).sort()
 		const mappingFields = result.mappings.map((mapping) => String(mapping.field)).sort()
@@ -139,7 +134,7 @@ describe('interprets integration', () => {
 	})
 
 	it('event pins: interpret once, error zero on a happy turn', () => {
-		const interpret = build()
+		const interpret = buildCorpusInterpret()
 		const events = createRecorders<InterpretEventMap, 'interpret' | 'error'>(interpret.emitter, [
 			'interpret',
 			'error',
@@ -151,13 +146,13 @@ describe('interprets integration', () => {
 	})
 
 	it('determinism + replay: same text + same template version reproduces the same digest', () => {
-		const first = build().interpret('calculate insurance age 25')
-		const second = build().interpret('calculate insurance age 25')
+		const first = buildCorpusInterpret().interpret('calculate insurance age 25')
+		const second = buildCorpusInterpret().interpret('calculate insurance age 25')
 		expect(second.digest).toBe(first.digest)
 	})
 
 	it('replay: a template content change bumps the version and changes the digest', () => {
-		const interpret = build()
+		const interpret = buildCorpusInterpret()
 		const before = interpret.interpret('calculate insurance age 25').digest
 		interpret.add(buildInsuranceTemplate({ name: 'Renamed' }))
 		const after = interpret.interpret('calculate insurance age 25').digest
@@ -166,8 +161,8 @@ describe('interprets integration', () => {
 	})
 
 	it('run-twice determinism: the same interpreter yields identical structure for a repeated fresh turn', () => {
-		const one = build().interpret('compute statistics 10 20 30')
-		const two = build().interpret('compute statistics 10 20 30')
+		const one = buildCorpusInterpret().interpret('compute statistics 10 20 30')
+		const two = buildCorpusInterpret().interpret('compute statistics 10 20 30')
 		expect(two.subject).toEqual(one.subject)
 		expect(two.mappings).toEqual(one.mappings)
 		expect(two.digest).toBe(one.digest)

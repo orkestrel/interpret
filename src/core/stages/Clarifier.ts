@@ -116,7 +116,8 @@ export class Clarifier implements ClarifierInterface {
 		const sameDomain = context.previous().filter((prior) => prior.intent.domain === intent.domain)
 		for (const mapping of template.mappings) {
 			if (filledEntityNames.has(mapping.entity)) continue
-			for (let index = sameDomain.length - 1; index >= 0; index -= 1) {
+			for (const offset of sameDomain.keys()) {
+				const index = sameDomain.length - 1 - offset
 				const prior = sameDomain[index]
 				const found = prior?.entities.find((entity) => entity.name === mapping.entity)
 				if (found === undefined) continue
@@ -167,8 +168,7 @@ export class Clarifier implements ClarifierInterface {
 				continue
 			}
 			if (!isArray(value)) continue
-			for (let index = 0; index < value.length; index += 1) {
-				const item = value[index]
+			for (const [index, item] of Array.prototype.entries.call(value)) {
 				if (isFiniteNumber(item)) bindings[`${field}.${index}`] = item
 			}
 		}
@@ -218,10 +218,7 @@ export class Clarifier implements ClarifierInterface {
 		for (const [key, degree] of inDegree) if (degree === 0) queue.push(key)
 
 		const ordered: ComputedField[] = []
-		let cursor = 0
-		while (cursor < queue.length) {
-			const key = queue[cursor]
-			cursor += 1
+		for (const key of queue) {
 			if (key === undefined) continue
 			const computation = byField.get(key)
 			if (computation !== undefined) ordered.push(computation)

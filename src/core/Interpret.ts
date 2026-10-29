@@ -26,11 +26,12 @@ import type {
 	StageRecord,
 	Template,
 } from './types.js'
-import { isError, isString } from '@orkestrel/contract'
+import { attempt, isError, isString } from '@orkestrel/contract'
 import { Emitter } from '@orkestrel/emitter'
+import { assignEntities } from './compilers.js'
 import { DEFAULT_INTERPRET_FLOOR, DEFAULT_INTERPRET_SIMILARITY } from './constants.js'
 import { InterpretError } from './errors.js'
-import { assignEntities, digestValue, matchTemplate } from './helpers.js'
+import { digestValue, matchTemplate } from './helpers.js'
 import { InterpretContext } from './InterpretContext.js'
 import { TemplateManager } from './managers/TemplateManager.js'
 import { Narrator } from './Narrator.js'
@@ -141,10 +142,9 @@ export class Interpret implements InterpretInterface {
 		this.#ensureAlive()
 		const stages: StageRecord[] = []
 
-		let normalized: NormalizeResult
-		try {
-			normalized = this.#normalizer.normalize(text)
-		} catch (error) {
+		const normalizedResult = attempt(() => this.#normalizer.normalize(text))
+		if (!normalizedResult.success) {
+			const error = normalizedResult.error
 			return this.#fail(
 				text,
 				text,
@@ -161,12 +161,12 @@ export class Interpret implements InterpretInterface {
 				undefined,
 			)
 		}
+		const normalized: NormalizeResult = normalizedResult.value
 		stages.push({ stage: 'normalize', input: text, output: normalized, failed: false })
 
-		let extract: ExtractResult
-		try {
-			extract = this.#extractor.extract(normalized.text)
-		} catch (error) {
+		const extractResult = attempt(() => this.#extractor.extract(normalized.text))
+		if (!extractResult.success) {
+			const error = extractResult.error
 			return this.#fail(
 				text,
 				normalized.text,
@@ -183,6 +183,7 @@ export class Interpret implements InterpretInterface {
 				undefined,
 			)
 		}
+		const extract: ExtractResult = extractResult.value
 		stages.push({ stage: 'extract', input: normalized.text, output: extract, failed: false })
 
 		const intent = extract.intent
@@ -224,10 +225,11 @@ export class Interpret implements InterpretInterface {
 			)
 		}
 
-		let clarified: ClarifyResult
-		try {
-			clarified = this.#clarifier.clarify(assigned, matched, this.#context, intent)
-		} catch (error) {
+		const clarifiedResult = attempt(() =>
+			this.#clarifier.clarify(assigned, matched, this.#context, intent),
+		)
+		if (!clarifiedResult.success) {
+			const error = clarifiedResult.error
 			return this.#fail(
 				text,
 				normalized.text,
@@ -244,13 +246,15 @@ export class Interpret implements InterpretInterface {
 				version,
 			)
 		}
+		const clarified: ClarifyResult = clarifiedResult.value
 		stages.push({ stage: 'clarify', input: assigned, output: clarified, failed: false })
 
 		const formatInput = { intent, entities: clarified.entities, ambiguities: clarified.ambiguities }
-		let formatted: FormatResult
-		try {
-			formatted = this.#formatter.format(intent, matched, clarified.entities, clarified.ambiguities)
-		} catch (error) {
+		const formattedResult = attempt(() =>
+			this.#formatter.format(intent, matched, clarified.entities, clarified.ambiguities),
+		)
+		if (!formattedResult.success) {
+			const error = formattedResult.error
 			return this.#fail(
 				text,
 				normalized.text,
@@ -267,12 +271,12 @@ export class Interpret implements InterpretInterface {
 				version,
 			)
 		}
+		const formatted: FormatResult = formattedResult.value
 		stages.push({ stage: 'format', input: formatInput, output: formatted, failed: false })
 
-		let generated: GenerateResult
-		try {
-			generated = this.#generator.generate(clarified.entities, matched)
-		} catch (error) {
+		const generatedResult = attempt(() => this.#generator.generate(clarified.entities, matched))
+		if (!generatedResult.success) {
+			const error = generatedResult.error
 			return this.#fail(
 				text,
 				normalized.text,
@@ -289,6 +293,7 @@ export class Interpret implements InterpretInterface {
 				version,
 			)
 		}
+		const generated: GenerateResult = generatedResult.value
 		stages.push({ stage: 'generate', input: clarified.entities, output: generated, failed: false })
 
 		const digest = digestValue({

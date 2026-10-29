@@ -29,7 +29,12 @@ import {
 	variablesOf,
 } from '@src/core'
 import { describe, expect, it } from 'vitest'
-import { buildInterpretTemplate, EXTREME_NUMBERS, expectSymbolic } from '../../setup.js'
+import {
+	buildInterpretTemplate,
+	expectSymbolic,
+	EXTREME_NUMBERS,
+	InterpretFixtureValue,
+} from '../../setup.js'
 
 // The interprets pure leaves — every function is referentially transparent
 // (same inputs → same outputs, `.claude/rules/tests.md` § Test contract), so
@@ -356,22 +361,22 @@ describe('canonicalize / canonicalizeNode / digestValue', () => {
 	it('digestValue on a self-referential record terminates and yields a stable digest', () => {
 		const subject: Record<string, unknown> = { age: 25 }
 		subject.self = subject
-		let digest = ''
+		const digest = new InterpretFixtureValue('')
 		expect(() => {
-			digest = digestValue(subject)
+			digest.value = digestValue(subject)
 		}).not.toThrow()
-		expect(digestValue(subject)).toBe(digest)
+		expect(digestValue(subject)).toBe(digest.value)
 	})
 
 	it('SubjectManager.add on a self-referential subject terminates and stores a stable hash', () => {
 		const subject: Record<string, unknown> = { age: 25 }
 		subject.self = subject
 		const manager = new SubjectManager()
-		let record: ReturnType<typeof manager.add> | undefined
+		const record = new InterpretFixtureValue<ReturnType<typeof manager.add> | undefined>(undefined)
 		expect(() => {
-			record = manager.add(subject)
+			record.value = manager.add(subject)
 		}).not.toThrow()
-		expect(record?.hash).toBe(digestValue(subject))
+		expect(record.value?.hash).toBe(digestValue(subject))
 	})
 })
 

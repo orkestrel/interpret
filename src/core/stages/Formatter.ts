@@ -76,22 +76,24 @@ export class Formatter implements FormatterInterface {
 			else resolved.push(rendered)
 		}
 
-		let prompt = this.#narrator.line('prompt.base', { verb, name: template.name })
+		const parts = [this.#narrator.line('prompt.base', { verb, name: template.name })]
 
 		if (resolved.length > 0) {
-			prompt += this.#narrator.line('prompt.entities', { fields: resolved.join(', ') })
+			parts.push(this.#narrator.line('prompt.entities', { fields: resolved.join(', ') }))
 		}
 
 		if (defaults.length > 0) {
-			prompt += this.#narrator.line('prompt.defaults', { fields: defaults.join(', ') })
+			parts.push(this.#narrator.line('prompt.defaults', { fields: defaults.join(', ') }))
 		}
 
 		if (ambiguities.length > 0) {
-			prompt += this.#narrator.line('prompt.ambiguities', {
-				questions: ambiguities.map((ambiguity) => ambiguity.question).join(' '),
-			})
+			parts.push(
+				this.#narrator.line('prompt.ambiguities', {
+					questions: ambiguities.map((ambiguity) => ambiguity.question).join(' '),
+				}),
+			)
 		}
 
-		return { prompt }
+		return { prompt: parts.join('') }
 	}
 }

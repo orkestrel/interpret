@@ -240,7 +240,7 @@ export interface NormalizeResult {
  * Template-agnostic by design — extraction never sees a `Template`, only the
  * text. `numbers`, not template-named entities; entity assignment is a
  * separate orchestrator step run only after a template has matched (see
- * `assignEntities` in `helpers.ts`).
+ * `assignEntities` in `compilers.ts`).
  */
 export interface ExtractResult {
 	readonly intent: Intent

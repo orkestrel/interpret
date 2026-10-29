@@ -13,26 +13,21 @@
 // What the package DOES with these fixtures is proved by the suites that consume them. This
 // file drives no stage, no manager, and no narrator: it asserts only what the fixtures are.
 
-import type { Template } from '@src/core'
 import { Extractor } from '@src/core'
 import { resolveField } from '@orkestrel/contract'
 import {
-	createConstant,
-	createEquation,
 	createLogicalDefinition,
 	createLogicalReasoner,
-	createOperation,
 	createReason,
-	createSymbolicDefinition,
 	createSymbolicReasoner,
-	createVariable,
 } from '@orkestrel/reason'
 import { describe, expect, it } from 'vitest'
 import {
+	buildInterpretSolvedDefinition,
+	collectInterpretCorpusTemplates,
 	buildEligibilityTemplate,
 	buildInsuranceTemplate,
 	buildInterpretation,
-	buildInterpretTemplate,
 	buildLoanTemplate,
 	buildStatisticsTemplate,
 	createCorpusExtractor,
@@ -44,40 +39,9 @@ import {
 	TRICKY_KEYS,
 } from './setup.js'
 
-/**
- * A one-equation symbolic definition solving `total = x + 1` from a seeded `x`, so a real
- * engine run yields a real `SymbolicResult` for the narrower to accept.
- */
-function buildSolvedDefinition(): ReturnType<typeof createSymbolicDefinition> {
-	return createSymbolicDefinition(
-		'proof',
-		'Proof',
-		[
-			createEquation(
-				'e1',
-				createConstant(0),
-				createOperation('add', createVariable('x'), createConstant(1)),
-				'total',
-			),
-		],
-		{ variables: { x: 5 } },
-	)
-}
-
-/** Build the whole `interprets` corpus the workspace's suites seed a registry from. */
-function collectCorpusTemplates(): readonly Template[] {
-	return [
-		buildInterpretTemplate(),
-		buildInsuranceTemplate(),
-		buildEligibilityTemplate(),
-		buildLoanTemplate(),
-		buildStatisticsTemplate(),
-	]
-}
-
 describe('expectSymbolic', () => {
 	it("returns the engine's own result, narrowed enough to read a solution without a cast", () => {
-		const result = createSymbolicReasoner().reason({}, buildSolvedDefinition())
+		const result = createSymbolicReasoner().reason({}, buildInterpretSolvedDefinition())
 
 		expect(expectSymbolic(result)).toBe(result)
 		expect(expectSymbolic(result).solutions.total).toBe(6)
@@ -86,7 +50,7 @@ describe('expectSymbolic', () => {
 	it('refuses a batch, so a suite never reads element zero as if it were one result', () => {
 		const engine = createReason({ reasoners: [createSymbolicReasoner()] })
 
-		expect(() => expectSymbolic(engine.reason([{}, {}], buildSolvedDefinition()))).toThrow(
+		expect(() => expectSymbolic(engine.reason([{}, {}], buildInterpretSolvedDefinition()))).toThrow(
 			'Expected a single result, got a batch array',
 		)
 	})
@@ -173,7 +137,7 @@ describe('INTERPRET_ACTIONS', () => {
 
 	it('names an action for every intent the corpus templates declare', () => {
 		const names = Object.values(INTERPRET_ACTIONS)
-		const intents = collectCorpusTemplates().flatMap((template) => [...template.intents])
+		const intents = collectInterpretCorpusTemplates().flatMap((template) => [...template.intents])
 
 		expect(intents).not.toEqual([])
 		expect(intents.filter((intent) => !names.includes(intent))).toEqual([])
@@ -186,7 +150,7 @@ describe('INTERPRET_DOMAINS', () => {
 	})
 
 	it('keys a keyword list by every domain the corpus templates claim', () => {
-		const templates = collectCorpusTemplates()
+		const templates = collectInterpretCorpusTemplates()
 
 		expect(
 			templates.filter((template) => !Object.hasOwn(INTERPRET_DOMAINS, template.domain)),
@@ -239,7 +203,7 @@ describe('the interprets corpus builders', () => {
 	})
 
 	it('identify each template with its own definition, under an id no sibling repeats', () => {
-		const templates = collectCorpusTemplates()
+		const templates = collectInterpretCorpusTemplates()
 
 		expect(templates.filter((template) => template.definition.id !== template.id)).toEqual([])
 		expect(new Set(templates.map((template) => template.id)).size).toBe(templates.length)
@@ -273,7 +237,7 @@ describe('the interprets corpus builders', () => {
 
 	it('give the loan template a domain no other corpus template claims', () => {
 		const loan = buildLoanTemplate()
-		const others = collectCorpusTemplates().filter((template) => template.id !== loan.id)
+		const others = collectInterpretCorpusTemplates().filter((template) => template.id !== loan.id)
 
 		expect(others.map((template) => template.domain)).not.toContain(loan.domain)
 	})

@@ -13,19 +13,149 @@
 // (`.claude/rules/architecture.md` § Barrel exports).
 
 import type { ReasonResult, SymbolicResult } from '@orkestrel/reason'
-import type { ExtractorInterface, Interpretation, Template } from '@src/core'
+import type {
+	ExtractorInterface,
+	ExtractResult,
+	Interpretation,
+	RecordStamp,
+	Template,
+} from '@src/core'
 import { isArray } from '@orkestrel/contract'
 import {
 	createConstant,
+	createEquation,
 	createFactorGroup,
 	createFieldFactor,
 	createLogicalDefinition,
 	createOperation,
 	createQuantitativeDefinition,
 	createStaticFactor,
+	createSymbolicDefinition,
 	createVariable,
 } from '@orkestrel/reason'
-import { Extractor, InterpretContext } from '@src/core'
+import { Extractor, Interpret, InterpretContext, RecordManager } from '@src/core'
+
+/** Holds one fixture value that a tested callback replaces. */
+export class InterpretFixtureValue<T> {
+	#value: T
+
+	constructor(value: T) {
+		this.#value = value
+	}
+
+	get value(): T {
+		return this.#value
+	}
+
+	set value(value: T) {
+		this.#value = value
+	}
+}
+
+/** Represents a note stored by the real registry fixture. */
+export interface InterpretNoteRecord extends RecordStamp {
+	readonly note: string
+}
+
+/** Creates a note registry for the generic record manager suite. */
+export function createInterpretNotes(): RecordManager<string, InterpretNoteRecord> {
+	return new RecordManager<string, InterpretNoteRecord>({ entity: 'Note' })
+}
+
+/** Adds a note through the real record manager. */
+export function addInterpretNote(
+	manager: RecordManager<string, InterpretNoteRecord>,
+	id: string,
+	note: string,
+): InterpretNoteRecord {
+	return manager.add(id, note, (stamp, value) => ({
+		id: stamp.id,
+		note: value,
+		version: stamp.version,
+		hash: stamp.hash,
+	}))
+}
+
+/** Builds an interpreter over the shared extraction vocabulary and templates. */
+export function buildCorpusInterpret(templates = [buildInsuranceTemplate()]): Interpret {
+	return new Interpret({ templates, extractor: createCorpusExtractor() })
+}
+
+/** Builds a symbolic definition whose solved total exercises the result narrower. */
+export function buildInterpretSolvedDefinition(): ReturnType<typeof createSymbolicDefinition> {
+	return createSymbolicDefinition(
+		'proof',
+		'Proof',
+		[
+			createEquation(
+				'e1',
+				createConstant(0),
+				createOperation('add', createVariable('x'), createConstant(1)),
+				'total',
+			),
+		],
+		{ variables: { x: 5 } },
+	)
+}
+
+/** Collects the templates used by the interpreter corpus. */
+export function collectInterpretCorpusTemplates(): readonly Template[] {
+	return [
+		buildInterpretTemplate(),
+		buildInsuranceTemplate(),
+		buildEligibilityTemplate(),
+		buildLoanTemplate(),
+		buildStatisticsTemplate(),
+	]
+}
+
+/** Creates an extractor result below the configured confidence gate. */
+export function createWeakInterpretExtractor(): ExtractorInterface {
+	return {
+		extract(): ExtractResult {
+			return {
+				intent: { action: 'calculate', domain: 'insurance', confidence: 0.1 },
+				numbers: [25],
+			}
+		},
+	}
+}
+
+/** Creates stage boundary failures used by the orchestrator's error scenarios. */
+export function createInterpretStageFailures() {
+	return {
+		normalizer: {
+			normalize() {
+				throw new Error('boom')
+			},
+		},
+		extractor: {
+			extract() {
+				throw new Error('extract boom')
+			},
+		},
+		clarifier: {
+			clarify() {
+				throw new Error('clarify boom')
+			},
+		},
+		formatter: {
+			format() {
+				throw new Error('format boom')
+			},
+		},
+		generator: {
+			generate() {
+				throw new Error('generate boom')
+			},
+		},
+	}
+}
+
+/** Renders the unit prefix used by the narrator's keyed formatter fixture. */
+export function renderInterpretUnit(value: unknown): string {
+	return `unit:${String(value)}`
+}
 
 // ── Reason-result narrowing (environment-agnostic) ────────────────────────────
 
@@ -333,4 +463,14 @@ export function seedInterpretContext(previous: readonly Interpretation[]): Inter
 	const context = new InterpretContext()
 	for (const interpretation of previous) context.add(interpretation)
 	return context
+}
+
+/** Supplies a class-instance error context. */
+export class InterpretContextFixture {
+	readonly id = 'context'
+}
+
+/** Supplies a callable error context. */
+export function createCallableInterpretContext(): (() => void) & { readonly id: string } {
+	return Object.assign(() => {}, { id: 'context' })
 }

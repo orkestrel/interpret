@@ -10,7 +10,7 @@ import { classifyIntent, extractNumbers } from '../helpers.js'
  * `Parser<T>`, so a class of that name would collide in type space.
  * `extract` never sees a `Template`: numbers → entity assignment is a
  * separate orchestrator-owned step that runs only after a template has
- * matched (`assignEntities` in `helpers.ts`), never inside this stage, so
+ * matched (`assignEntities` in `compilers.ts`), never inside this stage, so
  * extraction stays template-agnostic.
  *
  * @example

@@ -17,6 +17,7 @@ import {
 } from '@orkestrel/reason'
 import { Narrator } from '@src/core'
 import { describe, expect, it } from 'vitest'
+import { renderInterpretUnit } from '../../setup.js'
 import { TRICKY_KEYS } from '../../setup.js'
 
 // The `Narrator` — a stateless, total, lexicon-driven reverse rendering
@@ -322,7 +323,7 @@ describe('Narrator', () => {
 					phrases: { [tableKey]: { [phraseKey]: 'phrase-value' } },
 					templates: { [templateKey]: 'template {{x}}' },
 				},
-				formatters: { [unitKey]: (value) => `unit:${String(value)}` },
+				formatters: { [unitKey]: renderInterpretUnit },
 			})
 
 			expect(narrator.phrase(tableKey, phraseKey)).toBe('phrase-value')
