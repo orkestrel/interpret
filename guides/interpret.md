@@ -73,7 +73,7 @@ throwing, and never an arbitrary fallback template. An interpretation is complet
 
 A `Shape` cell holds an interface's data members as bare names in braces, `?` marking an optional member and `plus` introducing its call-signature members, and a type alias's own type literal with a union's arms escaped as `\|`.
 
-| Type                         | Kind      | Shape                                                                                                                                                    | Summary                                                                                                                                                                                                                      |
+| Name                         | Kind      | Shape                                                                                                                                                    | Summary                                                                                                                                                                                                                      |
 | ---------------------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ProvenanceCategory`         | type      | `'extracted' \| 'carried' \| 'default' \| 'computed' \| 'subject'`                                                                                       | Names how one `FieldMapping` or `Entity` value was obtained.                                                                                                                                                                 |
 | `InterpretStage`             | type      | `'normalize' \| 'extract' \| 'clarify' \| 'format' \| 'generate'`                                                                                        | Names the fixed pipeline phases an `InterpretInterface#interpret` run produces one `StageRecord` for, in order.                                                                                                              |
@@ -138,7 +138,7 @@ A `Shape` cell holds an interface's data members as bare names in braces, `?` ma
 
 A `Shape` cell holds the constant's declared type.
 
-| API                            | Kind  | Shape                              | Summary                                                                                                                                                                                                            |
+| Name                           | Kind  | Shape                              | Summary                                                                                                                                                                                                            |
 | ------------------------------ | ----- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `DEFAULT_INTERPRET_SIMILARITY` | const | `number`                           | Names the default `similarity` for `createInterpret` and `matchAlias`, 0.8 — the fuzzy alias-match score threshold, between 0 and 1.                                                                               |
 | `DEFAULT_INTERPRET_FLOOR`      | const | `number`                           | Names the default `floor` for `createInterpret` and `matchTemplate`, 0.3 — the minimum intent confidence a template match, or the classified intent itself, must clear.                                            |
@@ -196,7 +196,7 @@ DEFAULT_LEXICON.templates?.['ambiguity.entity'] // 'What is your {{entity}}?'
 
 ### Errors
 
-| API                | Kind     | Summary                                                                                                                |
+| Name               | Kind     | Summary                                                                                                                |
 | ------------------ | -------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `InterpretError`   | class    | Represents an error thrown by the interprets layer, carrying an `InterpretErrorCode` and an optional `context` record. |
 | `isInterpretError` | function | Narrows an unknown caught value to an `InterpretError`.                                                                |
@@ -226,7 +226,7 @@ published member conforms, because a foreign engine's return is not this package
 
 In a guard table a `Shape` cell holds the type the guard narrows to.
 
-| API                | Kind     | Shape            | Summary                                                                                                                                            |
+| Name               | Kind     | Shape            | Summary                                                                                                                                            |
 | ------------------ | -------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `isEntityMapping`  | function | `EntityMapping`  | Determines whether a value is an exact `EntityMapping` input record — a literal alias-phrase extraction rule pointing at a subject field.          |
 | `isFieldDefault`   | function | `FieldDefault`   | Determines whether a value is an exact `FieldDefault` input record — a fallback value a `Template` fills onto an unresolved field.                 |
@@ -304,7 +304,7 @@ guardEngine.destroy()
 Pure, exported utility functions — the referentially-transparent leaves
 behind the `Interpret` orchestrator and its stages.
 
-| API                  | Kind     | Summary                                                                                                                                 |
+| Name                 | Kind     | Summary                                                                                                                                 |
 | -------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | `escapeRegExp`       | function | Escapes every regex metacharacter in `text` so it matches literally when compiled into a `RegExp`.                                      |
 | `setField`           | function | Writes a value at a (possibly nested) field path on a subject, copy-on-write.                                                           |
@@ -423,7 +423,7 @@ Coercers — each returns its type or `undefined` off-shape, and never throws.
 Template intake is total: an off-shape template returns `undefined`, and a
 caller who wants a throw raises its own error from that `undefined`.
 
-| API             | Kind     | Summary                                                                                                    |
+| Name            | Kind     | Summary                                                                                                    |
 | --------------- | -------- | ---------------------------------------------------------------------------------------------------------- |
 | `parseTemplate` | function | Parses a JSON string into a `Template`, or `undefined` on invalid JSON or a shape that fails `isTemplate`. |
 
@@ -435,7 +435,7 @@ parseTemplate('not json') // undefined
 
 ### Factories
 
-| API                       | Kind     | Summary                                                                                                                                                |
+| Name                      | Kind     | Summary                                                                                                                                                |
 | ------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `createInterpret`         | function | Creates an interpretation orchestrator, returning an `InterpretInterface` seeded from `InterpretOptions`.                                              |
 | `createNormalizer`        | function | Creates a text normalizer, returning a stateless `NormalizerInterface`.                                                                                |
@@ -511,7 +511,7 @@ createDefinitionManager({
 
 ### Classes
 
-| API                 | Kind  | Summary                                                                                                                                                                                                                                                                                                        |
+| Name                | Kind  | Summary                                                                                                                                                                                                                                                                                                        |
 | ------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Interpret`         | class | Implements the interpretation orchestrator — the sole public entry point of the `interprets` module, mirroring the reasons `Reason` orchestrator shape: it runs the `[normalize, extract, clarify, format, generate]` pipeline, owns the template registry and the context, and exposes the reverse direction. |
 | `Narrator`          | class | Implements a stateless, total, lexicon-driven rendering engine for the reverse direction — the reverse-direction mirror of the forward `Formatter`'s `verbs` seam, supplying mechanism rather than wording policy.                                                                                             |
