@@ -1,4 +1,5 @@
 import type { Entity, EntityMapping } from './types.js'
+import { escapeRegExp } from '@orkestrel/contract'
 import {
 	CONFIDENCE_ALIAS,
 	CONFIDENCE_COLLECT,
@@ -6,7 +7,7 @@ import {
 	CONFIDENCE_POSITIONAL,
 	NUMBER_PATTERN,
 } from './constants.js'
-import { escapeRegExp, matchAlias, tokenize } from './helpers.js'
+import { matchAlias, tokenize } from './helpers.js'
 
 /** Compiles one text's numeric occurrences into recipe entity assignments. */
 export class EntityCompiler {

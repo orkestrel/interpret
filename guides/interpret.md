@@ -303,7 +303,6 @@ behind the `Interpret` orchestrator and its stages.
 
 | Name                 | Kind     | Signature                                                                                                                   | Summary                                                                                                                                 |
 | -------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `escapeRegExp`       | function | `(text: string) => string`                                                                                                  | Escapes every regex metacharacter in `text` so it matches literally when compiled into a `RegExp`.                                      |
 | `setField`           | function | `(subject: Subject, field: FieldPath, value: unknown) => Subject`                                                           | Writes a value at a (possibly nested) field path on a subject, copy-on-write.                                                           |
 | `applyReplacements`  | function | `(text: string, map: Readonly<Record<string, string>>) => string`                                                           | Replaces every whole-word occurrence of a map's keys with their values.                                                                 |
 | `collapseWhitespace` | function | `(text: string) => string`                                                                                                  | Collapses every run of whitespace to a single space and trims the ends.                                                                 |
@@ -323,15 +322,8 @@ behind the `Interpret` orchestrator and its stages.
 | `renderSubject`      | function | `(subject: Subject, narrator: NarratorInterface) => string`                                                                 | Renders a one-line, display-neutral description of a reasons `Subject`, through an injected `Narrator`.                                 |
 
 ```ts
-import {
-	applyReplacements,
-	collapseWhitespace,
-	escapeRegExp,
-	setField,
-	tokenize,
-} from '@orkestrel/interpret'
+import { applyReplacements, collapseWhitespace, setField, tokenize } from '@orkestrel/interpret'
 
-escapeRegExp('a.b*c') // 'a\\.b\\*c'
 setField({ age: 25 }, 'age', 30) // { age: 30 }
 setField({}, ['address', 'city'], 'Reno') // { address: { city: 'Reno' } }
 applyReplacements("can't stop", { "can't": 'cannot' }) // 'cannot stop'

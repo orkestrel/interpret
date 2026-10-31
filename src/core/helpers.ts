@@ -1,7 +1,7 @@
 import type { FieldPath } from '@orkestrel/contract'
 import type { Subject, SymbolicExpression } from '@orkestrel/reason'
 import type { Intent, NarratorInterface, Recipe } from './types.js'
-import { isArray, isFiniteNumber, isRecord } from '@orkestrel/contract'
+import { escapeRegExp, isArray, isFiniteNumber, isRecord } from '@orkestrel/contract'
 import { applyOperation } from '@orkestrel/reason'
 import { UNSAFE_FIELD_SEGMENTS } from '@orkestrel/template'
 import { BigramCounter } from './BigramCounter.js'
@@ -12,27 +12,6 @@ import { CONFIDENCE_EXACT, NUMBER_PATTERN } from './constants.js'
 // and independently unit-testable. Stateful orchestration (the fixed
 // pipeline, entity assignment sequencing, recipe registration) lives on the
 // `Interpret` orchestrator and its stage classes, never here.
-
-// === Regex safety
-
-/**
- * Escapes every regex metacharacter in `text` so it matches literally when
- * compiled into a `RegExp`.
- *
- * @param text - The literal text to escape
- * @returns `text` with every regex metacharacter backslash-escaped
- *
- * @example
- * ```ts
- * import { escapeRegExp } from '@orkestrel/interpret'
- *
- * escapeRegExp('a.b*c') // 'a\\.b\\*c'
- * new RegExp(escapeRegExp('a.b*c')).test('a.b*c') // true
- * ```
- */
-export function escapeRegExp(text: string): string {
-	return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
 
 // === Field paths — safe copy-on-write writes
 
@@ -82,9 +61,9 @@ export function setField(subject: Subject, field: FieldPath, value: unknown): Su
  *
  * @remarks
  * Word-boundary safe (`in` never matches inside `information`) and
- * case-insensitive; each key is regex-escaped through the core-root
- * `escapeRegExp` before compiling, so a caller-supplied phrase containing
- * regex metacharacters is matched literally. Multiple keys apply in
+ * case-insensitive; each key is regex-escaped through `escapeRegExp` from
+ * `@orkestrel/contract` before compiling, so a caller-supplied phrase
+ * containing regex metacharacters is matched literally. Multiple keys apply in
  * `Object.entries` order — the `Normalizer` stage sequences its three maps
  * (contractions, abbreviations, corrections) with three separate calls.
  *

@@ -4,8 +4,9 @@ import type {
 	NormalizerOptions,
 	TextChange,
 } from '../types.js'
+import { escapeRegExp } from '@orkestrel/contract'
 import { DEFAULT_CONTRACTIONS } from '../constants.js'
-import { applyReplacements, collapseWhitespace, escapeRegExp } from '../helpers.js'
+import { applyReplacements, collapseWhitespace } from '../helpers.js'
 
 /**
  * Implements the normalize stage: applies contraction, abbreviation, and correction

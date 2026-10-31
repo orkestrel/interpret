@@ -34,6 +34,15 @@ describe('Normalizer', () => {
 		expect(normalizer.normalize('information about in').text).toBe('information about IN')
 	})
 
+	it('matches a map key holding regex metacharacters literally', () => {
+		const normalizer = new Normalizer({ abbreviations: { 'e.g': 'for example' } })
+		expect(normalizer.normalize('egg')).toEqual({ text: 'egg', changes: [] })
+		expect(normalizer.normalize('see e.g this')).toEqual({
+			text: 'see for example this',
+			changes: [{ from: 'e.g', to: 'for example' }],
+		})
+	})
+
 	it('collapses whitespace after every substitution, with no change entry for it', () => {
 		const normalizer = new Normalizer()
 		const result = normalizer.normalize('  a    b  ')

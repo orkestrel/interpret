@@ -15,7 +15,6 @@ import {
 	collapseWhitespace,
 	createNarrator,
 	digestValue,
-	escapeRegExp,
 	extractNumbers,
 	matchAlias,
 	matchRecipe,
@@ -48,6 +47,11 @@ describe('applyReplacements / collapseWhitespace / tokenize', () => {
 		expect(applyReplacements('IN the room', { in: 'inside' })).toBe('inside the room')
 	})
 
+	it('matches a key holding regex metacharacters literally', () => {
+		expect(applyReplacements('11 and 1+1', { '1+1': 'two' })).toBe('11 and two')
+		expect(applyReplacements('egg and e.g', { 'e.g': 'for example' })).toBe('egg and for example')
+	})
+
 	it('collapses runs of whitespace and trims', () => {
 		expect(collapseWhitespace('  a   b\t c ')).toBe('a b c')
 		expect(collapseWhitespace('')).toBe('')
@@ -57,33 +61,6 @@ describe('applyReplacements / collapseWhitespace / tokenize', () => {
 		expect(tokenize('The rate is 85%.')).toEqual(['the', 'rate', 'is', '85%.'])
 		expect(tokenize('Hello, World!')).toEqual(['hello', 'world'])
 		expect(tokenize('  ')).toEqual([])
-	})
-})
-
-describe('escapeRegExp', () => {
-	it('escapes every regex metacharacter so the result matches literally', () => {
-		expect(escapeRegExp('a.b*c')).toBe('a\\.b\\*c')
-		expect(new RegExp(escapeRegExp('a.b*c')).test('a.b*c')).toBe(true)
-		expect(new RegExp(escapeRegExp('a.b*c')).test('axbyc')).toBe(false)
-	})
-
-	it('escapes the full metacharacter set: . * + ? ^ $ { } ( ) | [ ] \\', () => {
-		const metacharacters = '.*+?^${}()|[]\\'
-		const escaped = escapeRegExp(metacharacters)
-		for (const character of metacharacters) expect(escaped).toContain(`\\${character}`)
-		expect(new RegExp(escapeRegExp(metacharacters)).test(metacharacters)).toBe(true)
-	})
-
-	it('returns the empty string unchanged', () => {
-		expect(escapeRegExp('')).toBe('')
-	})
-
-	it('leaves ordinary text untouched', () => {
-		expect(escapeRegExp('hello world 123')).toBe('hello world 123')
-	})
-
-	it('is deterministic across repeated calls', () => {
-		expect(escapeRegExp('a.b*c')).toBe(escapeRegExp('a.b*c'))
 	})
 })
 
@@ -171,6 +148,25 @@ describe('assignEntities', () => {
 		const entities = assignEntities([25, 50000], mappings, 'age is 25, income was $50,000', 0.8)
 		expect(entities.find((entity) => entity.name === 'age')?.value).toBe(25)
 		expect(entities.find((entity) => entity.name === 'income')?.value).toBe(50000)
+	})
+
+	it('locates an entity token holding a regex metacharacter literally', () => {
+		const mappings = [
+			{ entity: 'net.pay', aliases: [], field: 'pay' },
+			{ entity: 'other', aliases: [], field: 'other' },
+		]
+		const entities = assignEntities(
+			[100, 200, 5],
+			mappings,
+			'net.pay 100 then netxpay 200 other 5',
+			0.8,
+		)
+		expect(entities.find((entity) => entity.name === 'net.pay')).toEqual({
+			name: 'net.pay',
+			value: 100,
+			provenance: { category: 'extracted', detail: 'keyword' },
+			confidence: 1,
+		})
 	})
 
 	it('positional fallback fills an unmatched mapping with the next unused number', () => {

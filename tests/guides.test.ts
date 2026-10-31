@@ -78,7 +78,6 @@ await new GuideCommand({
 		DEFAULT_INTERPRET_SIMILARITY,
 		DEFAULT_LEXICON,
 		digestValue,
-		escapeRegExp,
 		extractNumbers,
 		InterpretError,
 		isAmbiguity,
@@ -388,7 +387,6 @@ await new GuideCommand({
 		})
 
 		it('Helpers: the text leaves return the strings the fence prints', () => {
-			expect(escapeRegExp('a.b*c')).toBe('a\\.b\\*c')
 			expect(setField({ age: 25 }, 'age', 30)).toEqual({ age: 30 })
 			expect(setField({}, ['address', 'city'], 'Reno')).toEqual({ address: { city: 'Reno' } })
 			expect(applyReplacements("can't stop", { "can't": 'cannot' })).toBe('cannot stop')
