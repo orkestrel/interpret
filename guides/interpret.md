@@ -71,8 +71,6 @@ throwing, and never an arbitrary fallback recipe. An interpretation is complete 
 
 ### Types
 
-A `Shape` cell holds an interface's data members as bare names in braces, `?` marking an optional member and `plus` introducing its call-signature members, and a type alias's own type literal with a union's arms escaped as `\|`.
-
 | Name                         | Kind      | Signature                                                                                                                                                                         | Summary                                                                                                                                                                                                                    |
 | ---------------------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ProvenanceCategory`         | type      | `'extracted' \| 'carried' \| 'default' \| 'computed' \| 'subject'`                                                                                                                | Names how one `FieldMapping` or `Entity` value was obtained.                                                                                                                                                               |
@@ -135,8 +133,6 @@ A `Shape` cell holds an interface's data members as bare names in braces, `?` ma
 | `InterpretInterface`         | interface | `{ emitter, interpret(), add(), remove(), recipe(), recipes(), describe(), narrate(), destroy() }`                                                                                | Represents the interpretation orchestrator — the sole public entry point, mirroring `reasons`' `Reason` orchestrator shape.                                                                                                |
 
 ### Constants
-
-A `Shape` cell holds the constant's declared type.
 
 | Name                           | Kind  | Signature                          | Summary                                                                                                                                                                                                            |
 | ------------------------------ | ----- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -220,8 +216,6 @@ published member conforms, because a foreign engine's return is not this package
 `InterpretInterface` is borrowable, so a consumer holding a borrowed engine guards its
 `interpret` return with `isInterpretation` before dereferencing `intent`, `entities`, or
 `ambiguities`. Each row's `Summary` names the posture its guard takes.
-
-In a guard table a `Shape` cell holds the type the guard narrows to.
 
 | Name               | Kind     | Signature                                     | Summary                                                                                                                                            |
 | ------------------ | -------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
