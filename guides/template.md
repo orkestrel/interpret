@@ -35,34 +35,34 @@ escaped `\{{` always emits a literal `{{`, regardless of policy.
 
 A `Shape` cell holds an interface's data members as bare names in braces, `?` marking an optional member and `plus` introducing its call-signature members, and a type alias's own type literal with a union's arms escaped as `\|`. An extended interface's name comes before `plus`, with the members it adds after.
 
-| Type                       | Kind      | Shape                                                                                                                       | Summary                                                                                                                                                                                  |
-| -------------------------- | --------- | --------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `MissingPolicy`            | type      | `'error' \| 'empty' \| 'literal'`                                                                                           | Names how `TemplateInterface#fill` handles an unresolved required placeholder.                                                                                                           |
-| `TemplateFillValues`       | type      | `Readonly<Record<string, unknown>>`                                                                                         | Represents the values a `TemplateInterface#fill` / `#validate` call resolves placeholders against.                                                                                       |
-| `TemplateManagerEventMap`  | type      | `{ register, remove, clear }`                                                                                               | Declares the push observation surface of a `TemplateManagerInterface` — an id-keyed registry, so `register` / `remove` are the events (never ordered-list `append`/`prepend`).           |
-| `TemplateErrorCode`        | type      | `'MISSING' \| 'NOTFOUND' \| 'INVALID' \| 'CONFLICT'`                                                                        | Names the coded misuse / failure conditions thrown as a `TemplateError`.                                                                                                                 |
-| `TemplatePlaceholder`      | interface | `{ name, path?, required?, fallback?, description? }`                                                                       | Represents one placeholder a `TemplateDefinition`'s `content` declares — its lookup name, an optional field path into the values record, whether it is required, and a literal fallback. |
-| `TemplateDefinition`       | interface | `{ id, name, content, placeholders, summary?, description?, category?, tags? }`                                             | Represents a named, versionable template record — pure data, no behavior.                                                                                                                |
-| `TemplateFillOptions`      | interface | `{ missing?, locale? }`                                                                                                     | Carries the per-call options for `TemplateInterface#fill` / `TemplateManagerInterface#fill`.                                                                                             |
-| `TemplateFillContext`      | interface | `TemplateFillOptions plus { placeholders? }`                                                                                | Carries the full option bag `fillTemplate` takes — the per-call `TemplateFillOptions` plus the declared placeholders tokens resolve against.                                             |
-| `TemplateTokenResolution`  | interface | `{ value, declared, required }`                                                                                             | Represents one `{{name}}` token's resolution — the single token rule `fillTemplate` and `TemplateInterface#validate` share.                                                              |
-| `TemplateRegisterOptions`  | interface | `{ replace? }`                                                                                                              | Carries the options for `TemplateManagerInterface#register`.                                                                                                                             |
-| `TemplateValidationResult` | interface | `{ valid, missing, extra }`                                                                                                 | Reports the outcome of `TemplateInterface#validate` — which required placeholders are unresolved, and which supplied values are unused.                                                  |
-| `TemplateOptions`          | interface | `{ id?, name, content, placeholders?, summary?, description?, category?, tags?, missing?, locale? }`                        | Carries the options for `createTemplate` / the `Template` constructor.                                                                                                                   |
-| `TemplateQuery`            | interface | `{ name?, category?, tag? }`                                                                                                | Represents a query for `TemplateManagerInterface#find` — every supplied field must match.                                                                                                |
-| `TemplateInterface`        | interface | `{ id, name, content, placeholders, summary?, description?, category?, tags? } plus definition, fill, validate, parameters` | Declares the template contract a consumer holds — the readonly template record and the `definition`, `fill`, `validate`, and `parameters` calls over it.                                 |
-| `TemplateManagerOptions`   | interface | `{ templates?, missing?, locale?, on?, error? }`                                                                            | Carries the options for `createTemplateManager` / the `TemplateManager` constructor.                                                                                                     |
-| `TemplateManagerInterface` | interface | `{ emitter, count } plus register, template, templates, find, has, remove, clear, destroy, fill, validate, parameters`      | Declares the registry contract a consumer holds — a self-owning, id-keyed record-holder with singular and plural accessors over the templates it registers.                              |
+| Name                       | Kind      | Signature                                                                                                                                              | Summary                                                                                                                                                                                  |
+| -------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MissingPolicy`            | type      | `'error' \| 'empty' \| 'literal'`                                                                                                                      | Names how `TemplateInterface#fill` handles an unresolved required placeholder.                                                                                                           |
+| `TemplateFillValues`       | type      | `Readonly<Record<string, unknown>>`                                                                                                                    | Represents the values a `TemplateInterface#fill` / `#validate` call resolves placeholders against.                                                                                       |
+| `TemplateManagerEventMap`  | type      | `{ readonly register: readonly [template: TemplateInterface]; readonly remove: readonly [template: TemplateInterface]; readonly clear: readonly []; }` | Declares the push observation surface of a `TemplateManagerInterface` — an id-keyed registry, so `register` / `remove` are the events (never ordered-list `append`/`prepend`).           |
+| `TemplateErrorCode`        | type      | `'MISSING' \| 'NOTFOUND' \| 'INVALID' \| 'CONFLICT'`                                                                                                   | Names the coded misuse / failure conditions thrown as a `TemplateError`.                                                                                                                 |
+| `TemplatePlaceholder`      | interface | `{ name, path?, required?, fallback?, description? }`                                                                                                  | Represents one placeholder a `TemplateDefinition`'s `content` declares — its lookup name, an optional field path into the values record, whether it is required, and a literal fallback. |
+| `TemplateDefinition`       | interface | `{ id, name, content, placeholders, summary?, description?, category?, tags? }`                                                                        | Represents a named, versionable template record — pure data, no behavior.                                                                                                                |
+| `TemplateFillOptions`      | interface | `{ missing?, locale? }`                                                                                                                                | Carries the per-call options for `TemplateInterface#fill` / `TemplateManagerInterface#fill`.                                                                                             |
+| `TemplateFillContext`      | interface | `{ placeholders? }`                                                                                                                                    | Carries the full option bag `fillTemplate` takes — the per-call `TemplateFillOptions` plus the declared placeholders tokens resolve against.                                             |
+| `TemplateTokenResolution`  | interface | `{ value, declared, required }`                                                                                                                        | Represents one `{{name}}` token's resolution — the single token rule `fillTemplate` and `TemplateInterface#validate` share.                                                              |
+| `TemplateRegisterOptions`  | interface | `{ replace? }`                                                                                                                                         | Carries the options for `TemplateManagerInterface#register`.                                                                                                                             |
+| `TemplateValidationResult` | interface | `{ valid, missing, extra }`                                                                                                                            | Reports the outcome of `TemplateInterface#validate` — which required placeholders are unresolved, and which supplied values are unused.                                                  |
+| `TemplateOptions`          | interface | `{ id?, name, content, placeholders?, summary?, description?, category?, tags?, missing?, locale? }`                                                   | Carries the options for `createTemplate` / the `Template` constructor.                                                                                                                   |
+| `TemplateQuery`            | interface | `{ name?, category?, tag? }`                                                                                                                           | Represents a query for `TemplateManagerInterface#find` — every supplied field must match.                                                                                                |
+| `TemplateInterface`        | interface | `{ id, name, content, placeholders, summary?, description?, category?, tags?, definition(), fill(), validate(), parameters() }`                        | Declares the template contract a consumer holds — the readonly template record and the `definition`, `fill`, `validate`, and `parameters` calls over it.                                 |
+| `TemplateManagerOptions`   | interface | `{ templates?, missing?, locale?, on?, error? }`                                                                                                       | Carries the options for `createTemplateManager` / the `TemplateManager` constructor.                                                                                                     |
+| `TemplateManagerInterface` | interface | `{ emitter, count, register(), template(), templates(), find(), has(), remove(), clear(), destroy(), fill(), validate(), parameters() }`               | Declares the registry contract a consumer holds — a self-owning, id-keyed record-holder with singular and plural accessors over the templates it registers.                              |
 
 ### Constants
 
 A `Shape` cell holds the constant's declared type.
 
-| API                      | Kind  | Shape               | Summary                                                                                                                                                                                                              |
+| Name                     | Kind  | Signature           | Summary                                                                                                                                                                                                              |
 | ------------------------ | ----- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `FILL_PATTERN`           | const | `RegExp`            | Holds the single-pass `{{name}}` substitution pattern shared by `Template#fill` and `Template#validate`.                                                                                                             |
 | `DEFAULT_MISSING_POLICY` | const | `MissingPolicy`     | Holds `'error'`, the default `missing` policy for `Template#fill` / `TemplateManager#fill` when unspecified.                                                                                                         |
-| `DEFAULT_LOCALE`         | const | `'en-US'`           | Holds `'en-US'`, the default `locale` for `Template#fill` / `TemplateManager#fill` when unspecified.                                                                                                                 |
+| `DEFAULT_LOCALE`         | const | `"en-US"`           | Holds `'en-US'`, the default `locale` for `Template#fill` / `TemplateManager#fill` when unspecified.                                                                                                                 |
 | `UNSAFE_FIELD_SEGMENTS`  | const | `readonly string[]` | Lists the prototype-pollution-unsafe field-path segments `'__proto__'`, `'constructor'`, and `'prototype'` — a fill lookup refuses to resolve a path containing one of them, treating the placeholder as unresolved. |
 
 ```ts
@@ -81,10 +81,13 @@ FILL_PATTERN.source // the `{{name}}` / `\{{` substitution pattern
 
 ### Errors
 
-| API               | Kind     | Summary                                                                                                                                                                 |
-| ----------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `TemplateError`   | class    | Represents an error thrown by the template layer — a machine-readable `TemplateErrorCode` and an optional `context` record naming the offending id or placeholder name. |
-| `isTemplateError` | function | Narrows an unknown caught value to a `TemplateError`.                                                                                                                   |
+The guard recognizes self-branded errors across package copies and subclasses.
+It refuses transparent proxies and unbranded look-alikes.
+
+| Name              | Kind     | Signature                                                                                                      | Summary                                                                                                                                                                 |
+| ----------------- | -------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TemplateError`   | class    | `new (code: TemplateErrorCode, message: string, context?: Readonly<Record<string, unknown>>) => TemplateError` | Represents an error thrown by the template layer — a machine-readable `TemplateErrorCode` and an optional `context` record naming the offending id or placeholder name. |
+| `isTemplateError` | function | `(value: unknown) => value is TemplateError`                                                                   | Narrows an unknown caught value to a `TemplateError`.                                                                                                                   |
 
 ```ts
 import { isTemplateError, TemplateError } from '@orkestrel/template'
@@ -101,12 +104,12 @@ try {
 Pure, exported utility functions — the referentially-transparent leaves behind
 `Template#fill` / `#validate`.
 
-| API                | Kind     | Summary                                                                                                                  |
-| ------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `formatValue`      | function | Formats a resolved fill value for substitution into a template's `content`.                                              |
-| `resolveSafeField` | function | Resolves a field path against a fill-values record, refusing any path that touches a prototype-pollution-unsafe segment. |
-| `resolveToken`     | function | Resolves one `{{name}}` token against the declared placeholders and the fill-values record.                              |
-| `fillTemplate`     | function | Substitutes every `{{name}}` token in `content` in a single pass.                                                        |
+| Name               | Kind     | Signature                                                                                                              | Summary                                                                                                                  |
+| ------------------ | -------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `formatValue`      | function | `(value: unknown, locale: string) => string`                                                                           | Formats a resolved fill value for substitution into a template's `content`.                                              |
+| `resolveSafeField` | function | `(record: TemplateFillValues, path: FieldPath) => unknown`                                                             | Resolves a field path against a fill-values record, refusing any path that touches a prototype-pollution-unsafe segment. |
+| `resolveToken`     | function | `(record: TemplateFillValues, placeholders: readonly TemplatePlaceholder[], token: string) => TemplateTokenResolution` | Resolves one `{{name}}` token against the declared placeholders and the fill-values record.                              |
+| `fillTemplate`     | function | `(content: string, values?: TemplateFillValues, options?: TemplateFillContext) => string`                              | Substitutes every `{{name}}` token in `content` in a single pass.                                                        |
 
 ```ts
 import { fillTemplate, formatValue, resolveSafeField, resolveToken } from '@orkestrel/template'
@@ -126,9 +129,9 @@ fillTemplate('Limit {{limit}}', { limit: 5010 }, { missing: 'empty' }) // 'Limit
 The `@orkestrel/contract` shape values built from declared template data —
 above the helper leaves, consuming them and never consumed by them.
 
-| API                | Kind     | Summary                                                                                      |
-| ------------------ | -------- | -------------------------------------------------------------------------------------------- |
-| `placeholderShape` | function | Builds the `@orkestrel/contract` object shape describing a template's declared placeholders. |
+| Name               | Kind     | Signature                                                         | Summary                                                                                      |
+| ------------------ | -------- | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `placeholderShape` | function | `(placeholders: readonly TemplatePlaceholder[]) => ContractShape` | Builds the `@orkestrel/contract` object shape describing a template's declared placeholders. |
 
 ```ts
 import { placeholderShape } from '@orkestrel/template'
@@ -138,10 +141,10 @@ placeholderShape([{ name: 'city' }]) // an object ContractShape with a `city` st
 
 ### Factories
 
-| API                     | Kind     | Summary                                                                                                                                      |
-| ----------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `createTemplate`        | function | Creates a working `TemplateInterface` from a `TemplateOptions` bag, backed by the `Template` class.                                          |
-| `createTemplateManager` | function | Creates a working `TemplateManagerInterface`, optionally seeded with the templates the options carry, backed by the `TemplateManager` class. |
+| Name                    | Kind     | Signature                                                        | Summary                                                                                                                                      |
+| ----------------------- | -------- | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `createTemplate`        | function | `(options: TemplateOptions) => TemplateInterface`                | Creates a working `TemplateInterface` from a `TemplateOptions` bag, backed by the `Template` class.                                          |
+| `createTemplateManager` | function | `(options?: TemplateManagerOptions) => TemplateManagerInterface` | Creates a working `TemplateManagerInterface`, optionally seeded with the templates the options carry, backed by the `TemplateManager` class. |
 
 #### Create a template and a registry
 
@@ -168,10 +171,10 @@ templates.has('missing') // false
 
 ### Classes
 
-| API               | Kind  | Summary                                                                                                                                                                                                                      |
-| ----------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Template`        | class | Represents a named, versionable template — `{{name}}` tokens in `content`, filled against a values record — implementing `TemplateInterface` exactly.                                                                        |
-| `TemplateManager` | class | Represents the template registry — a self-owning, id-keyed record-holder for the `TemplateInterface` instances a consumer registers, looks up, fills, and validates by id — implementing `TemplateManagerInterface` exactly. |
+| Name              | Kind  | Signature                                                            | Summary                                                                                                                                                                                                                      |
+| ----------------- | ----- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Template`        | class | `new (options: TemplateOptions) => TemplateInterface`                | Represents a named, versionable template — `{{name}}` tokens in `content`, filled against a values record — implementing `TemplateInterface` exactly.                                                                        |
+| `TemplateManager` | class | `new (options?: TemplateManagerOptions) => TemplateManagerInterface` | Represents the template registry — a self-owning, id-keyed record-holder for the `TemplateInterface` instances a consumer registers, looks up, fills, and validates by id — implementing `TemplateManagerInterface` exactly. |
 
 ## Methods
 
