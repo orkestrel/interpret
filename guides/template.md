@@ -33,8 +33,6 @@ escaped `\{{` always emits a literal `{{`, regardless of policy.
 
 ### Types
 
-A `Shape` cell holds an interface's data members as bare names in braces, `?` marking an optional member and `plus` introducing its call-signature members, and a type alias's own type literal with a union's arms escaped as `\|`. An extended interface's name comes before `plus`, with the members it adds after.
-
 | Name                       | Kind      | Signature                                                                                                                                              | Summary                                                                                                                                                                                  |
 | -------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `MissingPolicy`            | type      | `'error' \| 'empty' \| 'literal'`                                                                                                                      | Names how `TemplateInterface#fill` handles an unresolved required placeholder.                                                                                                           |
@@ -55,8 +53,6 @@ A `Shape` cell holds an interface's data members as bare names in braces, `?` ma
 | `TemplateManagerInterface` | interface | `{ emitter, count, register(), template(), templates(), find(), has(), remove(), clear(), destroy(), fill(), validate(), parameters() }`               | Declares the registry contract a consumer holds — a self-owning, id-keyed record-holder with singular and plural accessors over the templates it registers.                              |
 
 ### Constants
-
-A `Shape` cell holds the constant's declared type.
 
 | Name                     | Kind  | Signature           | Summary                                                                                                                                                                                                              |
 | ------------------------ | ----- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
