@@ -8,7 +8,7 @@ import {
 } from './constants.js'
 import { escapeRegExp, matchAlias, tokenize } from './helpers.js'
 
-/** Compiles one text's numeric occurrences into template entity assignments. */
+/** Compiles one text's numeric occurrences into recipe entity assignments. */
 export class EntityCompiler {
 	readonly #used = new Set<number>()
 	readonly #filled = new Set<string>()

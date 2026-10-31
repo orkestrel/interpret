@@ -1,7 +1,7 @@
 import { Extractor } from '@src/core'
 import { describe, expect, it } from 'vitest'
 
-// The `Extractor` stage — template-agnostic: intent classification + raw
+// The `Extractor` stage — recipe-agnostic: intent classification + raw
 // number mining only, never entity assignment.
 
 describe('Extractor', () => {
@@ -15,7 +15,7 @@ describe('Extractor', () => {
 		expect(result.intent).toEqual({ action: 'compute', domain: 'rating', confidence: 1 })
 	})
 
-	it('produces NO entities — extraction never assigns numbers to a template', () => {
+	it('produces NO entities — extraction never assigns numbers to a recipe', () => {
 		const extractor = new Extractor()
 		const result = extractor.extract('age is 25, income was $50,000')
 		expect(result.numbers).toEqual([25, 50000])

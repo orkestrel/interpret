@@ -18,8 +18,8 @@ import type { InterpretErrorCode, InterpretStage, Lexicon, ProvenanceCategory } 
 export const DEFAULT_INTERPRET_SIMILARITY = 0.8
 
 /**
- * Names the default `floor` for `createInterpret` and `matchTemplate`, 0.3 — the
- * minimum intent confidence a template match, or the classified intent itself, must
+ * Names the default `floor` for `createInterpret` and `matchRecipe`, 0.3 — the
+ * minimum intent confidence a recipe match, or the classified intent itself, must
  * clear.
  */
 export const DEFAULT_INTERPRET_FLOOR = 0.3
@@ -45,7 +45,7 @@ export const CONFIDENCE_POSITIONAL = 0.7
 /** Names the confidence assigned to a same-domain carried-over field, 0.7. */
 export const CONFIDENCE_CARRIED = 0.7
 
-/** Names the confidence assigned to a template default fill, 1. */
+/** Names the confidence assigned to a recipe default fill, 1. */
 export const CONFIDENCE_DEFAULT = 1
 
 /** Names the confidence assigned to a successfully resolved computed field, 0.9. */
@@ -62,17 +62,6 @@ export const CONFIDENCE_COMPUTED = 0.9
  * rather than sharing this instance's mutable `lastIndex` across scans.
  */
 export const NUMBER_PATTERN = /(?:\$\s*)?(\d+(?:,\d{3})*(?:\.\d+)?)\s*%?/g
-
-/**
- * Lists the prototype-pollution-unsafe field-path segments, `__proto__`, `prototype`,
- * and `constructor` — `setField` refuses to write any path containing one, and returns
- * its input unchanged.
- */
-export const UNSAFE_FIELD_SEGMENTS: readonly string[] = Object.freeze([
-	'__proto__',
-	'prototype',
-	'constructor',
-])
 
 /**
  * Holds the neutral built-in contraction expansions for `Normalizer` — small on
@@ -163,7 +152,7 @@ export const INTERPRET_ERROR_CODES: readonly InterpretErrorCode[] = Object.freez
 	'CLARIFY_FAILED',
 	'FORMAT_FAILED',
 	'GENERATE_FAILED',
-	'NO_TEMPLATE',
+	'NO_RECIPE',
 	'LOW_CONFIDENCE',
 	'DESTROYED',
 ])

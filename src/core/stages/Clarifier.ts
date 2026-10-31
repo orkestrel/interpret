@@ -8,7 +8,7 @@ import type {
 	Intent,
 	InterpretContextInterface,
 	NarratorInterface,
-	Template,
+	Recipe,
 } from '../types.js'
 import { isArray, isFiniteNumber } from '@orkestrel/contract'
 import { formatField } from '@orkestrel/reason'
@@ -22,7 +22,7 @@ import { resolveExpression, variablesOf } from '../helpers.js'
 import { Narrator } from '../Narrator.js'
 
 /**
- * Implements the clarify stage: resolves same-domain carry-over, template defaults,
+ * Implements the clarify stage: resolves same-domain carry-over, recipe defaults,
  * and declaratively computed fields against an already-assigned entity set,
  * surfacing an {@link Ambiguity} for every required mapping that stays
  * unresolved.
@@ -31,7 +31,7 @@ import { Narrator } from '../Narrator.js'
  * Resolution order: fresh (already-assigned) entities always win; carry-over
  * fills a mapping only from the same domain's most recent prior turn (a
  * domain change drops carry-over entirely) and never overwrites a fresh
- * value; template defaults fill any field still unresolved after carry-over;
+ * value; recipe defaults fill any field still unresolved after carry-over;
  * computed fields resolve in dependency (topological) order through
  * `resolveExpression` — an unresolved input, a non-finite result, or a
  * dependency cycle leaves the field a gap, never landing an entity. A
@@ -79,7 +79,7 @@ export class Clarifier implements ClarifierInterface {
 
 	clarify(
 		entities: readonly Entity[],
-		template: Template,
+		recipe: Recipe,
 		context: InterpretContextInterface | undefined,
 		intent: Intent,
 	): ClarifyResult {
@@ -87,16 +87,16 @@ export class Clarifier implements ClarifierInterface {
 		const filledEntityNames = new Set(resolved.map((entity) => entity.name))
 		const filledFields = new Set(
 			resolved.map((entity) => {
-				const mapping = template.mappings.find((candidate) => candidate.entity === entity.name)
+				const mapping = recipe.mappings.find((candidate) => candidate.entity === entity.name)
 				return mapping === undefined ? entity.name : formatField(mapping.field)
 			}),
 		)
 
-		this.#carryOver(template, context, intent, filledEntityNames, filledFields, resolved)
-		this.#fillDefaults(template, filledFields, resolved)
-		this.#resolveComputations(template, filledFields, resolved)
+		this.#carryOver(recipe, context, intent, filledEntityNames, filledFields, resolved)
+		this.#fillDefaults(recipe, filledFields, resolved)
+		this.#resolveComputations(recipe, filledFields, resolved)
 
-		const ambiguities = this.#collectAmbiguities(template, resolved)
+		const ambiguities = this.#collectAmbiguities(recipe, resolved)
 
 		return { entities: resolved, ambiguities }
 	}
@@ -105,7 +105,7 @@ export class Clarifier implements ClarifierInterface {
 	// mutating the shared `resolved` accumulator — an algorithm step, not a
 	// leaf.
 	#carryOver(
-		template: Template,
+		recipe: Recipe,
 		context: InterpretContextInterface | undefined,
 		intent: Intent,
 		filledEntityNames: Set<string>,
@@ -114,7 +114,7 @@ export class Clarifier implements ClarifierInterface {
 	): void {
 		if (context === undefined) return
 		const sameDomain = context.previous().filter((prior) => prior.intent.domain === intent.domain)
-		for (const mapping of template.mappings) {
+		for (const mapping of recipe.mappings) {
 			if (filledEntityNames.has(mapping.entity)) continue
 			for (const offset of sameDomain.keys()) {
 				const index = sameDomain.length - 1 - offset
@@ -135,11 +135,11 @@ export class Clarifier implements ClarifierInterface {
 	}
 
 	// Fills every still-unresolved default field — never overwrites.
-	#fillDefaults(template: Template, filledFields: Set<string>, resolved: Entity[]): void {
-		for (const fieldDefault of template.defaults) {
+	#fillDefaults(recipe: Recipe, filledFields: Set<string>, resolved: Entity[]): void {
+		for (const fieldDefault of recipe.defaults) {
 			const key = formatField(fieldDefault.field)
 			if (filledFields.has(key)) continue
-			const mapping = template.mappings.find((candidate) => formatField(candidate.field) === key)
+			const mapping = recipe.mappings.find((candidate) => formatField(candidate.field) === key)
 			resolved.push({
 				name: mapping?.entity ?? key,
 				value: fieldDefault.value,
@@ -157,10 +157,10 @@ export class Clarifier implements ClarifierInterface {
 	// formats to an array element's key — `['value', '0']` and the first element
 	// of `value` both format to `value.0` — collides here, and the entity later
 	// in `resolved` overwrites the earlier binding.
-	#resolveComputations(template: Template, filledFields: Set<string>, resolved: Entity[]): void {
+	#resolveComputations(recipe: Recipe, filledFields: Set<string>, resolved: Entity[]): void {
 		const bindings: Record<string, number> = {}
 		for (const entity of resolved) {
-			const mapping = template.mappings.find((candidate) => candidate.entity === entity.name)
+			const mapping = recipe.mappings.find((candidate) => candidate.entity === entity.name)
 			const field = mapping === undefined ? entity.name : formatField(mapping.field)
 			const value = entity.value
 			if (isFiniteNumber(value)) {
@@ -173,12 +173,12 @@ export class Clarifier implements ClarifierInterface {
 			}
 		}
 
-		for (const computation of this.#orderComputations(template.computations)) {
+		for (const computation of this.#orderComputations(recipe.computations)) {
 			const key = formatField(computation.field)
 			if (filledFields.has(key)) continue
 			const value = resolveExpression(computation.expression, bindings)
 			if (value === undefined) continue
-			const mapping = template.mappings.find((candidate) => formatField(candidate.field) === key)
+			const mapping = recipe.mappings.find((candidate) => formatField(candidate.field) === key)
 			resolved.push({
 				name: mapping?.entity ?? key,
 				value,
@@ -233,9 +233,9 @@ export class Clarifier implements ClarifierInterface {
 	}
 
 	// One ambiguity per required mapping without a resolved-enough entity.
-	#collectAmbiguities(template: Template, resolved: readonly Entity[]): Ambiguity[] {
+	#collectAmbiguities(recipe: Recipe, resolved: readonly Entity[]): Ambiguity[] {
 		const ambiguities: Ambiguity[] = []
-		for (const mapping of template.mappings) {
+		for (const mapping of recipe.mappings) {
 			if (mapping.required !== true) continue
 			const entity = resolved.find((candidate) => candidate.name === mapping.entity)
 			const resolvedEnough = entity !== undefined && entity.confidence >= this.#floor

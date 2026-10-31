@@ -6,17 +6,17 @@ import type {
 	FormatterOptions,
 	Intent,
 	NarratorInterface,
-	Template,
+	Recipe,
 } from '../types.js'
 import { formatField } from '@orkestrel/reason'
 import { Narrator } from '../Narrator.js'
 
 /**
  * Implements the format stage: renders the refined natural-language prompt for a
- * matched template.
+ * matched recipe.
  *
  * @remarks
- * Shape: the `prompt.base` line (`{verb} {template.name}`), then the
+ * Shape: the `prompt.base` line (`{verb} {recipe.name}`), then the
  * `prompt.entities` clause for every non-default entity (each rendered
  * `{label}: {value}` through the core-root `formatField`), then the
  * `prompt.defaults` clause for default-provenance entities, then the
@@ -62,7 +62,7 @@ export class Formatter implements FormatterInterface {
 
 	format(
 		intent: Intent,
-		template: Template,
+		recipe: Recipe,
 		entities: readonly Entity[],
 		ambiguities: readonly Ambiguity[],
 	): FormatResult {
@@ -76,7 +76,7 @@ export class Formatter implements FormatterInterface {
 			else resolved.push(rendered)
 		}
 
-		const parts = [this.#narrator.line('prompt.base', { verb, name: template.name })]
+		const parts = [this.#narrator.line('prompt.base', { verb, name: recipe.name })]
 
 		if (resolved.length > 0) {
 			parts.push(this.#narrator.line('prompt.entities', { fields: resolved.join(', ') }))

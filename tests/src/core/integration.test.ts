@@ -4,17 +4,17 @@ import { createRecorders } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import {
 	buildCorpusInterpret,
-	buildEligibilityTemplate,
-	buildInsuranceTemplate,
-	buildInterpretTemplate,
-	buildLoanTemplate,
-	buildStatisticsTemplate,
+	buildEligibilityRecipe,
+	buildInsuranceRecipe,
+	buildInterpretRecipe,
+	buildLoanRecipe,
+	buildStatisticsRecipe,
 } from '../../setup.js'
 
 // The interprets integration corpus — the terrain-vocabulary redesign of scsr's
-// 49-case suite (sync API; no-match is auditable-incomplete, never templates[0];
+// 49-case suite (sync API; no-match is auditable-incomplete, never recipes[0];
 // no durations): forward NL → subject/definition, cross-turn carry-over,
-// multi-template best-match, add-after-miss, computed fields, the numeric
+// multi-recipe best-match, add-after-miss, computed fields, the numeric
 // corpus pins, full provenance, and determinism + digest-replay.
 
 describe('interprets integration', () => {
@@ -40,8 +40,8 @@ describe('interprets integration', () => {
 		interpret.destroy()
 	})
 
-	it('selects the best-matching template among several — never an arbitrary fallback', () => {
-		const interpret = buildCorpusInterpret([buildInsuranceTemplate(), buildLoanTemplate()])
+	it('selects the best-matching recipe among several — never an arbitrary fallback', () => {
+		const interpret = buildCorpusInterpret([buildInsuranceRecipe(), buildLoanRecipe()])
 		expect(interpret.interpret('calculate insurance age 25').definition?.id).toBe('insurance-auto')
 		expect(interpret.interpret('calculate loan 5000').definition?.id).toBe('loan-personal')
 		interpret.destroy()
@@ -50,8 +50,8 @@ describe('interprets integration', () => {
 	it('add-after-miss: an unmatched turn is incomplete, a later add completes it', () => {
 		const interpret = buildCorpusInterpret([])
 		const first = interpret.interpret('calculate insurance age 25')
-		expect(first.failures.map((failure) => failure.code)).toEqual(['NO_TEMPLATE'])
-		interpret.add(buildInsuranceTemplate())
+		expect(first.failures.map((failure) => failure.code)).toEqual(['NO_RECIPE'])
+		interpret.add(buildInsuranceRecipe())
 		const second = interpret.interpret('calculate insurance age 25')
 		expect(second.ambiguities).toEqual([])
 		expect(second.failures).toEqual([])
@@ -77,7 +77,7 @@ describe('interprets integration', () => {
 	})
 
 	it('numeric corpus: extracts multiple entities from a complex sentence (age 25, score 720)', () => {
-		const interpret = buildCorpusInterpret([buildEligibilityTemplate()])
+		const interpret = buildCorpusInterpret([buildEligibilityRecipe()])
 		const result = interpret.interpret('check if a 25 year old with a 720 credit score qualifies')
 		expect(result.subject?.age).toBe(25)
 		expect(result.subject?.score).toBe(720)
@@ -86,7 +86,7 @@ describe('interprets integration', () => {
 
 	it('numeric corpus: "$50,000" parses to 50000 and lands on a single-mapping collect', () => {
 		const interpret = buildCorpusInterpret([
-			buildInterpretTemplate({ mappings: [{ entity: 'income', aliases: [], field: 'income' }] }),
+			buildInterpretRecipe({ mappings: [{ entity: 'income', aliases: [], field: 'income' }] }),
 		])
 		const result = interpret.interpret('calculate arithmetic income was $50,000')
 		expect(result.subject?.income).toBe(50000)
@@ -94,7 +94,7 @@ describe('interprets integration', () => {
 	})
 
 	it('numeric corpus: a statistics turn keeps its collected array and derives no field of its own', () => {
-		const interpret = buildCorpusInterpret([buildStatisticsTemplate()])
+		const interpret = buildCorpusInterpret([buildStatisticsRecipe()])
 		expect(interpret.interpret('compute statistics 42').subject?.value).toBe(42)
 		const many = interpret.interpret('compute statistics 10 20 30')
 		expect(many.subject).toEqual({ value: [10, 20, 30] })
@@ -103,7 +103,7 @@ describe('interprets integration', () => {
 
 	it('numeric corpus: a declared computation aggregates the collected array by element', () => {
 		const interpret = buildCorpusInterpret([
-			buildStatisticsTemplate({
+			buildStatisticsRecipe({
 				computations: [
 					{
 						field: 'total',
@@ -145,16 +145,16 @@ describe('interprets integration', () => {
 		interpret.destroy()
 	})
 
-	it('determinism + replay: same text + same template version reproduces the same digest', () => {
+	it('determinism + replay: same text + same recipe version reproduces the same digest', () => {
 		const first = buildCorpusInterpret().interpret('calculate insurance age 25')
 		const second = buildCorpusInterpret().interpret('calculate insurance age 25')
 		expect(second.digest).toBe(first.digest)
 	})
 
-	it('replay: a template content change bumps the version and changes the digest', () => {
+	it('replay: a recipe content change bumps the version and changes the digest', () => {
 		const interpret = buildCorpusInterpret()
 		const before = interpret.interpret('calculate insurance age 25').digest
-		interpret.add(buildInsuranceTemplate({ name: 'Renamed' }))
+		interpret.add(buildInsuranceRecipe({ name: 'Renamed' }))
 		const after = interpret.interpret('calculate insurance age 25').digest
 		expect(after).not.toBe(before)
 		interpret.destroy()

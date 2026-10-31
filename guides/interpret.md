@@ -2,7 +2,7 @@
 
 > A synchronous, deterministic bidirectional bridge between natural language and the
 > `@orkestrel/reason` engine: a forward pipeline that normalizes raw text, classifies its
-> intent, matches an added `Template`, clarifies the fields extraction left open, and
+> intent, matches an added `Recipe`, clarifies the fields extraction left open, and
 > generates a `Subject` and `Definition` pair ready for `Reason.reason`, plus a reverse
 > direction that renders a `Definition`, a `Subject`, or a `ReasonResult` to
 > display-neutral prose through a lexicon-driven `Narrator`.
@@ -11,7 +11,7 @@ Nothing here is an LLM, a provider, or an agent: the `prompt` a result carries i
 an external model and is never consumed internally, and the reverse direction complements the
 raters' `describe*` family rather than duplicating it. `normalize` applies contraction,
 abbreviation, and correction substitutions; `extract` classifies intent without ever seeing a
-template and mines the raw numbers; `clarify` resolves same-domain carry-over, template
+recipe and mines the raw numbers; `clarify` resolves same-domain carry-over, recipe
 defaults, and dependency-ordered computed fields. Every discriminant names its axis rather
 than `kind` or `type`: `stage` splits the pipeline phases, `category` splits provenance, and
 `code` splits coded errors. Source: [`src/core`](../src/core). Surfaced through the
@@ -19,9 +19,9 @@ than `kind` or `type`: `stage` splits the pipeline phases, `category` splits pro
 
 ## Surface
 
-### Interpret text against an added template
+### Interpret text against an added recipe
 
-Add a template, interpret text through the normalize, extract, clarify, format, and generate
+Add a recipe, interpret text through the normalize, extract, clarify, format, and generate
 pipeline, then render the result back to prose:
 
 ```ts
@@ -37,7 +37,7 @@ const interpret = createInterpret({
 		actions: { calculate: 'calculate' },
 		domains: { arithmetic: ['arithmetic'] },
 	}),
-	templates: [
+	recipes: [
 		{
 			id: 't1',
 			name: 'Arithmetic',
@@ -64,75 +64,75 @@ interpret.destroy()
 ```
 
 `interpret()` is genuinely synchronous and runs the fixed pipeline
-`[normalize, extract, clarify, format, generate]`. A `NO_TEMPLATE` or `LOW_CONFIDENCE`
+`[normalize, extract, clarify, format, generate]`. A `NO_RECIPE` or `LOW_CONFIDENCE`
 non-match, and a thrown stage, each yield a visible incomplete `Interpretation` rather than
-throwing, and never an arbitrary fallback template. An interpretation is complete when
+throwing, and never an arbitrary fallback recipe. An interpretation is complete when
 `ambiguities` and `failures` are both empty; no stored flag repeats that fact.
 
 ### Types
 
 A `Shape` cell holds an interface's data members as bare names in braces, `?` marking an optional member and `plus` introducing its call-signature members, and a type alias's own type literal with a union's arms escaped as `\|`.
 
-| Name                         | Kind      | Signature                                                                                                                                                                           | Summary                                                                                                                                                                                                                      |
-| ---------------------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ProvenanceCategory`         | type      | `'extracted' \| 'carried' \| 'default' \| 'computed' \| 'subject'`                                                                                                                  | Names how one `FieldMapping` or `Entity` value was obtained.                                                                                                                                                                 |
-| `InterpretStage`             | type      | `'normalize' \| 'extract' \| 'clarify' \| 'format' \| 'generate'`                                                                                                                   | Names the fixed pipeline phases an `InterpretInterface#interpret` run produces one `StageRecord` for, in order.                                                                                                              |
-| `InterpretErrorCode`         | type      | `'NORMALIZE_FAILED' \| 'EXTRACT_FAILED' \| 'CLARIFY_FAILED' \| 'FORMAT_FAILED' \| 'GENERATE_FAILED' \| 'NO_TEMPLATE' \| 'LOW_CONFIDENCE' \| 'DESTROYED'`                            | Names the coded misuse or failure conditions thrown as an `InterpretError` or carried on a `StageFailure`.                                                                                                                   |
-| `EntityMapping`              | interface | `{ entity, aliases, field, required? }`                                                                                                                                             | Represents one entity-extraction rule inside a `Template`: which literal alias phrases identify a value, and which subject field it lands on.                                                                                |
-| `FieldDefault`               | interface | `{ field, value }`                                                                                                                                                                  | Represents a fallback value a `Template` fills onto a field left unresolved by extraction.                                                                                                                                   |
-| `ComputedField`              | interface | `{ field, expression }`                                                                                                                                                             | Represents a declaratively computed field: evaluate `expression` against the entities already resolved for this interpretation, and land the result on `field`.                                                              |
-| `Template`                   | interface | `{ id, name, domain, intents, mappings, defaults, computations, definition }`                                                                                                       | Represents a named, versionable interpretation template: which intents it answers, how to mine entities for it, its fallback data, its computed fields, and the reasons `Definition` it ultimately produces a `Subject` for. |
-| `Provenance`                 | interface | `{ category, detail? }`                                                                                                                                                             | Describes how one value landed — its origin category plus an optional strategy detail.                                                                                                                                       |
-| `Intent`                     | interface | `{ action?, domain?, confidence }`                                                                                                                                                  | Represents the classified action + domain for one interpretation, with a combined confidence.                                                                                                                                |
-| `Entity`                     | interface | `{ name, value, provenance, confidence }`                                                                                                                                           | Represents one value assigned to a template's entity mapping, with its provenance and confidence.                                                                                                                            |
-| `Ambiguity`                  | interface | `{ field, question, candidates, required }`                                                                                                                                         | Represents an unresolved field surfaced as a human-readable question, never bare prose.                                                                                                                                      |
-| `FieldMapping`               | interface | `{ field, entity?, value, provenance, confidence }`                                                                                                                                 | Represents one audited field of the built subject — its resolved value, provenance, and confidence.                                                                                                                          |
-| `TextChange`                 | interface | `{ from, to }`                                                                                                                                                                      | Represents one normalization substitution applied to the raw text.                                                                                                                                                           |
-| `StageRecord`                | interface | `{ stage, input, output, failed, error? }`                                                                                                                                          | Represents a structured input/output snapshot of one pipeline phase.                                                                                                                                                         |
-| `StageFailure`               | interface | `{ stage, code, message }`                                                                                                                                                          | Represents a visible marker for a stage that threw, carrying its coded reason.                                                                                                                                               |
-| `NormalizeResult`            | interface | `{ text, changes }`                                                                                                                                                                 | Represents the `Normalizer` stage's output: the cleaned text plus every substitution applied.                                                                                                                                |
-| `ExtractResult`              | interface | `{ intent, numbers }`                                                                                                                                                               | Represents the `Extractor` stage's output: intent classification plus raw numbers.                                                                                                                                           |
-| `ClarifyResult`              | interface | `{ entities, ambiguities }`                                                                                                                                                         | Represents the `Clarifier` stage's output: resolved entities plus any remaining ambiguities.                                                                                                                                 |
-| `FormatResult`               | interface | `{ prompt }`                                                                                                                                                                        | Represents the `Formatter` stage's output: the refined natural-language prompt.                                                                                                                                              |
-| `GenerateResult`             | interface | `{ subject, definition, mappings, confidence }`                                                                                                                                     | Represents the `Generator` stage's output: the built subject/definition pair plus its full field audit.                                                                                                                      |
-| `Interpretation`             | interface | `{ text, normalized, intent, entities, subject?, definition?, mappings, ambiguities, prompt, stages, failures, confidence, digest }`                                                | Represents the full, replayable outcome of one `interpret()` call.                                                                                                                                                           |
-| `TemplateRecord`             | interface | `{ id, template, version, hash }`                                                                                                                                                   | Represents a versioned, content-hashed `Template` as held by a `TemplateManagerInterface`.                                                                                                                                   |
-| `SubjectRecord`              | interface | `{ id, subject, version, hash }`                                                                                                                                                    | Represents a versioned, content-hashed `Subject` as held by a `SubjectManagerInterface`.                                                                                                                                     |
-| `DefinitionRecord`           | interface | `{ id, definition, version, hash }`                                                                                                                                                 | Represents a versioned, content-hashed `Definition` as held by a `DefinitionManagerInterface`.                                                                                                                               |
-| `InterpretEventMap`          | type      | `{ readonly interpret: readonly [result: Interpretation]; readonly add: readonly [templateId: string]; readonly error: readonly [error: unknown]; readonly destroy: readonly []; }` | Represents the push observation surface of an `InterpretInterface`.                                                                                                                                                          |
-| `RecordEventMap`             | type      | `{ readonly add: readonly [id: string]; readonly remove: readonly [id: string]; readonly destroy: readonly []; }`                                                                   | Represents the push observation surface shared by every record registry — an id-keyed collection, so `add` and `remove` are the events (never ordered-list `append`/`prepend`).                                              |
-| `TemplateManagerEventMap`    | type      | `RecordEventMap`                                                                                                                                                                    | Represents the push observation surface of a `TemplateManagerInterface`.                                                                                                                                                     |
-| `SubjectManagerEventMap`     | type      | `RecordEventMap`                                                                                                                                                                    | Represents the push observation surface of a `SubjectManagerInterface`, whose `add` carries the own-minted record id.                                                                                                        |
-| `DefinitionManagerEventMap`  | type      | `RecordEventMap`                                                                                                                                                                    | Represents the push observation surface of a `DefinitionManagerInterface`.                                                                                                                                                   |
-| `InterpretContextEventMap`   | type      | `{ readonly add: readonly [digest: string]; readonly clear: readonly []; readonly destroy: readonly []; }`                                                                          | Represents the push observation surface of an `InterpretContextInterface`.                                                                                                                                                   |
-| `NarratorFormatter`          | type      | `(value: unknown) => string`                                                                                                                                                        | Represents a pure formatting function for one lexicon `value()` unit.                                                                                                                                                        |
-| `Lexicon`                    | interface | `{ phrases?, labels?, templates? }`                                                                                                                                                 | Represents caller-injected wording data for the reverse direction — mechanism, never policy. Every phrase, label, and template string a `Narrator` renders is data supplied here, never a core literal.                      |
-| `NarratorOptions`            | interface | `{ lexicon?, formatters? }`                                                                                                                                                         | Represents the options for `createNarrator` and the `Narrator` constructor.                                                                                                                                                  |
-| `NormalizerOptions`          | interface | `{ contractions?, abbreviations?, corrections? }`                                                                                                                                   | Represents the options for `createNormalizer` and the `Normalizer` constructor.                                                                                                                                              |
-| `ExtractorOptions`           | interface | `{ actions?, domains? }`                                                                                                                                                            | Represents the options for `createExtractor` and the `Extractor` constructor.                                                                                                                                                |
-| `ClarifierOptions`           | interface | `{ floor?, narrator? }`                                                                                                                                                             | Represents the options for `createClarifier` and the `Clarifier` constructor.                                                                                                                                                |
-| `FormatterOptions`           | interface | `{ verbs?, narrator? }`                                                                                                                                                             | Represents the options for `createFormatter` and the `Formatter` constructor.                                                                                                                                                |
-| `TemplateManagerOptions`     | interface | `{ templates?, on?, error? }`                                                                                                                                                       | Represents the options for `createTemplateManager` and the `TemplateManager` constructor — the initial seed collection.                                                                                                      |
-| `SubjectManagerOptions`      | interface | `{ subjects?, on?, error? }`                                                                                                                                                        | Represents the options for `createSubjectManager` and the `SubjectManager` constructor — the initial seed collection.                                                                                                        |
-| `DefinitionManagerOptions`   | interface | `{ definitions?, on?, error? }`                                                                                                                                                     | Represents the options for `createDefinitionManager` and the `DefinitionManager` constructor — the initial seed collection.                                                                                                  |
-| `RecordStamp`                | interface | `{ id, version, hash }`                                                                                                                                                             | Represents the identity, version, and content hash a `RecordManagerInterface` derives for one record before its concrete shape is built.                                                                                     |
-| `RecordFunction`             | type      | `(stamp: RecordStamp, value: TValue) => TRecord`                                                                                                                                    | Builds one concrete record from the `RecordStamp` its registry derived and the value that record holds.                                                                                                                      |
-| `RecordManagerOptions`       | interface | `{ entity, on?, error? }`                                                                                                                                                           | Represents the options for the `RecordManager` constructor.                                                                                                                                                                  |
-| `RecordManagerInterface`     | interface | `{ emitter, count, has(), record(), records(), add(), remove(), destroy() }`                                                                                                        | Represents the shared registry engine every record manager composes — the `Map`, the content-hash and version rule, the batch `remove` overloads, and teardown.                                                              |
-| `RecordOptions`              | interface | `{ id? }`                                                                                                                                                                           | Represents the per-call options for the record a manager's `add` mints.                                                                                                                                                      |
-| `InterpretContextOptions`    | interface | `{ session?, history?, on?, error? }`                                                                                                                                               | Represents the options for `createInterpretContext` and the `InterpretContext` constructor.                                                                                                                                  |
-| `InterpretOptions`           | interface | `{ templates?, context?, normalizer?, extractor?, clarifier?, formatter?, generator?, similarity?, floor?, history?, narrator?, on?, error? }`                                      | Represents the options for `createInterpret` and the `Interpret` constructor.                                                                                                                                                |
-| `NormalizerInterface`        | interface | `{ normalize() }`                                                                                                                                                                   | Represents the `Normalizer` stage contract: raw text in, cleaned text + applied changes out.                                                                                                                                 |
-| `ExtractorInterface`         | interface | `{ extract() }`                                                                                                                                                                     | Represents the `Extractor` stage contract: template-agnostic intent classification + raw number mining.                                                                                                                      |
-| `ClarifierInterface`         | interface | `{ clarify() }`                                                                                                                                                                     | Represents the `Clarifier` stage contract: resolve carry-over, defaults, and computed fields against a set of already-assigned entities, surfacing ambiguities for anything required that stays unresolved.                  |
-| `FormatterInterface`         | interface | `{ format() }`                                                                                                                                                                      | Represents the `Formatter` stage contract: render the refined natural-language prompt for a matched template.                                                                                                                |
-| `GeneratorInterface`         | interface | `{ generate() }`                                                                                                                                                                    | Represents the `Generator` stage contract: build the final subject/definition pair plus its field audit.                                                                                                                     |
-| `NarratorInterface`          | interface | `{ phrase(), label(), line(), value(), describe(), narrate() }`                                                                                                                     | Represents the `Narrator` contract — a stateless, total, lexicon-driven rendering engine for the reverse direction.                                                                                                          |
-| `TemplateManagerInterface`   | interface | `{ emitter, count, has(), template(), templates(), add(), remove(), destroy() }`                                                                                                    | Represents the template registry — a self-owning, versioned/hashed record-holder with the singular/plural accessor pair and the batch `remove` overloads.                                                                    |
-| `SubjectManagerInterface`    | interface | `{ emitter, count, has(), subject(), subjects(), add(), remove(), destroy() }`                                                                                                      | Represents the subject registry — a self-owning, versioned/hashed record-holder that mints its own record ids (a `Subject` carries none).                                                                                    |
-| `DefinitionManagerInterface` | interface | `{ emitter, count, has(), definition(), definitions(), add(), remove(), destroy() }`                                                                                                | Represents the definition registry — a self-owning, versioned/hashed record-holder.                                                                                                                                          |
-| `InterpretContextInterface`  | interface | `{ emitter, session, subjects, definitions, previous(), entities(), add(), clear(), destroy() }`                                                                                    | Represents the cross-turn interpretation context: a capped, replayable history plus the subject/definition registries carry-over reads from.                                                                                 |
-| `InterpretInterface`         | interface | `{ emitter, interpret(), add(), remove(), template(), templates(), describe(), narrate(), destroy() }`                                                                              | Represents the interpretation orchestrator — the sole public entry point, mirroring `reasons`' `Reason` orchestrator shape.                                                                                                  |
+| Name                         | Kind      | Signature                                                                                                                                                                         | Summary                                                                                                                                                                                                                    |
+| ---------------------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ProvenanceCategory`         | type      | `'extracted' \| 'carried' \| 'default' \| 'computed' \| 'subject'`                                                                                                                | Names how one `FieldMapping` or `Entity` value was obtained.                                                                                                                                                               |
+| `InterpretStage`             | type      | `'normalize' \| 'extract' \| 'clarify' \| 'format' \| 'generate'`                                                                                                                 | Names the fixed pipeline phases an `InterpretInterface#interpret` run produces one `StageRecord` for, in order.                                                                                                            |
+| `InterpretErrorCode`         | type      | `'NORMALIZE_FAILED' \| 'EXTRACT_FAILED' \| 'CLARIFY_FAILED' \| 'FORMAT_FAILED' \| 'GENERATE_FAILED' \| 'NO_RECIPE' \| 'LOW_CONFIDENCE' \| 'DESTROYED'`                            | Names the coded misuse or failure conditions thrown as an `InterpretError` or carried on a `StageFailure`.                                                                                                                 |
+| `EntityMapping`              | interface | `{ entity, aliases, field, required? }`                                                                                                                                           | Represents one entity-extraction rule inside a `Recipe`: which literal alias phrases identify a value, and which subject field it lands on.                                                                                |
+| `FieldDefault`               | interface | `{ field, value }`                                                                                                                                                                | Represents a fallback value a `Recipe` fills onto a field left unresolved by extraction.                                                                                                                                   |
+| `ComputedField`              | interface | `{ field, expression }`                                                                                                                                                           | Represents a declaratively computed field: evaluate `expression` against the entities already resolved for this interpretation, and land the result on `field`.                                                            |
+| `Recipe`                     | interface | `{ id, name, domain, intents, mappings, defaults, computations, definition }`                                                                                                     | Represents a named, versionable interpretation recipe: which intents it answers, how to mine entities for it, its fallback data, its computed fields, and the reasons `Definition` it ultimately produces a `Subject` for. |
+| `Provenance`                 | interface | `{ category, detail? }`                                                                                                                                                           | Describes how one value landed — its origin category plus an optional strategy detail.                                                                                                                                     |
+| `Intent`                     | interface | `{ action?, domain?, confidence }`                                                                                                                                                | Represents the classified action + domain for one interpretation, with a combined confidence.                                                                                                                              |
+| `Entity`                     | interface | `{ name, value, provenance, confidence }`                                                                                                                                         | Represents one value assigned to a recipe's entity mapping, with its provenance and confidence.                                                                                                                            |
+| `Ambiguity`                  | interface | `{ field, question, candidates, required }`                                                                                                                                       | Represents an unresolved field surfaced as a human-readable question, never bare prose.                                                                                                                                    |
+| `FieldMapping`               | interface | `{ field, entity?, value, provenance, confidence }`                                                                                                                               | Represents one audited field of the built subject — its resolved value, provenance, and confidence.                                                                                                                        |
+| `TextChange`                 | interface | `{ from, to }`                                                                                                                                                                    | Represents one normalization substitution applied to the raw text.                                                                                                                                                         |
+| `StageRecord`                | interface | `{ stage, input, output, failed, error? }`                                                                                                                                        | Represents a structured input/output snapshot of one pipeline phase.                                                                                                                                                       |
+| `StageFailure`               | interface | `{ stage, code, message }`                                                                                                                                                        | Represents a visible marker for a stage that threw, carrying its coded reason.                                                                                                                                             |
+| `NormalizeResult`            | interface | `{ text, changes }`                                                                                                                                                               | Represents the `Normalizer` stage's output: the cleaned text plus every substitution applied.                                                                                                                              |
+| `ExtractResult`              | interface | `{ intent, numbers }`                                                                                                                                                             | Represents the `Extractor` stage's output: intent classification plus raw numbers.                                                                                                                                         |
+| `ClarifyResult`              | interface | `{ entities, ambiguities }`                                                                                                                                                       | Represents the `Clarifier` stage's output: resolved entities plus any remaining ambiguities.                                                                                                                               |
+| `FormatResult`               | interface | `{ prompt }`                                                                                                                                                                      | Represents the `Formatter` stage's output: the refined natural-language prompt.                                                                                                                                            |
+| `GenerateResult`             | interface | `{ subject, definition, mappings, confidence }`                                                                                                                                   | Represents the `Generator` stage's output: the built subject/definition pair plus its full field audit.                                                                                                                    |
+| `Interpretation`             | interface | `{ text, normalized, intent, entities, subject?, definition?, mappings, ambiguities, prompt, stages, failures, confidence, digest }`                                              | Represents the full, replayable outcome of one `interpret()` call.                                                                                                                                                         |
+| `RecipeRecord`               | interface | `{ id, recipe, version, hash }`                                                                                                                                                   | Represents a versioned, content-hashed `Recipe` as held by a `RecipeManagerInterface`.                                                                                                                                     |
+| `SubjectRecord`              | interface | `{ id, subject, version, hash }`                                                                                                                                                  | Represents a versioned, content-hashed `Subject` as held by a `SubjectManagerInterface`.                                                                                                                                   |
+| `DefinitionRecord`           | interface | `{ id, definition, version, hash }`                                                                                                                                               | Represents a versioned, content-hashed `Definition` as held by a `DefinitionManagerInterface`.                                                                                                                             |
+| `InterpretEventMap`          | type      | `{ readonly interpret: readonly [result: Interpretation]; readonly add: readonly [recipeId: string]; readonly error: readonly [error: unknown]; readonly destroy: readonly []; }` | Represents the push observation surface of an `InterpretInterface`.                                                                                                                                                        |
+| `RecordEventMap`             | type      | `{ readonly add: readonly [id: string]; readonly remove: readonly [id: string]; readonly destroy: readonly []; }`                                                                 | Represents the push observation surface shared by every record registry — an id-keyed collection, so `add` and `remove` are the events (never ordered-list `append`/`prepend`).                                            |
+| `RecipeManagerEventMap`      | type      | `RecordEventMap`                                                                                                                                                                  | Represents the push observation surface of a `RecipeManagerInterface`.                                                                                                                                                     |
+| `SubjectManagerEventMap`     | type      | `RecordEventMap`                                                                                                                                                                  | Represents the push observation surface of a `SubjectManagerInterface`, whose `add` carries the own-minted record id.                                                                                                      |
+| `DefinitionManagerEventMap`  | type      | `RecordEventMap`                                                                                                                                                                  | Represents the push observation surface of a `DefinitionManagerInterface`.                                                                                                                                                 |
+| `InterpretContextEventMap`   | type      | `{ readonly add: readonly [digest: string]; readonly clear: readonly []; readonly destroy: readonly []; }`                                                                        | Represents the push observation surface of an `InterpretContextInterface`.                                                                                                                                                 |
+| `NarratorFormatter`          | type      | `(value: unknown) => string`                                                                                                                                                      | Represents a pure formatting function for one lexicon `value()` unit.                                                                                                                                                      |
+| `Lexicon`                    | interface | `{ phrases?, labels?, templates? }`                                                                                                                                               | Represents caller-injected wording data for the reverse direction — mechanism, never policy. Every phrase, label, and template string a `Narrator` renders is data supplied here, never a core literal.                    |
+| `NarratorOptions`            | interface | `{ lexicon?, formatters? }`                                                                                                                                                       | Represents the options for `createNarrator` and the `Narrator` constructor.                                                                                                                                                |
+| `NormalizerOptions`          | interface | `{ contractions?, abbreviations?, corrections? }`                                                                                                                                 | Represents the options for `createNormalizer` and the `Normalizer` constructor.                                                                                                                                            |
+| `ExtractorOptions`           | interface | `{ actions?, domains? }`                                                                                                                                                          | Represents the options for `createExtractor` and the `Extractor` constructor.                                                                                                                                              |
+| `ClarifierOptions`           | interface | `{ floor?, narrator? }`                                                                                                                                                           | Represents the options for `createClarifier` and the `Clarifier` constructor.                                                                                                                                              |
+| `FormatterOptions`           | interface | `{ verbs?, narrator? }`                                                                                                                                                           | Represents the options for `createFormatter` and the `Formatter` constructor.                                                                                                                                              |
+| `RecipeManagerOptions`       | interface | `{ recipes?, on?, error? }`                                                                                                                                                       | Represents the options for `createRecipeManager` and the `RecipeManager` constructor — the initial seed collection.                                                                                                        |
+| `SubjectManagerOptions`      | interface | `{ subjects?, on?, error? }`                                                                                                                                                      | Represents the options for `createSubjectManager` and the `SubjectManager` constructor — the initial seed collection.                                                                                                      |
+| `DefinitionManagerOptions`   | interface | `{ definitions?, on?, error? }`                                                                                                                                                   | Represents the options for `createDefinitionManager` and the `DefinitionManager` constructor — the initial seed collection.                                                                                                |
+| `RecordStamp`                | interface | `{ id, version, hash }`                                                                                                                                                           | Represents the identity, version, and content hash a `RecordManagerInterface` derives for one record before its concrete shape is built.                                                                                   |
+| `RecordFunction`             | type      | `(stamp: RecordStamp, value: TValue) => TRecord`                                                                                                                                  | Builds one concrete record from the `RecordStamp` its registry derived and the value that record holds.                                                                                                                    |
+| `RecordManagerOptions`       | interface | `{ entity, on?, error? }`                                                                                                                                                         | Represents the options for the `RecordManager` constructor.                                                                                                                                                                |
+| `RecordManagerInterface`     | interface | `{ emitter, count, has(), record(), records(), add(), remove(), destroy() }`                                                                                                      | Represents the shared registry engine every record manager composes — the `Map`, the content-hash and version rule, the batch `remove` overloads, and teardown.                                                            |
+| `RecordOptions`              | interface | `{ id? }`                                                                                                                                                                         | Represents the per-call options for the record a manager's `add` mints.                                                                                                                                                    |
+| `InterpretContextOptions`    | interface | `{ session?, history?, on?, error? }`                                                                                                                                             | Represents the options for `createInterpretContext` and the `InterpretContext` constructor.                                                                                                                                |
+| `InterpretOptions`           | interface | `{ recipes?, context?, normalizer?, extractor?, clarifier?, formatter?, generator?, similarity?, floor?, history?, narrator?, on?, error? }`                                      | Represents the options for `createInterpret` and the `Interpret` constructor.                                                                                                                                              |
+| `NormalizerInterface`        | interface | `{ normalize() }`                                                                                                                                                                 | Represents the `Normalizer` stage contract: raw text in, cleaned text + applied changes out.                                                                                                                               |
+| `ExtractorInterface`         | interface | `{ extract() }`                                                                                                                                                                   | Represents the `Extractor` stage contract: recipe-agnostic intent classification + raw number mining.                                                                                                                      |
+| `ClarifierInterface`         | interface | `{ clarify() }`                                                                                                                                                                   | Represents the `Clarifier` stage contract: resolve carry-over, defaults, and computed fields against a set of already-assigned entities, surfacing ambiguities for anything required that stays unresolved.                |
+| `FormatterInterface`         | interface | `{ format() }`                                                                                                                                                                    | Represents the `Formatter` stage contract: render the refined natural-language prompt for a matched recipe.                                                                                                                |
+| `GeneratorInterface`         | interface | `{ generate() }`                                                                                                                                                                  | Represents the `Generator` stage contract: build the final subject/definition pair plus its field audit.                                                                                                                   |
+| `NarratorInterface`          | interface | `{ phrase(), label(), line(), value(), describe(), narrate() }`                                                                                                                   | Represents the `Narrator` contract — a stateless, total, lexicon-driven rendering engine for the reverse direction.                                                                                                        |
+| `RecipeManagerInterface`     | interface | `{ emitter, count, has(), recipe(), recipes(), add(), remove(), destroy() }`                                                                                                      | Represents the recipe registry — a self-owning, versioned/hashed record-holder with the singular/plural accessor pair and the batch `remove` overloads.                                                                    |
+| `SubjectManagerInterface`    | interface | `{ emitter, count, has(), subject(), subjects(), add(), remove(), destroy() }`                                                                                                    | Represents the subject registry — a self-owning, versioned/hashed record-holder that mints its own record ids (a `Subject` carries none).                                                                                  |
+| `DefinitionManagerInterface` | interface | `{ emitter, count, has(), definition(), definitions(), add(), remove(), destroy() }`                                                                                              | Represents the definition registry — a self-owning, versioned/hashed record-holder.                                                                                                                                        |
+| `InterpretContextInterface`  | interface | `{ emitter, session, subjects, definitions, previous(), entities(), add(), clear(), destroy() }`                                                                                  | Represents the cross-turn interpretation context: a capped, replayable history plus the subject/definition registries carry-over reads from.                                                                               |
+| `InterpretInterface`         | interface | `{ emitter, interpret(), add(), remove(), recipe(), recipes(), describe(), narrate(), destroy() }`                                                                                | Represents the interpretation orchestrator — the sole public entry point, mirroring `reasons`' `Reason` orchestrator shape.                                                                                                |
 
 ### Constants
 
@@ -141,7 +141,7 @@ A `Shape` cell holds the constant's declared type.
 | Name                           | Kind  | Signature                          | Summary                                                                                                                                                                                                            |
 | ------------------------------ | ----- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `DEFAULT_INTERPRET_SIMILARITY` | const | `0.8`                              | Names the default `similarity` for `createInterpret` and `matchAlias`, 0.8 — the fuzzy alias-match score threshold, between 0 and 1.                                                                               |
-| `DEFAULT_INTERPRET_FLOOR`      | const | `0.3`                              | Names the default `floor` for `createInterpret` and `matchTemplate`, 0.3 — the minimum intent confidence a template match, or the classified intent itself, must clear.                                            |
+| `DEFAULT_INTERPRET_FLOOR`      | const | `0.3`                              | Names the default `floor` for `createInterpret` and `matchRecipe`, 0.3 — the minimum intent confidence a recipe match, or the classified intent itself, must clear.                                                |
 | `DEFAULT_INTERPRET_HISTORY`    | const | `16`                               | Names the default `history` cap for an `InterpretContext`'s `previous()` ring buffer, 16.                                                                                                                          |
 | `PROVENANCE_CATEGORIES`        | const | `readonly ProvenanceCategory[]`    | Lists every `ProvenanceCategory` literal, frozen — the one home the result guards check the union from, so a new category added to `types.ts` is added here rather than silently rejected by `isProvenance`.       |
 | `INTERPRET_STAGES`             | const | `readonly InterpretStage[]`        | Lists every `InterpretStage` literal in pipeline order, frozen — the one home the result guards check the union from.                                                                                              |
@@ -151,10 +151,9 @@ A `Shape` cell holds the constant's declared type.
 | `CONFIDENCE_COLLECT`           | const | `0.9`                              | Names the confidence assigned when a single entity mapping collects every extracted number, 0.9.                                                                                                                   |
 | `CONFIDENCE_POSITIONAL`        | const | `0.7`                              | Names the confidence assigned to a positional (order-based) entity match fallback, 0.7.                                                                                                                            |
 | `CONFIDENCE_CARRIED`           | const | `0.7`                              | Names the confidence assigned to a same-domain carried-over field, 0.7.                                                                                                                                            |
-| `CONFIDENCE_DEFAULT`           | const | `1`                                | Names the confidence assigned to a template default fill, 1.                                                                                                                                                       |
+| `CONFIDENCE_DEFAULT`           | const | `1`                                | Names the confidence assigned to a recipe default fill, 1.                                                                                                                                                         |
 | `CONFIDENCE_COMPUTED`          | const | `0.9`                              | Names the confidence assigned to a successfully resolved computed field, 0.9.                                                                                                                                      |
 | `NUMBER_PATTERN`               | const | `RegExp`                           | Holds the numeric-entity extraction pattern shared by `extractNumbers` and `assignEntities` — an optional leading `$`, thousands-comma-grouped digits, an optional decimal fraction, and an optional trailing `%`. |
-| `UNSAFE_FIELD_SEGMENTS`        | const | `readonly string[]`                | Lists the prototype-pollution-unsafe field-path segments, `__proto__`, `prototype`, and `constructor` — `setField` refuses to write any path containing one, and returns its input unchanged.                      |
 | `DEFAULT_CONTRACTIONS`         | const | `Readonly<Record<string, string>>` | Holds the neutral built-in contraction expansions for `Normalizer` — small on purpose; callers merge their own map over this one.                                                                                  |
 | `DEFAULT_LEXICON`              | const | `Lexicon`                          | Holds the neutral default `Lexicon` a `Narrator` merges caller data over.                                                                                                                                          |
 
@@ -173,7 +172,6 @@ import {
 	DEFAULT_INTERPRET_SIMILARITY,
 	DEFAULT_LEXICON,
 	NUMBER_PATTERN,
-	UNSAFE_FIELD_SEGMENTS,
 } from '@orkestrel/interpret'
 
 DEFAULT_INTERPRET_SIMILARITY // 0.8
@@ -187,7 +185,6 @@ CONFIDENCE_CARRIED // 0.7
 CONFIDENCE_DEFAULT // 1
 CONFIDENCE_COMPUTED // 0.9
 NUMBER_PATTERN.source // the numeric-entity pattern
-UNSAFE_FIELD_SEGMENTS // ['__proto__', 'prototype', 'constructor']
 DEFAULT_CONTRACTIONS["can't"] // 'cannot'
 DEFAULT_LEXICON.templates?.['subject.empty'] // 'with no fields'
 DEFAULT_LEXICON.templates?.['prompt.base'] // '{{verb}} {{name}}'
@@ -229,9 +226,9 @@ In a guard table a `Shape` cell holds the type the guard narrows to.
 | Name               | Kind     | Signature                                     | Summary                                                                                                                                            |
 | ------------------ | -------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `isEntityMapping`  | function | `(value: unknown) => value is EntityMapping`  | Determines whether a value is an exact `EntityMapping` input record — a literal alias-phrase extraction rule pointing at a subject field.          |
-| `isFieldDefault`   | function | `(value: unknown) => value is FieldDefault`   | Determines whether a value is an exact `FieldDefault` input record — a fallback value a `Template` fills onto an unresolved field.                 |
+| `isFieldDefault`   | function | `(value: unknown) => value is FieldDefault`   | Determines whether a value is an exact `FieldDefault` input record — a fallback value a `Recipe` fills onto an unresolved field.                   |
 | `isComputedField`  | function | `(value: unknown) => value is ComputedField`  | Determines whether a value is an exact `ComputedField` input record — a declaratively computed field carrying a reasons `SymbolicExpression` tree. |
-| `isTemplate`       | function | `(value: unknown) => value is Template`       | Determines whether a value is an exact `Template` input record — a named, versionable interpretation template.                                     |
+| `isRecipe`         | function | `(value: unknown) => value is Recipe`         | Determines whether a value is an exact `Recipe` input record — a named, versionable interpretation recipe.                                         |
 | `isProvenance`     | function | `(value: unknown) => value is Provenance`     | Determines whether a value is an open `Provenance` result record.                                                                                  |
 | `isIntent`         | function | `(value: unknown) => value is Intent`         | Determines whether a value is an open `Intent` result record.                                                                                      |
 | `isEntity`         | function | `(value: unknown) => value is Entity`         | Determines whether a value is an open `Entity` result record.                                                                                      |
@@ -255,7 +252,7 @@ import {
 	isProvenance,
 	isStageFailure,
 	isStageRecord,
-	isTemplate,
+	isRecipe,
 } from '@orkestrel/interpret'
 import {
 	createFactorGroup,
@@ -274,7 +271,7 @@ isComputedField({
 		right: { form: 'constant', value: 12 },
 	},
 }) // true
-isTemplate({
+isRecipe({
 	id: 't1',
 	name: 'Arithmetic',
 	domain: 'arithmetic',
@@ -312,15 +309,15 @@ behind the `Interpret` orchestrator and its stages.
 | `collapseWhitespace` | function | `(text: string) => string`                                                                                                  | Collapses every run of whitespace to a single space and trims the ends.                                                                 |
 | `tokenize`           | function | `(text: string) => readonly string[]`                                                                                       | Splits text into lowercase tokens, stripping punctuation outside a small numeric/currency-safe allowlist.                               |
 | `extractNumbers`     | function | `(text: string) => readonly number[]`                                                                                       | Mines every numeric literal from text — optional leading `$`, thousands commas, an optional decimal fraction, an optional trailing `%`. |
-| `assignEntities`     | function | `(numbers: readonly number[], mappings: readonly EntityMapping[], text: string, similarity: number) => readonly Entity[]`   | Assigns already-extracted numbers to a matched template's entity mappings.                                                              |
+| `assignEntities`     | function | `(numbers: readonly number[], mappings: readonly EntityMapping[], text: string, similarity: number) => readonly Entity[]`   | Assigns already-extracted numbers to a matched recipe's entity mappings.                                                                |
 | `classifyIntent`     | function | `(text: string, actions: Readonly<Record<string, string>>, domains: Readonly<Record<string, readonly string[]>>) => Intent` | Classifies the action + domain intent of a text against caller-supplied vocabularies.                                                   |
 | `scoreSimilarity`    | function | `(a: string, b: string) => number`                                                                                          | Measures bigram (Dice coefficient) string similarity, case-insensitive.                                                                 |
 | `matchAlias`         | function | `(token: string, aliases: readonly string[], threshold: number) => number`                                                  | Returns the best `scoreSimilarity` a token achieves against a list of aliases, gated by a threshold.                                    |
 | `canonicalize`       | function | `(value: unknown) => string`                                                                                                | Renders a value into a canonical, key-order-stable string — the pre-image of `digestValue`.                                             |
 | `canonicalizeNode`   | function | `(value: unknown, ancestors: ReadonlySet<object>) => string`                                                                | Renders one node of a value into its canonical, key-order-stable string, against the object ancestors already on the recursion path.    |
 | `digestValue`        | function | `(value: unknown) => string`                                                                                                | Computes a canonical structural digest of a pure-JSON value — a key-order-stable FNV-1a hash rendered as an 8-hex-digit string.         |
-| `scoreTemplate`      | function | `(intent: Intent, template: Template) => number`                                                                            | Scores how well a classified intent matches one template's domain + action.                                                             |
-| `matchTemplate`      | function | `(intent: Intent, templates: readonly Template[], floor: number) => Template \| undefined`                                  | Finds the best-scoring added template for a classified intent, gated by a confidence floor.                                             |
+| `scoreRecipe`        | function | `(intent: Intent, recipe: Recipe) => number`                                                                                | Scores how well a classified intent matches one recipe's domain + action.                                                               |
+| `matchRecipe`        | function | `(intent: Intent, recipes: readonly Recipe[], floor: number) => Recipe \| undefined`                                        | Finds the best-scoring added recipe for a classified intent, gated by a confidence floor.                                               |
 | `variablesOf`        | function | `(expression: SymbolicExpression) => readonly string[]`                                                                     | Collects every variable name referenced by a symbolic expression tree, in first-occurrence order.                                       |
 | `resolveExpression`  | function | `(expression: SymbolicExpression, bindings: Readonly<Record<string, number>>) => number \| undefined`                       | Evaluates a symbolic expression tree against resolved bindings.                                                                         |
 | `renderSubject`      | function | `(subject: Subject, narrator: NarratorInterface) => string`                                                                 | Renders a one-line, display-neutral description of a reasons `Subject`, through an injected `Narrator`.                                 |
@@ -343,7 +340,7 @@ tokenize('The rate is 85%.') // ['the', 'rate', 'is', '85%.']
 ```
 
 Extraction, classification, and fuzzy matching — the leaves behind
-`Extractor#extract` and template entity assignment:
+`Extractor#extract` and recipe entity assignment:
 
 ```ts
 import {
@@ -365,27 +362,27 @@ scoreSimilarity('rate', 'rate') // 1
 matchAlias('valu', ['value', 'amount'], 0.6) // ~0.86 — fuzzy hit on 'value'
 ```
 
-Digest, template matching, computed-field resolution, and the reverse
+Digest, recipe matching, computed-field resolution, and the reverse
 direction:
 
 ```ts
-import type { Template } from '@orkestrel/interpret'
+import type { Recipe } from '@orkestrel/interpret'
 import {
 	canonicalize,
 	canonicalizeNode,
 	createNarrator,
 	digestValue,
-	matchTemplate,
+	matchRecipe,
 	renderSubject,
 	resolveExpression,
-	scoreTemplate,
+	scoreRecipe,
 	variablesOf,
 } from '@orkestrel/interpret'
 
 canonicalize({ b: 1, a: 2 }) === canonicalize({ a: 2, b: 1 }) // true
 canonicalizeNode({ b: 1, a: 2 }, new Set()) // '{"a":2,"b":1}'
 digestValue({ a: 1 }) === digestValue({ a: 1 }) // true — deterministic
-matchTemplate({ confidence: 0 }, [], 0.3) // undefined — empty registry
+matchRecipe({ confidence: 0 }, [], 0.3) // undefined — empty registry
 variablesOf({
 	form: 'operation',
 	operator: 'divide',
@@ -404,7 +401,7 @@ resolveExpression(
 renderSubject({ age: 25, income: 50000 }, createNarrator()) // 'with age: 25, income: 50000'
 
 const gate = { action: 'compute', domain: 'rating', confidence: 1 }
-const template: Template = {
+const recipe: Recipe = {
 	id: 't1',
 	name: 'T',
 	domain: 'rating',
@@ -414,23 +411,23 @@ const template: Template = {
 	computations: [],
 	definition: { reasoning: 'symbolic', id: 't1', name: 'T', equations: [], variables: {} },
 }
-scoreTemplate(gate, template) // 1
+scoreRecipe(gate, recipe) // 1
 ```
 
 ### Parsers
 
 Coercers — each returns its type or `undefined` off-shape, and never throws.
-Template intake is total: an off-shape template returns `undefined`, and a
+Recipe intake is total: an off-shape recipe returns `undefined`, and a
 caller who wants a throw raises its own error from that `undefined`.
 
-| Name            | Kind     | Signature                                  | Summary                                                                                                    |
-| --------------- | -------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| `parseTemplate` | function | `(value: string) => Template \| undefined` | Parses a JSON string into a `Template`, or `undefined` on invalid JSON or a shape that fails `isTemplate`. |
+| Name          | Kind     | Signature                                | Summary                                                                                                |
+| ------------- | -------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `parseRecipe` | function | `(value: string) => Recipe \| undefined` | Parses a JSON string into a `Recipe`, or `undefined` on invalid JSON or a shape that fails `isRecipe`. |
 
 ```ts
-import { parseTemplate } from '@orkestrel/interpret'
+import { parseRecipe } from '@orkestrel/interpret'
 
-parseTemplate('not json') // undefined
+parseRecipe('not json') // undefined
 ```
 
 ### Factories
@@ -439,11 +436,11 @@ parseTemplate('not json') // undefined
 | ------------------------- | -------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `createInterpret`         | function | `(options?: InterpretOptions) => InterpretInterface`                 | Creates an interpretation orchestrator, returning an `InterpretInterface` seeded from `InterpretOptions`.                                              |
 | `createNormalizer`        | function | `(options?: NormalizerOptions) => NormalizerInterface`               | Creates a text normalizer, returning a stateless `NormalizerInterface`.                                                                                |
-| `createExtractor`         | function | `(options?: ExtractorOptions) => ExtractorInterface`                 | Creates a template-agnostic intent classifier and number extractor, returning a stateless `ExtractorInterface`.                                        |
+| `createExtractor`         | function | `(options?: ExtractorOptions) => ExtractorInterface`                 | Creates a recipe-agnostic intent classifier and number extractor, returning a stateless `ExtractorInterface`.                                          |
 | `createClarifier`         | function | `(options?: ClarifierOptions) => ClarifierInterface`                 | Creates a clarifier — carry-over, defaults, and computed-field resolution against an assigned entity set — returning a stateless `ClarifierInterface`. |
 | `createFormatter`         | function | `(options?: FormatterOptions) => FormatterInterface`                 | Creates a prompt formatter, returning a stateless `FormatterInterface`.                                                                                |
 | `createGenerator`         | function | `() => GeneratorInterface`                                           | Creates a subject and definition generator, returning a stateless `GeneratorInterface`.                                                                |
-| `createTemplateManager`   | function | `(options?: TemplateManagerOptions) => TemplateManagerInterface`     | Creates a template registry, returning a working `TemplateManagerInterface`.                                                                           |
+| `createRecipeManager`     | function | `(options?: RecipeManagerOptions) => RecipeManagerInterface`         | Creates a recipe registry, returning a working `RecipeManagerInterface`.                                                                               |
 | `createSubjectManager`    | function | `(options?: SubjectManagerOptions) => SubjectManagerInterface`       | Creates a subject registry, returning a working `SubjectManagerInterface`.                                                                             |
 | `createDefinitionManager` | function | `(options?: DefinitionManagerOptions) => DefinitionManagerInterface` | Creates a definition registry, returning a working `DefinitionManagerInterface`.                                                                       |
 | `createInterpretContext`  | function | `(options?: InterpretContextOptions) => InterpretContextInterface`   | Creates a cross-turn interpretation context, returning a working `InterpretContextInterface`.                                                          |
@@ -461,7 +458,7 @@ import {
 	createNarrator,
 	createNormalizer,
 	createSubjectManager,
-	createTemplateManager,
+	createRecipeManager,
 } from '@orkestrel/interpret'
 import {
 	createFactorGroup,
@@ -480,8 +477,8 @@ createGenerator()
 createInterpretContext({ session: 'turn-1', history: 4 })
 createNarrator({ lexicon: { templates: { 'subject.empty': 'nothing here' } } })
 
-const templates = createTemplateManager({
-	templates: [
+const recipes = createRecipeManager({
+	recipes: [
 		{
 			id: 't1',
 			name: 'Arithmetic',
@@ -496,8 +493,8 @@ const templates = createTemplateManager({
 		},
 	],
 })
-templates.count // 1
-templates.destroy()
+recipes.count // 1
+recipes.destroy()
 
 createSubjectManager({ subjects: [{ value: 1 }] }).count // 1
 createDefinitionManager({
@@ -511,20 +508,20 @@ createDefinitionManager({
 
 ### Classes
 
-| Name                | Kind  | Signature                                                                                                             | Summary                                                                                                                                                                                                                                                                                                        |
-| ------------------- | ----- | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Interpret`         | class | `new (options?: InterpretOptions) => InterpretInterface`                                                              | Implements the interpretation orchestrator — the sole public entry point of the `interprets` module, mirroring the reasons `Reason` orchestrator shape: it runs the `[normalize, extract, clarify, format, generate]` pipeline, owns the template registry and the context, and exposes the reverse direction. |
-| `Narrator`          | class | `new (options?: NarratorOptions) => NarratorInterface`                                                                | Implements a stateless, total, lexicon-driven rendering engine for the reverse direction — the reverse-direction mirror of the forward `Formatter`'s `verbs` seam, supplying mechanism rather than wording policy.                                                                                             |
-| `Normalizer`        | class | `new (options?: NormalizerOptions) => NormalizerInterface`                                                            | Implements the normalize stage: applies contraction, abbreviation, and correction substitutions in order, then collapses whitespace.                                                                                                                                                                           |
-| `Extractor`         | class | `new (options?: ExtractorOptions) => ExtractorInterface`                                                              | Implements the extract stage: template-agnostic intent classification plus raw numeric-entity mining.                                                                                                                                                                                                          |
-| `Clarifier`         | class | `new (options?: ClarifierOptions) => ClarifierInterface`                                                              | Implements the clarify stage: resolves same-domain carry-over, template defaults, and declaratively computed fields against an already-assigned entity set, surfacing an `Ambiguity` for every required mapping that stays unresolved.                                                                         |
-| `Formatter`         | class | `new (options?: FormatterOptions) => FormatterInterface`                                                              | Implements the format stage: renders the refined natural-language prompt for a matched template.                                                                                                                                                                                                               |
-| `Generator`         | class | `new () => GeneratorInterface`                                                                                        | Implements the generate stage: builds the final `Subject` from a fully resolved entity set, plus its complete field audit.                                                                                                                                                                                     |
-| `RecordManager`     | class | `new <TValue, TRecord extends RecordStamp>(options: RecordManagerOptions) => RecordManagerInterface<TValue, TRecord>` | Implements the shared registry engine behind every record manager in this module — it owns the `Map`, the content-hash and version rule, the batch `remove` overloads, and teardown.                                                                                                                           |
-| `TemplateManager`   | class | `new (options?: TemplateManagerOptions) => TemplateManagerInterface`                                                  | Implements the template registry — a self-owning, versioned and content-hashed record-holder for the `Template`s an `Interpret` orchestrator matches against.                                                                                                                                                  |
-| `SubjectManager`    | class | `new (options?: SubjectManagerOptions) => SubjectManagerInterface`                                                    | Implements the subject registry — a self-owning, versioned and content-hashed record-holder that mints its own record identity for every `Subject` (a `Subject` carries no `id` field of its own).                                                                                                             |
-| `DefinitionManager` | class | `new (options?: DefinitionManagerOptions) => DefinitionManagerInterface`                                              | Implements the definition registry — a self-owning, versioned and content-hashed record-holder for the reasons `Definition`s an interpretation produces.                                                                                                                                                       |
-| `InterpretContext`  | class | `new (options?: InterpretContextOptions) => InterpretContextInterface`                                                | Implements the cross-turn interpretation context — a capped, replayable history of completed `Interpretation`s plus the subject and definition registries carry-over reads from.                                                                                                                               |
+| Name                | Kind  | Signature                                                                                                             | Summary                                                                                                                                                                                                                                                                                                      |
+| ------------------- | ----- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Interpret`         | class | `new (options?: InterpretOptions) => InterpretInterface`                                                              | Implements the interpretation orchestrator — the sole public entry point of the `interprets` module, mirroring the reasons `Reason` orchestrator shape: it runs the `[normalize, extract, clarify, format, generate]` pipeline, owns the recipe registry and the context, and exposes the reverse direction. |
+| `Narrator`          | class | `new (options?: NarratorOptions) => NarratorInterface`                                                                | Implements a stateless, total, lexicon-driven rendering engine for the reverse direction — the reverse-direction mirror of the forward `Formatter`'s `verbs` seam, supplying mechanism rather than wording policy.                                                                                           |
+| `Normalizer`        | class | `new (options?: NormalizerOptions) => NormalizerInterface`                                                            | Implements the normalize stage: applies contraction, abbreviation, and correction substitutions in order, then collapses whitespace.                                                                                                                                                                         |
+| `Extractor`         | class | `new (options?: ExtractorOptions) => ExtractorInterface`                                                              | Implements the extract stage: recipe-agnostic intent classification plus raw numeric-entity mining.                                                                                                                                                                                                          |
+| `Clarifier`         | class | `new (options?: ClarifierOptions) => ClarifierInterface`                                                              | Implements the clarify stage: resolves same-domain carry-over, recipe defaults, and declaratively computed fields against an already-assigned entity set, surfacing an `Ambiguity` for every required mapping that stays unresolved.                                                                         |
+| `Formatter`         | class | `new (options?: FormatterOptions) => FormatterInterface`                                                              | Implements the format stage: renders the refined natural-language prompt for a matched recipe.                                                                                                                                                                                                               |
+| `Generator`         | class | `new () => GeneratorInterface`                                                                                        | Implements the generate stage: builds the final `Subject` from a fully resolved entity set, plus its complete field audit.                                                                                                                                                                                   |
+| `RecordManager`     | class | `new <TValue, TRecord extends RecordStamp>(options: RecordManagerOptions) => RecordManagerInterface<TValue, TRecord>` | Implements the shared registry engine behind every record manager in this module — it owns the `Map`, the content-hash and version rule, the batch `remove` overloads, and teardown.                                                                                                                         |
+| `RecipeManager`     | class | `new (options?: RecipeManagerOptions) => RecipeManagerInterface`                                                      | Implements the recipe registry — a self-owning, versioned and content-hashed record-holder for the `Recipe`s an `Interpret` orchestrator matches against.                                                                                                                                                    |
+| `SubjectManager`    | class | `new (options?: SubjectManagerOptions) => SubjectManagerInterface`                                                    | Implements the subject registry — a self-owning, versioned and content-hashed record-holder that mints its own record identity for every `Subject` (a `Subject` carries no `id` field of its own).                                                                                                           |
+| `DefinitionManager` | class | `new (options?: DefinitionManagerOptions) => DefinitionManagerInterface`                                              | Implements the definition registry — a self-owning, versioned and content-hashed record-holder for the reasons `Definition`s an interpretation produces.                                                                                                                                                     |
+| `InterpretContext`  | class | `new (options?: InterpretContextOptions) => InterpretContextInterface`                                                | Implements the cross-turn interpretation context — a capped, replayable history of completed `Interpretation`s plus the subject and definition registries carry-over reads from.                                                                                                                             |
 
 ## Methods
 
@@ -568,9 +565,9 @@ extractor.extract('calculate my rate at 85')
 
 #### `ClarifierInterface`
 
-| Method    | Returns         | Summary                                                                                                                                                                              |
-| --------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `clarify` | `ClarifyResult` | Resolves carry-over, template defaults, and computed fields, and surfaces an `Ambiguity` for every unresolved required field, worded through the narrator's `ambiguity.entity` line. |
+| Method    | Returns         | Summary                                                                                                                                                                            |
+| --------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `clarify` | `ClarifyResult` | Resolves carry-over, recipe defaults, and computed fields, and surfaces an `Ambiguity` for every unresolved required field, worded through the narrator's `ambiguity.entity` line. |
 
 ```ts
 import { createClarifier } from '@orkestrel/interpret'
@@ -600,7 +597,7 @@ clarifier.clarify(
 ```
 
 A computation addresses one numeric element of an array-valued field as
-`{field}.{index}`, so a template whose collection has a known length declares an
+`{field}.{index}`, so a recipe whose collection has a known length declares an
 aggregate over it:
 
 ```ts
@@ -610,7 +607,7 @@ import { createOperation, createVariable } from '@orkestrel/reason'
 // `value.0` and `value.1` name the first two elements of the array-valued
 // `value` field. A collection whose length varies per turn has no declarable
 // aggregate: `resolveExpression` returns `undefined` for an unbound variable,
-// so a template naming `value.2` against a two-element array lands no `total`
+// so a recipe naming `value.2` against a two-element array lands no `total`
 // at all.
 const clarifier = createClarifier({ floor: 0.3 })
 clarifier.clarify(
@@ -643,9 +640,9 @@ clarifier.clarify(
 
 #### `FormatterInterface`
 
-| Method   | Returns        | Summary                                                                                                                       |
-| -------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `format` | `FormatResult` | Renders the refined natural-language prompt for a matched template, clause by clause through the narrator's `prompt.*` lines. |
+| Method   | Returns        | Summary                                                                                                                     |
+| -------- | -------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `format` | `FormatResult` | Renders the refined natural-language prompt for a matched recipe, clause by clause through the narrator's `prompt.*` lines. |
 
 ```ts
 import { createFormatter } from '@orkestrel/interpret'
@@ -676,9 +673,9 @@ formatter.format(
 
 #### `GeneratorInterface`
 
-| Method     | Returns          | Summary                                                                                                                     |
-| ---------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `generate` | `GenerateResult` | Builds the final subject and definition pair plus its complete field audit, deriving no field the template did not declare. |
+| Method     | Returns          | Summary                                                                                                                   |
+| ---------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `generate` | `GenerateResult` | Builds the final subject and definition pair plus its complete field audit, deriving no field the recipe did not declare. |
 
 ```ts
 import { createGenerator } from '@orkestrel/interpret'
@@ -794,31 +791,31 @@ notes.remove('n1') // true
 notes.destroy()
 ```
 
-#### `TemplateManagerInterface`
+#### `RecipeManagerInterface`
 
-The self-owning, ordered registry over templates. `add` derives each record's `hash` from the
-template's content and bumps `version` only when that hash changes. `remove`'s array form is
+The self-owning, ordered registry over recipes. `add` derives each record's `hash` from the
+recipe's content and bumps `version` only when that hash changes. `remove`'s array form is
 all-or-nothing. A call after `destroy()` throws `InterpretError('DESTROYED', …)`.
 
-| Method      | Returns                       | Summary                                                                                                                 |
-| ----------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `has`       | `boolean`                     | Reports whether a template with the given id has been added.                                                            |
-| `template`  | `TemplateRecord \| undefined` | Looks up one added template record by id — the singular accessor.                                                       |
-| `templates` | `readonly TemplateRecord[]`   | Lists every added template record — the plural accessor.                                                                |
-| `add`       | `TemplateRecord`              | Adds, or re-adds, one template from its data, and emits `add`.                                                          |
-| `remove`    | `boolean` (or `void`)         | Removes the listed templates by id, one template by id, or every template, and emits `remove` per removed id.           |
-| `destroy`   | `void`                        | Tears the template registry down idempotently — clears the collection, emits `destroy`, then destroys the emitter last. |
+| Method    | Returns                     | Summary                                                                                                               |
+| --------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `has`     | `boolean`                   | Reports whether a recipe with the given id has been added.                                                            |
+| `recipe`  | `RecipeRecord \| undefined` | Looks up one added recipe record by id — the singular accessor.                                                       |
+| `recipes` | `readonly RecipeRecord[]`   | Lists every added recipe record — the plural accessor.                                                                |
+| `add`     | `RecipeRecord`              | Adds, or re-adds, one recipe from its data, and emits `add`.                                                          |
+| `remove`  | `boolean` (or `void`)       | Removes the listed recipes by id, one recipe by id, or every recipe, and emits `remove` per removed id.               |
+| `destroy` | `void`                      | Tears the recipe registry down idempotently — clears the collection, emits `destroy`, then destroys the emitter last. |
 
 ```ts
-import { createTemplateManager } from '@orkestrel/interpret'
+import { createRecipeManager } from '@orkestrel/interpret'
 import {
 	createFactorGroup,
 	createFieldFactor,
 	createQuantitativeDefinition,
 } from '@orkestrel/reason'
 
-const templates = createTemplateManager()
-const record = templates.add({
+const recipes = createRecipeManager()
+const record = recipes.add({
 	id: 't1',
 	name: 'Arithmetic',
 	domain: 'arithmetic',
@@ -831,17 +828,17 @@ const record = templates.add({
 	]),
 })
 record.version // 1
-templates.count // 1
-templates.has('t1') // true
-templates.template('t1') // the TemplateRecord, or undefined
-templates.templates() // every added record
-templates.remove('t1') // true
-templates.destroy()
+recipes.count // 1
+recipes.has('t1') // true
+recipes.recipe('t1') // the RecipeRecord, or undefined
+recipes.recipes() // every added record
+recipes.remove('t1') // true
+recipes.destroy()
 ```
 
 #### `SubjectManagerInterface`
 
-Mirrors `TemplateManagerInterface`, minting its own record ids (a `Subject`
+Mirrors `RecipeManagerInterface`, minting its own record ids (a `Subject`
 carries no `id` field of its own) unless the caller overrides through
 `RecordOptions.id`.
 
@@ -869,7 +866,7 @@ subjects.destroy()
 
 #### `DefinitionManagerInterface`
 
-Mirrors `TemplateManagerInterface`, defaulting each record id to the
+Mirrors `RecipeManagerInterface`, defaulting each record id to the
 definition's own `id`.
 
 | Method        | Returns                         | Summary                                                                                                                   |
@@ -943,8 +940,8 @@ context.destroy()
 
 #### `InterpretInterface`
 
-`interpret` is genuinely synchronous. `add`, `remove`, `template`, and `templates` name the
-same acts as the internal `TemplateManagerInterface` they delegate to, and `add` returns
+`interpret` is genuinely synchronous. `add`, `remove`, `recipe`, and `recipes` name the
+same acts as the internal `RecipeManagerInterface` they delegate to, and `add` returns
 `void` where the manager returns the record it minted. `describe` and `narrate` are the
 reverse direction. After `destroy()` every method except the `emitter` getter and `destroy`
 itself throws `InterpretError('DESTROYED', …)`; `destroy()` is idempotent, leaves a `context`
@@ -953,16 +950,16 @@ supplied-context half of that rule: `InterpretInterface` publishes no context ac
 nothing outside reads the state of a context the orchestrator constructed itself or
 subscribes to its emitter.
 
-| Method      | Returns                 | Summary                                                                                                                                 |
-| ----------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `interpret` | `Interpretation`        | Runs the `[normalize, extract, clarify, format, generate]` pipeline over raw text, returning a complete or a visibly incomplete result. |
-| `add`       | `void`                  | Adds one template, and emits `add`.                                                                                                     |
-| `remove`    | `boolean` (or `void`)   | Removes the listed templates by id, one template by id, or every template.                                                              |
-| `template`  | `Template \| undefined` | Looks up one added template's plain data by id.                                                                                         |
-| `templates` | `readonly Template[]`   | Lists every added template's plain data.                                                                                                |
-| `describe`  | `string`                | Renders a reasons `Definition` to a one-line, display-neutral description.                                                              |
-| `narrate`   | `string`                | Renders a reasons `ReasonResult` to a one-line, display-neutral description.                                                            |
-| `destroy`   | `void`                  | Tears the orchestrator down idempotently — the template registry, the context it constructed itself, then the emitter last.             |
+| Method      | Returns               | Summary                                                                                                                                 |
+| ----------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `interpret` | `Interpretation`      | Runs the `[normalize, extract, clarify, format, generate]` pipeline over raw text, returning a complete or a visibly incomplete result. |
+| `add`       | `void`                | Adds one recipe, and emits `add`.                                                                                                       |
+| `remove`    | `boolean` (or `void`) | Removes the listed recipes by id, one recipe by id, or every recipe.                                                                    |
+| `recipe`    | `Recipe \| undefined` | Looks up one added recipe's plain data by id.                                                                                           |
+| `recipes`   | `readonly Recipe[]`   | Lists every added recipe's plain data.                                                                                                  |
+| `describe`  | `string`              | Renders a reasons `Definition` to a one-line, display-neutral description.                                                              |
+| `narrate`   | `string`              | Renders a reasons `ReasonResult` to a one-line, display-neutral description.                                                            |
+| `destroy`   | `void`                | Tears the orchestrator down idempotently — the recipe registry, the context it constructed itself, then the emitter last.               |
 
 ```ts
 import { createExtractor, createInterpret } from '@orkestrel/interpret'
@@ -992,8 +989,8 @@ interpret.add({
 })
 const result = interpret.interpret('calculate arithmetic 42')
 result.subject // { value: 42 }
-interpret.template('t1') // the plain Template data
-interpret.templates() // every added template
+interpret.recipe('t1') // the plain Recipe data
+interpret.recipes() // every added recipe
 interpret.describe(createQuantitativeDefinition('t1', 'Arithmetic', []))
 interpret.narrate({
 	reasoning: 'symbolic',
@@ -1009,21 +1006,21 @@ interpret.destroy()
 
 ## Tests
 
-- [`tests/guides.test.ts`](../tests/guides.test.ts) — the `## Surface` ↔ `src/core` bijection (value and type exports), each behavioral interface ↔ its implementing class method bijection, and the equality gate: every `Summary` cell against its declaration's description paragraph, the titled `Interpret text against an added template` fence against the `@example` block of that title (pinned so the titled pair cannot be retired silently), and the README pitch against this guide's tagline. It also runs the flagship fences and asserts the values their comments claim.
-- [`tests/src/core/Interpret.test.ts`](../tests/src/core/Interpret.test.ts) — the orchestrator: the fixed pipeline and its per-stage records, the `NO_TEMPLATE` and `LOW_CONFIDENCE` incomplete results, a thrown stage marked on its record and on `failures`, the replay digest, the emitter surface, and teardown.
+- [`tests/guides.test.ts`](../tests/guides.test.ts) — the `## Surface` ↔ `src/core` bijection (value and type exports), each behavioral interface ↔ its implementing class method bijection, and the equality gate: every `Summary` cell against its declaration's description paragraph, the titled `Interpret text against an added recipe` fence against the `@example` block of that title (pinned so the titled pair cannot be retired silently), and the README pitch against this guide's tagline. It also runs the flagship fences and asserts the values their comments claim.
+- [`tests/src/core/Interpret.test.ts`](../tests/src/core/Interpret.test.ts) — the orchestrator: the fixed pipeline and its per-stage records, the `NO_RECIPE` and `LOW_CONFIDENCE` incomplete results, a thrown stage marked on its record and on `failures`, the replay digest, the emitter surface, and teardown.
 - [`tests/src/core/InterpretContext.test.ts`](../tests/src/core/InterpretContext.test.ts) — the capped ring buffer, the flattened entity read carry-over consults, `clear` against `destroy`, and the emitted events.
 - [`tests/src/core/Narrator.test.ts`](../tests/src/core/Narrator.test.ts) — every lookup total against an adversarial key, the documented fallback of each primitive, and the composed `describe` and `narrate` renderings.
 - [`tests/src/core/factories.test.ts`](../tests/src/core/factories.test.ts) — each factory returns a working entity, and honors the options it declares.
-- [`tests/src/core/helpers.test.ts`](../tests/src/core/helpers.test.ts) — the pure leaves: escaping, copy-on-write field writes and their prototype-pollution refusal, replacement and whitespace collapse, tokenizing, numeric mining, entity assignment, intent classification, similarity and alias matching, canonicalization and digesting, template scoring and matching, expression variables and resolution, and subject rendering.
-- [`tests/src/core/parsers.test.ts`](../tests/src/core/parsers.test.ts) — `parseTemplate` returns a template, or `undefined` on invalid JSON and on a shape that fails `isTemplate`.
+- [`tests/src/core/helpers.test.ts`](../tests/src/core/helpers.test.ts) — the pure leaves: escaping, copy-on-write field writes and their prototype-pollution refusal, replacement and whitespace collapse, tokenizing, numeric mining, entity assignment, intent classification, similarity and alias matching, canonicalization and digesting, recipe scoring and matching, expression variables and resolution, and subject rendering.
+- [`tests/src/core/parsers.test.ts`](../tests/src/core/parsers.test.ts) — `parseRecipe` returns a recipe, or `undefined` on invalid JSON and on a shape that fails `isRecipe`.
 - [`tests/src/core/validators.test.ts`](../tests/src/core/validators.test.ts) — every guard stays total against junk, cycles, and hostile prototypes, with the exact posture for an input record and the open posture for a result record.
 - [`tests/src/core/stages/Normalizer.test.ts`](../tests/src/core/stages/Normalizer.test.ts) — the substitution order, the recorded changes, and the final whitespace collapse.
-- [`tests/src/core/stages/Extractor.test.ts`](../tests/src/core/stages/Extractor.test.ts) — intent classification against caller vocabularies, and numeric mining, with no template in sight.
+- [`tests/src/core/stages/Extractor.test.ts`](../tests/src/core/stages/Extractor.test.ts) — intent classification against caller vocabularies, and numeric mining, with no recipe in sight.
 - [`tests/src/core/stages/Clarifier.test.ts`](../tests/src/core/stages/Clarifier.test.ts) — resolution order across fresh entities, same-domain carry-over, defaults, and dependency-ordered computed fields, plus the ambiguity every unresolved required mapping raises.
 - [`tests/src/core/stages/Formatter.test.ts`](../tests/src/core/stages/Formatter.test.ts) — the clause assembly through the narrator's `prompt.*` lines, and the verb fallback.
 - [`tests/src/core/stages/Generator.test.ts`](../tests/src/core/stages/Generator.test.ts) — the entity-to-field rule, the single-element unwrap, the mean confidence, and the field audit.
 - [`tests/src/core/managers/RecordManager.test.ts`](../tests/src/core/managers/RecordManager.test.ts) — the content hash and version rule, the all-or-nothing batch `remove`, the emitted events, and idempotent teardown.
-- [`tests/src/core/managers/TemplateManager.test.ts`](../tests/src/core/managers/TemplateManager.test.ts) — the template accessors, the record id defaulting to `template.id`, and re-add versioning.
+- [`tests/src/core/managers/RecipeManager.test.ts`](../tests/src/core/managers/RecipeManager.test.ts) — the recipe accessors, the record id defaulting to `recipe.id`, and re-add versioning.
 - [`tests/src/core/managers/SubjectManager.test.ts`](../tests/src/core/managers/SubjectManager.test.ts) — the minted record identity, the caller override, and the subject accessors.
 - [`tests/src/core/managers/DefinitionManager.test.ts`](../tests/src/core/managers/DefinitionManager.test.ts) — the definition accessors and the record id defaulting to the definition's own `id`.
 - [`tests/src/core/integration.test.ts`](../tests/src/core/integration.test.ts) — the forward and reverse directions driven together over a real corpus, through the public API.

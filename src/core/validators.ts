@@ -10,7 +10,7 @@ import type {
 	Provenance,
 	StageFailure,
 	StageRecord,
-	Template,
+	Recipe,
 } from './types.js'
 import {
 	arrayOf,
@@ -30,7 +30,7 @@ import { INTERPRET_ERROR_CODES, INTERPRET_STAGES, PROVENANCE_CATEGORIES } from '
 // prototypes, cyclic/deep nesting) returns `false`, never throws.
 // Input-record guards are exact (`recordOf`): an extra key fails. Foreign
 // result guards are open (`objectOf`): unknown members, class instances, and
-// prototype accessors pass when the published members conform. `isTemplate`
+// prototype accessors pass when the published members conform. `isRecipe`
 // composes reasons' exported `isSymbolicExpression` (already recursive
 // through `lazyOf`) and `isDefinition` rather than minting local duplicates —
 // a second `isSymbolicExpression` would collide under the shared `@src/core`
@@ -68,7 +68,7 @@ export function isEntityMapping(value: unknown): value is EntityMapping {
 
 /**
  * Determines whether a value is an exact {@link FieldDefault} input record —
- * a fallback value a {@link Template} fills onto an unresolved field.
+ * a fallback value a {@link Recipe} fills onto an unresolved field.
  *
  * @remarks
  * `value` is unconstrained (any value, including `null` or `undefined`) as
@@ -115,11 +115,11 @@ export function isComputedField(value: unknown): value is ComputedField {
 }
 
 /**
- * Determines whether a value is an exact {@link Template} input record — a
- * named, versionable interpretation template.
+ * Determines whether a value is an exact {@link Recipe} input record — a
+ * named, versionable interpretation recipe.
  *
  * @remarks
- * `definition` is validated with reasons' `isDefinition` — a `Template`'s
+ * `definition` is validated with reasons' `isDefinition` — a `Recipe`'s
  * definition is already expressed in terrain reasons vocabulary, so no
  * parallel interprets-owned definition guard exists. Each computation's
  * `expression` is validated with reasons' `isSymbolicExpression`, already
@@ -127,14 +127,14 @@ export function isComputedField(value: unknown): value is ComputedField {
  * own.
  *
  * @param value - The value to test
- * @returns True if `value` is a well-formed template; false otherwise
+ * @returns True if `value` is a well-formed recipe; false otherwise
  *
  * @example
  * ```ts
  * import { createFactorGroup, createFieldFactor, createQuantitativeDefinition } from '@orkestrel/reason'
- * import { isTemplate } from '@orkestrel/interpret'
+ * import { isRecipe } from '@orkestrel/interpret'
  *
- * isTemplate({
+ * isRecipe({
  * 	id: 't1',
  * 	name: 'Arithmetic',
  * 	domain: 'arithmetic',
@@ -146,10 +146,10 @@ export function isComputedField(value: unknown): value is ComputedField {
  * 		createFactorGroup('total', 'sum', [createFieldFactor('value', 'value')]),
  * 	]),
  * }) // true
- * isTemplate({ id: 't1' }) // false — most fields missing
+ * isRecipe({ id: 't1' }) // false — most fields missing
  * ```
  */
-export function isTemplate(value: unknown): value is Template {
+export function isRecipe(value: unknown): value is Recipe {
 	return recordOf({
 		id: isString,
 		name: isString,

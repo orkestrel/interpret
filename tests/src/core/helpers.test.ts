@@ -18,11 +18,11 @@ import {
 	escapeRegExp,
 	extractNumbers,
 	matchAlias,
-	matchTemplate,
+	matchRecipe,
 	renderSubject,
 	resolveExpression,
 	scoreSimilarity,
-	scoreTemplate,
+	scoreRecipe,
 	setField,
 	SubjectManager,
 	tokenize,
@@ -30,7 +30,7 @@ import {
 } from '@src/core'
 import { describe, expect, it } from 'vitest'
 import {
-	buildInterpretTemplate,
+	buildInterpretRecipe,
 	expectSymbolic,
 	EXTREME_NUMBERS,
 	InterpretFixtureValue,
@@ -341,8 +341,8 @@ describe('canonicalize / canonicalizeNode / digestValue', () => {
 	})
 
 	it('digestValue is key-order independent and deterministic', () => {
-		const a = digestValue({ subject: { age: 25, income: 50000 }, template: 't1' })
-		const b = digestValue({ template: 't1', subject: { income: 50000, age: 25 } })
+		const a = digestValue({ subject: { age: 25, income: 50000 }, recipe: 't1' })
+		const b = digestValue({ recipe: 't1', subject: { income: 50000, age: 25 } })
 		expect(a).toBe(b)
 		expect(digestValue({ x: 1 })).toBe(digestValue({ x: 1 }))
 	})
@@ -393,6 +393,16 @@ describe('setField', () => {
 		expect(Object.getOwnPropertyDescriptor(Object.prototype, 'polluted')).toBeUndefined()
 	})
 
+	it('refuses each of __proto__, prototype, and constructor at the leading and the final segment', () => {
+		const input = { a: 1 }
+		for (const segment of ['__proto__', 'prototype', 'constructor']) {
+			expect(setField(input, [segment, 'b'], 2)).toBe(input)
+			expect(setField(input, ['a', segment], 2)).toBe(input)
+			expect(setField(input, segment, 2)).toBe(input)
+		}
+		expect(input).toEqual({ a: 1 })
+	})
+
 	it('nested copy-on-write: input and its nested sub-record stay untouched, output is reference-distinct at every level', () => {
 		const nested = { x: 1 }
 		const input = { a: nested }
@@ -423,45 +433,43 @@ describe('setField', () => {
 	})
 })
 
-describe('scoreTemplate / matchTemplate', () => {
+describe('scoreRecipe / matchRecipe', () => {
 	it('scores domain + action match as their mean', () => {
-		const template = buildInterpretTemplate()
-		expect(
-			scoreTemplate({ action: 'calculate', domain: 'arithmetic', confidence: 1 }, template),
-		).toBe(1)
-		expect(scoreTemplate({ action: 'nope', domain: 'arithmetic', confidence: 1 }, template)).toBe(
-			0.5,
+		const recipe = buildInterpretRecipe()
+		expect(scoreRecipe({ action: 'calculate', domain: 'arithmetic', confidence: 1 }, recipe)).toBe(
+			1,
 		)
-		expect(scoreTemplate({ action: 'nope', domain: 'other', confidence: 1 }, template)).toBe(0)
+		expect(scoreRecipe({ action: 'nope', domain: 'arithmetic', confidence: 1 }, recipe)).toBe(0.5)
+		expect(scoreRecipe({ action: 'nope', domain: 'other', confidence: 1 }, recipe)).toBe(0)
 	})
 
 	it('scores an absent axis as no match on that half', () => {
-		const template = buildInterpretTemplate()
-		expect(scoreTemplate({ domain: 'arithmetic', confidence: 0.5 }, template)).toBe(0.5)
-		expect(scoreTemplate({ action: 'calculate', confidence: 0.5 }, template)).toBe(0.5)
-		expect(scoreTemplate({ confidence: 0 }, template)).toBe(0)
+		const recipe = buildInterpretRecipe()
+		expect(scoreRecipe({ domain: 'arithmetic', confidence: 0.5 }, recipe)).toBe(0.5)
+		expect(scoreRecipe({ action: 'calculate', confidence: 0.5 }, recipe)).toBe(0.5)
+		expect(scoreRecipe({ confidence: 0 }, recipe)).toBe(0)
 	})
 
-	it('matchTemplate returns undefined on an empty registry (explicit no-match, never templates[0])', () => {
-		expect(matchTemplate({ confidence: 0 }, [], 0.3)).toBeUndefined()
+	it('matchRecipe returns undefined on an empty registry (explicit no-match, never recipes[0])', () => {
+		expect(matchRecipe({ confidence: 0 }, [], 0.3)).toBeUndefined()
 	})
 
-	it('matchTemplate refuses an unclassified intent against a real template', () => {
-		expect(matchTemplate({ confidence: 0 }, [buildInterpretTemplate()], 0.3)).toBeUndefined()
+	it('matchRecipe refuses an unclassified intent against a real recipe', () => {
+		expect(matchRecipe({ confidence: 0 }, [buildInterpretRecipe()], 0.3)).toBeUndefined()
 	})
 
-	it('matchTemplate returns undefined when the best score is below floor', () => {
-		const template = buildInterpretTemplate()
+	it('matchRecipe returns undefined when the best score is below floor', () => {
+		const recipe = buildInterpretRecipe()
 		expect(
-			matchTemplate({ action: 'nope', domain: 'nope', confidence: 1 }, [template], 0.3),
+			matchRecipe({ action: 'nope', domain: 'nope', confidence: 1 }, [recipe], 0.3),
 		).toBeUndefined()
 	})
 
-	it('matchTemplate returns the best-scoring template at or above floor', () => {
-		const template = buildInterpretTemplate()
+	it('matchRecipe returns the best-scoring recipe at or above floor', () => {
+		const recipe = buildInterpretRecipe()
 		expect(
-			matchTemplate({ action: 'calculate', domain: 'arithmetic', confidence: 1 }, [template], 0.3),
-		).toBe(template)
+			matchRecipe({ action: 'calculate', domain: 'arithmetic', confidence: 1 }, [recipe], 0.3),
+		).toBe(recipe)
 	})
 })
 

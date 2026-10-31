@@ -2,7 +2,7 @@ import type { Entity, EntityMapping } from './types.js'
 import { EntityCompiler } from './EntityCompiler.js'
 
 /**
- * Assigns already-extracted numbers to a matched template's entity mappings.
+ * Assigns already-extracted numbers to a matched recipe's entity mappings.
  *
  * @remarks
  * Strategy, in order: (1) a single mapping collects every number (an array
@@ -15,11 +15,11 @@ import { EntityCompiler } from './EntityCompiler.js'
  * next unused number positionally, at `CONFIDENCE_POSITIONAL`. Every entity
  * carries provenance `category: 'extracted'` with `detail` naming the
  * strategy that filled it (`'collect' | 'keyword' | 'alias' | 'positional'`).
- * Runs only after a template has matched (an orchestrator-owned step, never
- * inside `Extractor`, which stays template-agnostic).
+ * Runs only after a recipe has matched (an orchestrator-owned step, never
+ * inside `Extractor`, which stays recipe-agnostic).
  *
  * @param numbers - The numbers already extracted from `text` through `extractNumbers`
- * @param mappings - The matched template's entity mappings
+ * @param mappings - The matched recipe's entity mappings
  * @param text - The same text `numbers` was extracted from (for keyword proximity)
  * @param similarity - The fuzzy alias-match score threshold (0..1)
  * @returns The assigned entities, one per filled mapping

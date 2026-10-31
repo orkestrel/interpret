@@ -15,7 +15,7 @@ import {
 	createInterpretContext,
 	createNormalizer,
 	createSubjectManager,
-	createTemplateManager,
+	createRecipeManager,
 	DEFAULT_INTERPRET_FLOOR,
 	DEFAULT_INTERPRET_HISTORY,
 	DEFAULT_INTERPRET_SIMILARITY,
@@ -29,12 +29,12 @@ import {
 	isInterpretError,
 	Normalizer,
 	SubjectManager,
-	TemplateManager,
+	RecipeManager,
 } from '@src/core'
 import { createRecorder, createRecorders } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import {
-	buildInterpretTemplate,
+	buildInterpretRecipe,
 	buildInterpretation,
 	INTERPRET_ACTIONS,
 	INTERPRET_DOMAINS,
@@ -53,7 +53,7 @@ describe('interprets barrel — value-space sample resolves', () => {
 		expect(createClarifier).toBeDefined()
 		expect(createFormatter).toBeDefined()
 		expect(createGenerator).toBeDefined()
-		expect(createTemplateManager).toBeDefined()
+		expect(createRecipeManager).toBeDefined()
 		expect(createSubjectManager).toBeDefined()
 		expect(createDefinitionManager).toBeDefined()
 		expect(createInterpretContext).toBeDefined()
@@ -68,7 +68,7 @@ describe('interprets barrel — value-space sample resolves', () => {
 		expect(Clarifier).toBeDefined()
 		expect(Formatter).toBeDefined()
 		expect(Generator).toBeDefined()
-		expect(TemplateManager).toBeDefined()
+		expect(RecipeManager).toBeDefined()
 		expect(SubjectManager).toBeDefined()
 		expect(DefinitionManager).toBeDefined()
 		expect(InterpretContext).toBeDefined()
@@ -76,22 +76,22 @@ describe('interprets barrel — value-space sample resolves', () => {
 })
 
 describe('createInterpret', () => {
-	it('wires a working orchestrator that interprets against an added template', () => {
+	it('wires a working orchestrator that interprets against an added recipe', () => {
 		const interpret = createInterpret({
-			templates: [buildInterpretTemplate()],
+			recipes: [buildInterpretRecipe()],
 			extractor: createExtractor({ actions: INTERPRET_ACTIONS, domains: INTERPRET_DOMAINS }),
 		})
 		const result = interpret.interpret('calculate arithmetic 42')
 		expect(result.ambiguities).toEqual([])
 		expect(result.failures).toEqual([])
 		expect(result.subject).toEqual({ value: 42 })
-		expect(interpret.templates()).toHaveLength(1)
+		expect(interpret.recipes()).toHaveLength(1)
 	})
 
 	it('honors construction hooks through emitter events', () => {
 		const interpretEvents = createRecorder<InterpretEventMap['interpret']>()
 		const interpret = createInterpret({
-			templates: [buildInterpretTemplate()],
+			recipes: [buildInterpretRecipe()],
 			extractor: createExtractor({ actions: INTERPRET_ACTIONS, domains: INTERPRET_DOMAINS }),
 			on: { interpret: interpretEvents.handler },
 		})
@@ -131,8 +131,8 @@ describe('createExtractor', () => {
 describe('createClarifier', () => {
 	it('wires a working clarifier honoring the configured floor', () => {
 		const clarifier = createClarifier({ floor: 0.5 })
-		const template = buildInterpretTemplate()
-		const result = clarifier.clarify([], template, undefined, {
+		const recipe = buildInterpretRecipe()
+		const result = clarifier.clarify([], recipe, undefined, {
 			action: 'calculate',
 			domain: 'arithmetic',
 			confidence: 1,
@@ -146,7 +146,7 @@ describe('createFormatter', () => {
 		const formatter = createFormatter({ verbs: { calculate: 'Calculate' } })
 		const result = formatter.format(
 			{ action: 'calculate', domain: 'arithmetic', confidence: 1 },
-			buildInterpretTemplate(),
+			buildInterpretRecipe(),
 			[],
 			[],
 		)
@@ -166,26 +166,26 @@ describe('createGenerator', () => {
 					confidence: 1,
 				},
 			],
-			buildInterpretTemplate(),
+			buildInterpretRecipe(),
 		)
 		expect(result.subject).toEqual({ value: 42 })
 		expect(result.mappings).toHaveLength(1)
 	})
 })
 
-describe('createTemplateManager', () => {
+describe('createRecipeManager', () => {
 	it('wires a working registry seeded from options', () => {
-		const manager = createTemplateManager({ templates: [buildInterpretTemplate()] })
+		const manager = createRecipeManager({ recipes: [buildInterpretRecipe()] })
 		expect(manager.count).toBe(1)
-		expect(manager.has('template-1')).toBe(true)
+		expect(manager.has('recipe-1')).toBe(true)
 	})
 
 	it('honors a custom id through add options', () => {
-		const manager = createTemplateManager()
-		const record = manager.add(buildInterpretTemplate(), { id: 'custom-id' })
+		const manager = createRecipeManager()
+		const record = manager.add(buildInterpretRecipe(), { id: 'custom-id' })
 		expect(record.id).toBe('custom-id')
 		expect(manager.has('custom-id')).toBe(true)
-		expect(manager.has('template-1')).toBe(false)
+		expect(manager.has('recipe-1')).toBe(false)
 	})
 })
 

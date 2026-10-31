@@ -15,7 +15,7 @@ import { RecordManager } from './RecordManager.js'
  * record-holder for the reasons {@link Definition}s an interpretation produces.
  *
  * @remarks
- * Mirrors {@link TemplateManager}: a composed {@link RecordManager} owns the
+ * Mirrors {@link RecipeManager}: a composed {@link RecordManager} owns the
  * collection, the content-derived `hash` (id-independent), and the version
  * rule, so an identical re-add keeps its version and the batch `remove(ids)`
  * form stays all-or-nothing. This class adds what is definition-specific: the

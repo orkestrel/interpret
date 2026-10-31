@@ -19,12 +19,12 @@ import {
 	isProvenance,
 	isStageFailure,
 	isStageRecord,
-	isTemplate,
+	isRecipe,
 } from '@src/core'
 import { describe, expect, it } from 'vitest'
 import {
-	buildInsuranceTemplate,
-	buildInterpretTemplate,
+	buildInsuranceRecipe,
+	buildInterpretRecipe,
 	createCorpusExtractor,
 	TRICKY_KEYS,
 } from '../../setup.js'
@@ -136,13 +136,13 @@ describe('isComputedField', () => {
 	})
 })
 
-describe('isTemplate', () => {
-	it('accepts a well-formed template built by the shared fixture', () => {
-		expect(isTemplate(buildInterpretTemplate())).toBe(true)
+describe('isRecipe', () => {
+	it('accepts a well-formed recipe built by the shared fixture', () => {
+		expect(isRecipe(buildInterpretRecipe())).toBe(true)
 	})
 
-	it('accepts a template with computations and defaults populated', () => {
-		const template = buildInterpretTemplate({
+	it('accepts a recipe with computations and defaults populated', () => {
+		const recipe = buildInterpretRecipe({
 			defaults: [{ field: 'term', value: 12 }],
 			computations: [
 				{
@@ -151,37 +151,37 @@ describe('isTemplate', () => {
 				},
 			],
 		})
-		expect(isTemplate(template)).toBe(true)
+		expect(isRecipe(recipe)).toBe(true)
 	})
 
-	it('rejects a template whose definition fails isDefinition', () => {
-		const bad = { ...buildInterpretTemplate(), definition: { reasoning: 'quantum' } }
-		expect(isTemplate(bad)).toBe(false)
+	it('rejects a recipe whose definition fails isDefinition', () => {
+		const bad = { ...buildInterpretRecipe(), definition: { reasoning: 'quantum' } }
+		expect(isRecipe(bad)).toBe(false)
 	})
 
-	it('rejects a template missing most fields, and one with an extra key', () => {
-		expect(isTemplate({ id: 't1' })).toBe(false)
-		const extra = { ...buildInterpretTemplate(), extra: true }
-		expect(isTemplate(extra)).toBe(false)
+	it('rejects a recipe missing most fields, and one with an extra key', () => {
+		expect(isRecipe({ id: 't1' })).toBe(false)
+		const extra = { ...buildInterpretRecipe(), extra: true }
+		expect(isRecipe(extra)).toBe(false)
 	})
 
-	it('rejects adversarial junk, including a cyclic template', () => {
-		for (const value of ADVERSARIAL) expect(isTemplate(value)).toBe(false)
+	it('rejects adversarial junk, including a cyclic recipe', () => {
+		for (const value of ADVERSARIAL) expect(isRecipe(value)).toBe(false)
 		const cyclic: Record<string, unknown> = { id: 't1' }
 		cyclic.self = cyclic
-		expect(isTemplate(cyclic)).toBe(false)
+		expect(isRecipe(cyclic)).toBe(false)
 	})
 
 	it('round-trips against a definition built with reasons factories', () => {
 		const definition = createQuantitativeDefinition('t2', 'Two', [
 			createFactorGroup('g', 'sum', [createFieldFactor('v', 'value')]),
 		])
-		const template = buildInterpretTemplate({ id: 't2', name: 'Two', definition })
-		expect(isTemplate(template)).toBe(true)
+		const recipe = buildInterpretRecipe({ id: 't2', name: 'Two', definition })
+		expect(isRecipe(recipe)).toBe(true)
 	})
 
 	it('rejects a hostile-prototype record carrying a stray OWN __proto__ key', () => {
-		const base = buildInterpretTemplate()
+		const base = buildInterpretRecipe()
 		const hostile: Record<string, unknown> = Object.create(null)
 		hostile.id = base.id
 		hostile.name = base.name
@@ -193,7 +193,7 @@ describe('isTemplate', () => {
 		hostile.definition = base.definition
 		hostile.__proto__ = { polluted: true }
 		expect(Object.hasOwn(hostile, '__proto__')).toBe(true)
-		expect(isTemplate(hostile)).toBe(false)
+		expect(isRecipe(hostile)).toBe(false)
 	})
 })
 
@@ -558,13 +558,13 @@ describe('isInterpretation', () => {
 	})
 
 	it('accepts a real result from the complete branch, subject and definition populated', () => {
-		// The preceding NO_TEMPLATE round trip never reaches the branch that builds
+		// The preceding NO_RECIPE round trip never reaches the branch that builds
 		// `subject`, `definition`, `entities`, and `mappings`. This vector is
 		// proven to complete in Interpret.test.ts, and the empty-ambiguity and
 		// populated-subject assertions pin that the populated branch was actually
 		// reached — a guard pass on the refusal branch would not count.
 		const interpret = createInterpret({
-			templates: [buildInsuranceTemplate()],
+			recipes: [buildInsuranceRecipe()],
 			extractor: createCorpusExtractor(),
 		})
 		try {
@@ -577,10 +577,10 @@ describe('isInterpretation', () => {
 		}
 	})
 
-	it('rejects an input-family Template that is accepted by its exact input guard', () => {
-		const template = buildInterpretTemplate()
-		expect(isTemplate(template)).toBe(true)
-		expect(isInterpretation(template)).toBe(false)
+	it('rejects an input-family Recipe that is accepted by its exact input guard', () => {
+		const recipe = buildInterpretRecipe()
+		expect(isRecipe(recipe)).toBe(true)
+		expect(isInterpretation(recipe)).toBe(false)
 	})
 })
 

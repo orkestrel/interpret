@@ -11,7 +11,7 @@ import { holds, INTRINSICS, isError, isFunction, isObject } from '@orkestrel/con
  * @remarks
  * `DESTROYED` is the code that throws, on any use of a destroyed `Interpret`
  * / manager / context. Every other {@link InterpretErrorCode} reaches a caller
- * as data rather than as a throw — `NO_TEMPLATE` and `LOW_CONFIDENCE` on a
+ * as data rather than as a throw — `NO_RECIPE` and `LOW_CONFIDENCE` on a
  * visible incomplete {@link Interpretation}, and the per-stage `*_FAILED`
  * codes on that result's `failures`, beside the raw thrown value re-emitted
  * as `error`. `context` carries structured detail when a throw site supplies
@@ -48,7 +48,7 @@ export class InterpretError extends Error {
  * import { isInterpretError } from '@orkestrel/interpret'
  *
  * try {
- * 	interpret.template('missing')
+ * 	interpret.recipe('missing')
  * } catch (error) {
  * 	if (isInterpretError(error) && error.code === 'DESTROYED') return
  * }
@@ -66,7 +66,7 @@ export function isInterpretError(value: unknown): value is InterpretError {
 			code !== 'CLARIFY_FAILED' &&
 			code !== 'FORMAT_FAILED' &&
 			code !== 'GENERATE_FAILED' &&
-			code !== 'NO_TEMPLATE' &&
+			code !== 'NO_RECIPE' &&
 			code !== 'LOW_CONFIDENCE' &&
 			code !== 'DESTROYED'
 		)

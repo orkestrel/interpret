@@ -5,7 +5,7 @@ import type { Definition, ReasonResult, Subject, SymbolicExpression } from '@ork
 // Interprets — a synchronous, deterministic bidirectional
 // bridge between natural language and the reasons engine, plus the manager
 // that owns the interpretation lifecycle. Forward: raw text is normalized,
-// classified into an intent, matched against an added `Template`, mined
+// classified into an intent, matched against an added `Recipe`, mined
 // for numeric entities, clarified (carry-over / defaults / computed fields),
 // formatted into a refined prompt, then generated into a `Subject` +
 // `Definition` pair ready for `Reason.reason`. Reverse: `Definition` /
@@ -25,7 +25,7 @@ import type { Definition, ReasonResult, Subject, SymbolicExpression } from '@ork
  * `extracted` — mined from the raw text through keyword / alias / positional
  * matching. `carried` — reused from a same-domain prior turn in an
  * {@link InterpretContextInterface}. `default` — filled from a
- * {@link Template}'s {@link FieldDefault}. `computed` — derived by evaluating
+ * {@link Recipe}'s {@link FieldDefault}. `computed` — derived by evaluating
  * a {@link ComputedField}'s expression. `subject` — already present on an
  * injected base subject, untouched by this interpretation.
  */
@@ -49,9 +49,9 @@ export type InterpretStage = 'normalize' | 'extract' | 'clarify' | 'format' | 'g
  * @remarks
  * `NORMALIZE_FAILED` / `EXTRACT_FAILED` / `CLARIFY_FAILED` / `FORMAT_FAILED`
  * / `GENERATE_FAILED` — an injected stage implementation threw during that
- * phase. `NO_TEMPLATE` — no added {@link Template} scored at or above
+ * phase. `NO_RECIPE` — no added {@link Recipe} scored at or above
  * the confidence floor (or the registry is empty). `LOW_CONFIDENCE` — a
- * template matched but the classified {@link Intent}'s confidence fell below
+ * recipe matched but the classified {@link Intent}'s confidence fell below
  * the floor. `DESTROYED` — any use of a destroyed entity.
  */
 export type InterpretErrorCode =
@@ -60,18 +60,18 @@ export type InterpretErrorCode =
 	| 'CLARIFY_FAILED'
 	| 'FORMAT_FAILED'
 	| 'GENERATE_FAILED'
-	| 'NO_TEMPLATE'
+	| 'NO_RECIPE'
 	| 'LOW_CONFIDENCE'
 	| 'DESTROYED'
 
-// === Template data model — pure JSON-serializable, versionable, diffable, hashable
+// === Recipe data model — pure JSON-serializable, versionable, diffable, hashable
 
 /**
- * Represents one entity-extraction rule inside a {@link Template}: which literal alias
+ * Represents one entity-extraction rule inside a {@link Recipe}: which literal alias
  * phrases identify a value, and which subject field it lands on.
  *
  * @remarks
- * `aliases` are literal phrases (no `RegExp` — templates stay JSON), matched
+ * `aliases` are literal phrases (no `RegExp` — recipes stay JSON), matched
  * exact-then-fuzzy against tokens surrounding an extracted number. `required`
  * marks the field as needing an {@link Ambiguity} when it stays unresolved.
  */
@@ -82,7 +82,7 @@ export interface EntityMapping {
 	readonly required?: boolean
 }
 
-/** Represents a fallback value a {@link Template} fills onto a field left unresolved by extraction. */
+/** Represents a fallback value a {@link Recipe} fills onto a field left unresolved by extraction. */
 export interface FieldDefault {
 	readonly field: FieldPath
 	readonly value: unknown
@@ -97,7 +97,7 @@ export interface FieldDefault {
  * `Inference` for fact derivation, a different concept. `expression` is a
  * reasons {@link SymbolicExpression} tree (pure JSON `Variable` / `Constant`
  * / `Operation`), evaluated by the pure `resolveExpression` helper rather
- * than a closure, so a `Template` stays JSON-serializable end to end. A
+ * than a closure, so a `Recipe` stays JSON-serializable end to end. A
  * `ComputedField` declares no dependency list of its own — `variablesOf`
  * derives every dependency from the tree. A `Variable` names a resolved field,
  * or one numeric element of an array-valued field as `{field}.{index}`, so a
@@ -115,18 +115,18 @@ export interface ComputedField {
 }
 
 /**
- * Represents a named, versionable interpretation template: which intents it answers,
+ * Represents a named, versionable interpretation recipe: which intents it answers,
  * how to mine entities for it, its fallback data, its computed fields, and
  * the reasons `Definition` it ultimately produces a `Subject` for.
  *
  * @remarks
  * `definition` is inline and already expressed in `@orkestrel/reason`
  * vocabulary (`reasoning` / `Check` / `terms` / `form` / `origin`). A
- * `Template` and its `Definition` are one authored record, and their ids stay
- * independent: nothing requires `template.id` to equal `definition.id`.
- * `intents` lists the `Intent.action` values this template answers.
+ * `Recipe` and its `Definition` are one authored record, and their ids stay
+ * independent: nothing requires `recipe.id` to equal `definition.id`.
+ * `intents` lists the `Intent.action` values this recipe answers.
  */
-export interface Template {
+export interface Recipe {
 	readonly id: string
 	readonly name: string
 	readonly domain: string
@@ -152,7 +152,7 @@ export interface Provenance {
  * @remarks
  * Produced by `classifyIntent` against caller-supplied `actions` / `domains`
  * vocabularies only — there is no built-in en-US worldview and no
- * auto-classification from an added template's own `domain` name. An axis
+ * auto-classification from an added recipe's own `domain` name. An axis
  * the vocabularies leave unmatched is absent (`undefined`), never an empty
  * string, so a reader tells "unclassified" from "classified as `''`".
  */
@@ -162,7 +162,7 @@ export interface Intent {
 	readonly confidence: number
 }
 
-/** Represents one value assigned to a template's entity mapping, with its provenance and confidence. */
+/** Represents one value assigned to a recipe's entity mapping, with its provenance and confidence. */
 export interface Entity {
 	readonly name: string
 	readonly value: unknown
@@ -237,9 +237,9 @@ export interface NormalizeResult {
  * Represents the `Extractor` stage's output: intent classification plus raw numbers.
  *
  * @remarks
- * Template-agnostic by design — extraction never sees a `Template`, only the
- * text. `numbers`, not template-named entities; entity assignment is a
- * separate orchestrator step run only after a template has matched (see
+ * Recipe-agnostic by design — extraction never sees a `Recipe`, only the
+ * text. `numbers`, not recipe-named entities; entity assignment is a
+ * separate orchestrator step run only after a recipe has matched (see
  * `assignEntities` in `compilers.ts`).
  */
 export interface ExtractResult {
@@ -272,14 +272,14 @@ export interface GenerateResult {
  * Represents the full, replayable outcome of one `interpret()` call.
  *
  * @remarks
- * `subject` / `definition` are absent on an incomplete `NO_TEMPLATE` /
- * `LOW_CONFIDENCE` result — there is never a fabricated fallback template. An
+ * `subject` / `definition` are absent on an incomplete `NO_RECIPE` /
+ * `LOW_CONFIDENCE` result — there is never a fabricated fallback recipe. An
  * interpretation is complete when `ambiguities` and `failures` are both empty;
  * no stored flag repeats that fact. `stages` always holds one record per
  * phase, `[normalize, extract, clarify, format, generate]`,
- * in order. `digest` is `digestValue` over `{text, templateId,
- * templateVersion, subject, definition}` — re-running the same original text
- * against the same template version reproduces the same digest (the replay
+ * in order. `digest` is `digestValue` over `{text, recipeId,
+ * recipeVersion, subject, definition}` — re-running the same original text
+ * against the same recipe version reproduces the same digest (the replay
  * contract).
  */
 export interface Interpretation {
@@ -301,16 +301,16 @@ export interface Interpretation {
 // === Versioned, content-hashed records
 
 /**
- * Represents a versioned, content-hashed {@link Template} as held by a
- * {@link TemplateManagerInterface}.
+ * Represents a versioned, content-hashed {@link Recipe} as held by a
+ * {@link RecipeManagerInterface}.
  *
  * @remarks
- * `version` bumps only when `hash` (derived from `template`'s content, not
+ * `version` bumps only when `hash` (derived from `recipe`'s content, not
  * `id`) actually changes — an identical re-add keeps the same version.
  */
-export interface TemplateRecord {
+export interface RecipeRecord {
 	readonly id: string
-	readonly template: Template
+	readonly recipe: Recipe
 	readonly version: number
 	readonly hash: string
 }
@@ -345,7 +345,7 @@ export interface DefinitionRecord {
  *
  * @remarks
  * `interpret` fires once per completed `interpret()` call, complete OR
- * incomplete — visibility is the point. `add` fires when a template is added,
+ * incomplete — visibility is the point. `add` fires when a recipe is added,
  * carrying its id, and names the same act as the {@link RecordEventMap} row
  * the call forwards to. `error` fires with the raw thrown value when an
  * injected stage implementation throws. `destroy` fires once on teardown.
@@ -354,8 +354,8 @@ export interface DefinitionRecord {
 export type InterpretEventMap = {
 	/** Fires when an `interpret()` call completes — carries the full result. */
 	readonly interpret: readonly [result: Interpretation]
-	/** Fires when a template is added — carries its id. */
-	readonly add: readonly [templateId: string]
+	/** Fires when a recipe is added — carries its id. */
+	readonly add: readonly [recipeId: string]
 	/** Fires when an injected stage implementation throws — carries the raw thrown value. */
 	readonly error: readonly [error: unknown]
 	/** Fires when the orchestrator is destroyed. */
@@ -376,8 +376,8 @@ export type RecordEventMap = {
 	readonly destroy: readonly []
 }
 
-/** Represents the push observation surface of a {@link TemplateManagerInterface}. */
-export type TemplateManagerEventMap = RecordEventMap
+/** Represents the push observation surface of a {@link RecipeManagerInterface}. */
+export type RecipeManagerEventMap = RecordEventMap
 
 /** Represents the push observation surface of a {@link SubjectManagerInterface}, whose `add` carries the own-minted record id. */
 export type SubjectManagerEventMap = RecordEventMap
@@ -467,7 +467,7 @@ export interface NormalizerOptions {
  * `actions` / `domains` are the caller's intent vocabulary — there is no
  * built-in worldview. Neither `floor` nor
  * `similarity` lives here: the confidence floor gate is the orchestrator's
- * `matchTemplate` step, never the classifier itself.
+ * `matchRecipe` step, never the classifier itself.
  */
 export interface ExtractorOptions {
 	readonly actions?: Readonly<Record<string, string>>
@@ -505,10 +505,10 @@ export interface FormatterOptions {
 	readonly narrator?: NarratorInterface
 }
 
-/** Represents the options for `createTemplateManager` and the `TemplateManager` constructor — the initial seed collection. */
-export interface TemplateManagerOptions {
-	readonly templates?: readonly Template[]
-	readonly on?: EmitterHooks<TemplateManagerEventMap>
+/** Represents the options for `createRecipeManager` and the `RecipeManager` constructor — the initial seed collection. */
+export interface RecipeManagerOptions {
+	readonly recipes?: readonly Recipe[]
+	readonly on?: EmitterHooks<RecipeManagerEventMap>
 	readonly error?: EmitterErrorHandler
 }
 
@@ -534,7 +534,7 @@ export interface DefinitionManagerOptions {
  * `hash` is derived from the held value's content alone (id-independent), and
  * `version` bumps only when that hash changes at a reused id — so an
  * identical re-add keeps its version. Every record type in this module
- * (`TemplateRecord` / `SubjectRecord` / `DefinitionRecord`) carries `id`,
+ * (`RecipeRecord` / `SubjectRecord` / `DefinitionRecord`) carries `id`,
  * `version`, and `hash` plus its own value field.
  */
 export interface RecordStamp {
@@ -549,7 +549,7 @@ export interface RecordStamp {
  *
  * @remarks
  * The one place a concrete manager decides its record's own value field, so
- * `TemplateManager` names it `template`, `SubjectManager` names it `subject`,
+ * `RecipeManager` names it `recipe`, `SubjectManager` names it `subject`,
  * and `DefinitionManager` names it `definition` while every registry shares
  * one engine.
  */
@@ -578,7 +578,7 @@ export interface RecordManagerOptions {
  *
  * @remarks
  * Generic over the value it holds and the record it mints, so one
- * implementation serves `TemplateManagerInterface`,
+ * implementation serves `RecipeManagerInterface`,
  * `SubjectManagerInterface`, and `DefinitionManagerInterface`. Each concrete
  * manager keeps its own accessor noun pair, its own id source, and its own
  * {@link RecordFunction}; everything else lives here. `remove`'s batch form is
@@ -640,7 +640,7 @@ export interface RecordManagerInterface<TValue, TRecord extends RecordStamp> {
  * Represents the per-call options for the record a manager's `add` mints.
  *
  * @remarks
- * `id` overrides the minted record id. `TemplateManagerInterface#add` /
+ * `id` overrides the minted record id. `RecipeManagerInterface#add` /
  * `DefinitionManagerInterface#add` default to the added value's own `id`
  * field when omitted; `SubjectManagerInterface#add` mints a fresh id when
  * omitted, because a `Subject` carries no `id` field of its own.
@@ -661,7 +661,7 @@ export interface InterpretContextOptions {
  * Represents the options for `createInterpret` and the `Interpret` constructor.
  *
  * @remarks
- * `templates` seeds the registry. `context` supplies a shared
+ * `recipes` seeds the registry. `context` supplies a shared
  * {@link InterpretContextInterface} (a fresh one is constructed when
  * omitted); a supplied context stays the caller's to tear down, and
  * `destroy()` leaves it alive for the other orchestrators sharing it. Each
@@ -680,7 +680,7 @@ export interface InterpretContextOptions {
  * initial event listeners. `error` — the emitter's listener-error handler.
  */
 export interface InterpretOptions {
-	readonly templates?: readonly Template[]
+	readonly recipes?: readonly Recipe[]
 	readonly context?: InterpretContextInterface
 	readonly normalizer?: NormalizerInterface
 	readonly extractor?: ExtractorInterface
@@ -709,7 +709,7 @@ export interface NormalizerInterface {
 	normalize(text: string): NormalizeResult
 }
 
-/** Represents the `Extractor` stage contract: template-agnostic intent classification + raw number mining. */
+/** Represents the `Extractor` stage contract: recipe-agnostic intent classification + raw number mining. */
 export interface ExtractorInterface {
 	/**
 	 * Classifies the intent and mines every numeric literal from the text.
@@ -727,7 +727,7 @@ export interface ExtractorInterface {
  */
 export interface ClarifierInterface {
 	/**
-	 * Resolves carry-over, template defaults, and computed fields, and surfaces an
+	 * Resolves carry-over, recipe defaults, and computed fields, and surfaces an
 	 * {@link Ambiguity} for every unresolved required field, worded through the narrator's
 	 * `ambiguity.entity` line.
 	 *
@@ -736,34 +736,34 @@ export interface ClarifierInterface {
 	 * `{field}.{index}`, so only a collection of known length has a declarable aggregate.
 	 *
 	 * @param entities - The entities extraction already assigned
-	 * @param template - The matched template supplying the mappings, defaults, and computations
+	 * @param recipe - The matched recipe supplying the mappings, defaults, and computations
 	 * @param context - The cross-turn context carry-over reads from, or `undefined` for none
 	 * @param intent - The classified intent, whose domain gates carry-over
 	 * @returns The resolved entities plus every remaining ambiguity
 	 */
 	clarify(
 		entities: readonly Entity[],
-		template: Template,
+		recipe: Recipe,
 		context: InterpretContextInterface | undefined,
 		intent: Intent,
 	): ClarifyResult
 }
 
-/** Represents the `Formatter` stage contract: render the refined natural-language prompt for a matched template. */
+/** Represents the `Formatter` stage contract: render the refined natural-language prompt for a matched recipe. */
 export interface FormatterInterface {
 	/**
-	 * Renders the refined natural-language prompt for a matched template, clause by clause
+	 * Renders the refined natural-language prompt for a matched recipe, clause by clause
 	 * through the narrator's `prompt.*` lines.
 	 *
 	 * @param intent - The classified intent supplying the display verb
-	 * @param template - The matched template supplying the prompt's name
+	 * @param recipe - The matched recipe supplying the prompt's name
 	 * @param entities - The resolved entities rendered as the prompt's fields
 	 * @param ambiguities - The unresolved fields rendered as the prompt's questions
 	 * @returns The refined natural-language prompt
 	 */
 	format(
 		intent: Intent,
-		template: Template,
+		recipe: Recipe,
 		entities: readonly Entity[],
 		ambiguities: readonly Ambiguity[],
 	): FormatResult
@@ -775,20 +775,20 @@ export interface FormatterInterface {
  *
  * @remarks
  * Every field the built subject carries comes from an entity the caller's own
- * {@link Template} declared — a mapping, a default, or a
+ * {@link Recipe} declared — a mapping, a default, or a
  * {@link ComputedField}. The stage derives no field of its own, so a subject
- * never gains a sibling the template author did not ask for.
+ * never gains a sibling the recipe author did not ask for.
  */
 export interface GeneratorInterface {
 	/**
 	 * Builds the final subject and definition pair plus its complete field audit, deriving no
-	 * field the template did not declare.
+	 * field the recipe did not declare.
 	 *
 	 * @param entities - The fully resolved entities the subject is built from
-	 * @param template - The matched template supplying the mappings and the definition
+	 * @param recipe - The matched recipe supplying the mappings and the definition
 	 * @returns The built subject and definition, every field mapping, and the mean confidence
 	 */
-	generate(entities: readonly Entity[], template: Template): GenerateResult
+	generate(entities: readonly Entity[], recipe: Recipe): GenerateResult
 }
 
 /**
@@ -862,7 +862,7 @@ export interface NarratorInterface {
 }
 
 /**
- * Represents the template registry — a self-owning, versioned/hashed record-holder with
+ * Represents the recipe registry — a self-owning, versioned/hashed record-holder with
  * the singular/plural accessor pair and the batch `remove` overloads.
  *
  * @remarks
@@ -870,49 +870,49 @@ export interface NarratorInterface {
  * all-or-nothing: any missing id in the list leaves the collection untouched
  * and returns `false`.
  */
-export interface TemplateManagerInterface {
-	readonly emitter: EmitterInterface<TemplateManagerEventMap>
+export interface RecipeManagerInterface {
+	readonly emitter: EmitterInterface<RecipeManagerEventMap>
 	readonly count: number
 	/**
-	 * Reports whether a template with the given id has been added.
+	 * Reports whether a recipe with the given id has been added.
 	 *
 	 * @param id - The record id to look for
-	 * @returns True if a template with that id has been added; false otherwise
+	 * @returns True if a recipe with that id has been added; false otherwise
 	 */
 	has(id: string): boolean
 	/**
-	 * Looks up one added template record by id — the singular accessor.
+	 * Looks up one added recipe record by id — the singular accessor.
 	 *
 	 * @param id - The record id to look up
-	 * @returns The added template record, or `undefined` when none carries that id
+	 * @returns The added recipe record, or `undefined` when none carries that id
 	 */
-	template(id: string): TemplateRecord | undefined
+	recipe(id: string): RecipeRecord | undefined
 	/**
-	 * Lists every added template record — the plural accessor.
+	 * Lists every added recipe record — the plural accessor.
 	 *
-	 * @returns Every added template record, in insertion order
+	 * @returns Every added recipe record, in insertion order
 	 */
-	templates(): readonly TemplateRecord[]
+	recipes(): readonly RecipeRecord[]
 	/**
-	 * Adds, or re-adds, one template from its data, and emits `add`.
+	 * Adds, or re-adds, one recipe from its data, and emits `add`.
 	 *
-	 * @param template - The template data to hold
-	 * @param options - The record id overriding `template.id`. Default: `template.id`
+	 * @param recipe - The recipe data to hold
+	 * @param options - The record id overriding `recipe.id`. Default: `recipe.id`
 	 * @returns The versioned, content-hashed record the registry holds
 	 */
-	add(template: Template, options?: RecordOptions): TemplateRecord
+	add(recipe: Recipe, options?: RecordOptions): RecipeRecord
 	/**
-	 * Removes the listed templates by id, one template by id, or every template, and emits
+	 * Removes the listed recipes by id, one recipe by id, or every recipe, and emits
 	 * `remove` per removed id.
 	 *
-	 * @param ids - The record ids to remove, all-or-nothing; omit the argument to remove every template
+	 * @param ids - The record ids to remove, all-or-nothing; omit the argument to remove every recipe
 	 * @returns True if every listed id was added; false otherwise
 	 */
 	remove(ids: readonly string[]): boolean
 	remove(id: string): boolean
 	remove(): void
 	/**
-	 * Tears the template registry down idempotently — clears the collection, emits
+	 * Tears the recipe registry down idempotently — clears the collection, emits
 	 * `destroy`, then destroys the emitter last.
 	 */
 	destroy(): void
@@ -1073,17 +1073,17 @@ export interface InterpretContextInterface {
  * @remarks
  * `interpret` is genuinely synchronous — it returns its
  * {@link Interpretation} directly, never a `Promise`. `add` / `remove` /
- * `template` / `templates` name the same acts as the
- * {@link TemplateManagerInterface} they delegate to, and expose plain
- * {@link Template} data rather than the richer versioned record — which is why
- * `add` returns `void` where `TemplateManagerInterface#add` returns the record
+ * `recipe` / `recipes` name the same acts as the
+ * {@link RecipeManagerInterface} they delegate to, and expose plain
+ * {@link Recipe} data rather than the richer versioned record — which is why
+ * `add` returns `void` where `RecipeManagerInterface#add` returns the record
  * it minted. `remove` carries the same batch overloads as that delegate, so
  * the shared verb promises no form the orchestrator lacks. `describe` /
  * `narrate` are the reverse direction — structure-to-prose, complementing
  * (never duplicating) raters' `describe*` family. After `destroy()` every
  * method except the `emitter` getter and `destroy` itself throws
  * `InterpretError('DESTROYED', …)`; `destroy()` is idempotent, tears down the
- * template registry and the context it constructed itself — never a `context`
+ * recipe registry and the context it constructed itself — never a `context`
  * the caller supplied, which outlives this orchestrator — and tears the
  * emitter down last.
  */
@@ -1098,33 +1098,33 @@ export interface InterpretInterface {
 	 */
 	interpret(text: string): Interpretation
 	/**
-	 * Adds one template, and emits `add`.
+	 * Adds one recipe, and emits `add`.
 	 *
-	 * @param template - The template data to add
+	 * @param recipe - The recipe data to add
 	 */
-	add(template: Template): void
+	add(recipe: Recipe): void
 	/**
-	 * Removes the listed templates by id, one template by id, or every template.
+	 * Removes the listed recipes by id, one recipe by id, or every recipe.
 	 *
-	 * @param ids - The template ids to remove, all-or-nothing; omit the argument to remove every template
+	 * @param ids - The recipe ids to remove, all-or-nothing; omit the argument to remove every recipe
 	 * @returns True if every listed id was added; false otherwise
 	 */
 	remove(ids: readonly string[]): boolean
 	remove(id: string): boolean
 	remove(): void
 	/**
-	 * Looks up one added template's plain data by id.
+	 * Looks up one added recipe's plain data by id.
 	 *
-	 * @param id - The template id to look up
-	 * @returns The template's plain data, or `undefined` when none carries that id
+	 * @param id - The recipe id to look up
+	 * @returns The recipe's plain data, or `undefined` when none carries that id
 	 */
-	template(id: string): Template | undefined
+	recipe(id: string): Recipe | undefined
 	/**
-	 * Lists every added template's plain data.
+	 * Lists every added recipe's plain data.
 	 *
-	 * @returns Every added template's plain data, in insertion order
+	 * @returns Every added recipe's plain data, in insertion order
 	 */
-	templates(): readonly Template[]
+	recipes(): readonly Recipe[]
 	/**
 	 * Renders a reasons `Definition` to a one-line, display-neutral description.
 	 *
@@ -1140,7 +1140,7 @@ export interface InterpretInterface {
 	 */
 	narrate(result: ReasonResult): string
 	/**
-	 * Tears the orchestrator down idempotently — the template registry, the context it
+	 * Tears the orchestrator down idempotently — the recipe registry, the context it
 	 * constructed itself, then the emitter last.
 	 */
 	destroy(): void

@@ -2,7 +2,7 @@
 // this repo's own `guides/README.md` manifest. The constants that follow are this
 // package's own, as is the executed section that closes the file.
 
-import type { Template } from '@src/core'
+import type { Recipe } from '@src/core'
 import { GuideCommand } from '@orkestrel/guide/server'
 import { readInventory } from '@orkestrel/test/server'
 import { createVitest } from 'vitest/node'
@@ -71,7 +71,7 @@ await new GuideCommand({
 		createNarrator,
 		createNormalizer,
 		createSubjectManager,
-		createTemplateManager,
+		createRecipeManager,
 		DEFAULT_CONTRACTIONS,
 		DEFAULT_INTERPRET_FLOOR,
 		DEFAULT_INTERPRET_HISTORY,
@@ -93,19 +93,18 @@ await new GuideCommand({
 		isProvenance,
 		isStageFailure,
 		isStageRecord,
-		isTemplate,
+		isRecipe,
 		matchAlias,
-		matchTemplate,
+		matchRecipe,
 		NUMBER_PATTERN,
-		parseTemplate,
+		parseRecipe,
 		RecordManager,
 		renderSubject,
 		resolveExpression,
 		scoreSimilarity,
-		scoreTemplate,
+		scoreRecipe,
 		setField,
 		tokenize,
-		UNSAFE_FIELD_SEGMENTS,
 		variablesOf,
 	} = await import('@src/core')
 	const { captureError, requireValue } = await import('@orkestrel/test')
@@ -264,8 +263,8 @@ await new GuideCommand({
 		readonly hash: string
 	}
 
-	/** The arithmetic template the Surface, Factories, and `InterpretInterface` fences all add. */
-	const ARITHMETIC: Template = Object.freeze({
+	/** The arithmetic recipe the Surface, Factories, and `InterpretInterface` fences all add. */
+	const ARITHMETIC: Recipe = Object.freeze({
 		id: 't1',
 		name: 'Arithmetic',
 		domain: 'arithmetic',
@@ -284,13 +283,13 @@ await new GuideCommand({
 	// all of them. The cases here run the flagship fences and assert the values their
 	// comments claim. Change a fence, change the transcription beside it.
 	describe('flagship fences', () => {
-		it('Surface: interprets text against an added template', () => {
+		it('Surface: interprets text against an added recipe', () => {
 			const interpret = createInterpret({
 				extractor: createExtractor({
 					actions: { calculate: 'calculate' },
 					domains: { arithmetic: ['arithmetic'] },
 				}),
-				templates: [ARITHMETIC],
+				recipes: [ARITHMETIC],
 			})
 			const result = interpret.interpret('calculate arithmetic 42')
 
@@ -312,7 +311,6 @@ await new GuideCommand({
 			expect(CONFIDENCE_DEFAULT).toBe(1)
 			expect(CONFIDENCE_COMPUTED).toBe(0.9)
 			expect(typeof NUMBER_PATTERN.source).toBe('string')
-			expect(UNSAFE_FIELD_SEGMENTS).toEqual(['__proto__', 'prototype', 'constructor'])
 			expect(DEFAULT_CONTRACTIONS["can't"]).toBe('cannot')
 			expect(DEFAULT_LEXICON.templates?.['subject.empty']).toBe('with no fields')
 			expect(DEFAULT_LEXICON.templates?.['prompt.base']).toBe('{{verb}} {{name}}')
@@ -343,7 +341,7 @@ await new GuideCommand({
 				}),
 			).toBe(true)
 			expect(
-				isTemplate({
+				isRecipe({
 					id: 't1',
 					name: 'Arithmetic',
 					domain: 'arithmetic',
@@ -415,11 +413,11 @@ await new GuideCommand({
 			expect(assigned.find((entity) => entity.name === 'score')?.value).toBe(720)
 		})
 
-		it('Helpers: the digest, template, and reverse leaves return the fence values', () => {
+		it('Helpers: the digest, recipe, and reverse leaves return the fence values', () => {
 			expect(canonicalize({ b: 1, a: 2 }) === canonicalize({ a: 2, b: 1 })).toBe(true)
 			expect(canonicalizeNode({ b: 1, a: 2 }, new Set())).toBe('{"a":2,"b":1}')
 			expect(digestValue({ a: 1 }) === digestValue({ a: 1 })).toBe(true)
-			expect(matchTemplate({ confidence: 0 }, [], 0.3)).toBeUndefined()
+			expect(matchRecipe({ confidence: 0 }, [], 0.3)).toBeUndefined()
 			expect(
 				variablesOf({
 					form: 'operation',
@@ -443,7 +441,7 @@ await new GuideCommand({
 				'with age: 25, income: 50000',
 			)
 			expect(
-				scoreTemplate(
+				scoreRecipe(
 					{ action: 'compute', domain: 'rating', confidence: 1 },
 					{
 						id: 't1',
@@ -465,8 +463,8 @@ await new GuideCommand({
 			).toBe(1)
 		})
 
-		it('Parsers: an off-shape template coerces to undefined', () => {
-			expect(parseTemplate('not json')).toBeUndefined()
+		it('Parsers: an off-shape recipe coerces to undefined', () => {
+			expect(parseRecipe('not json')).toBeUndefined()
 		})
 
 		it('Factories: each factory wires a working entity with the fence tally', () => {
@@ -475,9 +473,9 @@ await new GuideCommand({
 				changes: [{ from: "it's", to: 'it is' }],
 			})
 
-			const templates = createTemplateManager({ templates: [ARITHMETIC] })
-			expect(templates.count).toBe(1)
-			templates.destroy()
+			const recipes = createRecipeManager({ recipes: [ARITHMETIC] })
+			expect(recipes.count).toBe(1)
+			recipes.destroy()
 
 			expect(createSubjectManager({ subjects: [{ value: 1 }] }).count).toBe(1)
 			expect(
@@ -514,7 +512,7 @@ await new GuideCommand({
 
 		it('ClarifierInterface: clarify raises the ambiguity the required mapping earns', () => {
 			const clarifier = createClarifier({ floor: 0.3 })
-			const template: Template = {
+			const recipe: Recipe = {
 				id: 't1',
 				name: 'Arithmetic',
 				domain: 'arithmetic',
@@ -532,7 +530,7 @@ await new GuideCommand({
 			}
 
 			expect(
-				clarifier.clarify([], template, undefined, {
+				clarifier.clarify([], recipe, undefined, {
 					action: 'calculate',
 					domain: 'arithmetic',
 					confidence: 1,
@@ -547,7 +545,7 @@ await new GuideCommand({
 
 		it('ClarifierInterface: a declared aggregate over a known-length array lands its total', () => {
 			const clarifier = createClarifier({ floor: 0.3 })
-			const template: Template = {
+			const recipe: Recipe = {
 				id: 't2',
 				name: 'Total',
 				domain: 'arithmetic',
@@ -575,7 +573,7 @@ await new GuideCommand({
 			}
 			const result = clarifier.clarify(
 				[{ name: 'value', value: [2, 3], provenance: { category: 'extracted' }, confidence: 1 }],
-				template,
+				recipe,
 				undefined,
 				{ action: 'calculate', domain: 'arithmetic', confidence: 1 },
 			)
@@ -586,9 +584,9 @@ await new GuideCommand({
 			expect(result.ambiguities).toEqual([])
 		})
 
-		it('FormatterInterface: format renders the verb and the template name', () => {
+		it('FormatterInterface: format renders the verb and the recipe name', () => {
 			const formatter = createFormatter({ verbs: { calculate: 'Calculate' } })
-			const template: Template = {
+			const recipe: Recipe = {
 				id: 't1',
 				name: 'Arithmetic',
 				domain: 'arithmetic',
@@ -608,7 +606,7 @@ await new GuideCommand({
 			expect(
 				formatter.format(
 					{ action: 'calculate', domain: 'arithmetic', confidence: 1 },
-					template,
+					recipe,
 					[],
 					[],
 				),
@@ -617,7 +615,7 @@ await new GuideCommand({
 
 		it('GeneratorInterface: generate builds the subject and the mean confidence', () => {
 			const generator = createGenerator()
-			const template: Template = {
+			const recipe: Recipe = {
 				id: 't1',
 				name: 'Arithmetic',
 				domain: 'arithmetic',
@@ -642,7 +640,7 @@ await new GuideCommand({
 						confidence: 0.9,
 					},
 				],
-				template,
+				recipe,
 			)
 
 			expect(result.subject).toEqual({ value: 42 })
@@ -679,17 +677,17 @@ await new GuideCommand({
 			notes.destroy()
 		})
 
-		it('TemplateManagerInterface: the registry stamps, holds, and removes one template', () => {
-			const templates = createTemplateManager()
-			const record = templates.add(ARITHMETIC)
+		it('RecipeManagerInterface: the registry stamps, holds, and removes one recipe', () => {
+			const recipes = createRecipeManager()
+			const record = recipes.add(ARITHMETIC)
 
 			expect(record.version).toBe(1)
-			expect(templates.count).toBe(1)
-			expect(templates.has('t1')).toBe(true)
-			expect(templates.template('t1')).toEqual(record)
-			expect(templates.templates()).toEqual([record])
-			expect(templates.remove('t1')).toBe(true)
-			templates.destroy()
+			expect(recipes.count).toBe(1)
+			expect(recipes.has('t1')).toBe(true)
+			expect(recipes.recipe('t1')).toEqual(record)
+			expect(recipes.recipes()).toEqual([record])
+			expect(recipes.remove('t1')).toBe(true)
+			recipes.destroy()
 		})
 
 		it('SubjectManagerInterface: the registry mints its own record id', () => {
@@ -755,8 +753,8 @@ await new GuideCommand({
 			const result = interpret.interpret('calculate arithmetic 42')
 
 			expect(result.subject).toEqual({ value: 42 })
-			expect(interpret.template('t1')).toEqual(ARITHMETIC)
-			expect(interpret.templates()).toEqual([ARITHMETIC])
+			expect(interpret.recipe('t1')).toEqual(ARITHMETIC)
+			expect(interpret.recipes()).toEqual([ARITHMETIC])
 			expect(interpret.remove('t1')).toBe(true)
 			interpret.destroy()
 		})

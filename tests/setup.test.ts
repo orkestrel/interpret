@@ -24,12 +24,12 @@ import {
 import { describe, expect, it } from 'vitest'
 import {
 	buildInterpretSolvedDefinition,
-	collectInterpretCorpusTemplates,
-	buildEligibilityTemplate,
-	buildInsuranceTemplate,
+	collectInterpretCorpusRecipes,
+	buildEligibilityRecipe,
+	buildInsuranceRecipe,
 	buildInterpretation,
-	buildLoanTemplate,
-	buildStatisticsTemplate,
+	buildLoanRecipe,
+	buildStatisticsRecipe,
 	createCorpusExtractor,
 	EXTREME_NUMBERS,
 	expectSymbolic,
@@ -135,9 +135,9 @@ describe('INTERPRET_ACTIONS', () => {
 		expect(Object.isFrozen(INTERPRET_ACTIONS)).toBe(true)
 	})
 
-	it('names an action for every intent the corpus templates declare', () => {
+	it('names an action for every intent the corpus recipes declare', () => {
 		const names = Object.values(INTERPRET_ACTIONS)
-		const intents = collectInterpretCorpusTemplates().flatMap((template) => [...template.intents])
+		const intents = collectInterpretCorpusRecipes().flatMap((recipe) => [...recipe.intents])
 
 		expect(intents).not.toEqual([])
 		expect(intents.filter((intent) => !names.includes(intent))).toEqual([])
@@ -149,16 +149,12 @@ describe('INTERPRET_DOMAINS', () => {
 		expect(Object.isFrozen(INTERPRET_DOMAINS)).toBe(true)
 	})
 
-	it('keys a keyword list by every domain the corpus templates claim', () => {
-		const templates = collectInterpretCorpusTemplates()
+	it('keys a keyword list by every domain the corpus recipes claim', () => {
+		const recipes = collectInterpretCorpusRecipes()
 
+		expect(recipes.filter((recipe) => !Object.hasOwn(INTERPRET_DOMAINS, recipe.domain))).toEqual([])
 		expect(
-			templates.filter((template) => !Object.hasOwn(INTERPRET_DOMAINS, template.domain)),
-		).toEqual([])
-		expect(
-			templates.filter(
-				(template) => !(INTERPRET_DOMAINS[template.domain] ?? []).includes(template.domain),
-			),
+			recipes.filter((recipe) => !(INTERPRET_DOMAINS[recipe.domain] ?? []).includes(recipe.domain)),
 		).toEqual([])
 	})
 
@@ -182,8 +178,8 @@ describe('createCorpusExtractor', () => {
 
 describe('the interprets corpus builders', () => {
 	it('return a fresh graph on every call, so one suite cannot reach another', () => {
-		const first = buildInsuranceTemplate()
-		const second = buildInsuranceTemplate()
+		const first = buildInsuranceRecipe()
+		const second = buildInsuranceRecipe()
 
 		expect(first).not.toBe(second)
 		expect(first.mappings).not.toBe(second.mappings)
@@ -192,8 +188,8 @@ describe('the interprets corpus builders', () => {
 	})
 
 	it('replace an overridden field wholesale and leave the rest at the corpus default', () => {
-		const base = buildInsuranceTemplate()
-		const overridden = buildInsuranceTemplate({ intents: ['check'], mappings: [] })
+		const base = buildInsuranceRecipe()
+		const overridden = buildInsuranceRecipe({ intents: ['check'], mappings: [] })
 
 		expect(overridden.intents).toEqual(['check'])
 		expect(overridden.mappings).toEqual([])
@@ -202,26 +198,26 @@ describe('the interprets corpus builders', () => {
 		expect(overridden.definition).toEqual(base.definition)
 	})
 
-	it('identify each template with its own definition, under an id no sibling repeats', () => {
-		const templates = collectInterpretCorpusTemplates()
+	it('identify each recipe with its own definition, under an id no sibling repeats', () => {
+		const recipes = collectInterpretCorpusRecipes()
 
-		expect(templates.filter((template) => template.definition.id !== template.id)).toEqual([])
-		expect(new Set(templates.map((template) => template.id)).size).toBe(templates.length)
+		expect(recipes.filter((recipe) => recipe.definition.id !== recipe.id)).toEqual([])
+		expect(new Set(recipes.map((recipe) => recipe.id)).size).toBe(recipes.length)
 	})
 
-	it('give the insurance template a default no mapping can supply', () => {
-		const template = buildInsuranceTemplate()
-		const mapped = new Set(template.mappings.map((mapping) => mapping.field))
+	it('give the insurance recipe a default no mapping can supply', () => {
+		const recipe = buildInsuranceRecipe()
+		const mapped = new Set(recipe.mappings.map((mapping) => mapping.field))
 
 		expect(
-			template.defaults.filter((entry) => !mapped.has(entry.field)).map((entry) => entry.field),
+			recipe.defaults.filter((entry) => !mapped.has(entry.field)).map((entry) => entry.field),
 		).toContain('deductible')
-		expect(template.computations.map((computation) => computation.field)).toContain('monthly')
+		expect(recipe.computations.map((computation) => computation.field)).toContain('monthly')
 	})
 
-	it('require the insurance age and nothing in the eligibility template', () => {
-		const insurance = buildInsuranceTemplate()
-		const eligibility = buildEligibilityTemplate()
+	it('require the insurance age and nothing in the eligibility recipe', () => {
+		const insurance = buildInsuranceRecipe()
+		const eligibility = buildEligibilityRecipe()
 
 		expect(
 			insurance.mappings.filter((mapping) => mapping.required === true).map((m) => m.entity),
@@ -229,21 +225,21 @@ describe('the interprets corpus builders', () => {
 		expect(eligibility.mappings.filter((mapping) => mapping.required === true)).toEqual([])
 	})
 
-	it('give the eligibility template multi-word aliases, so proximity has something to score', () => {
-		const aliases = buildEligibilityTemplate().mappings.flatMap((mapping) => [...mapping.aliases])
+	it('give the eligibility recipe multi-word aliases, so proximity has something to score', () => {
+		const aliases = buildEligibilityRecipe().mappings.flatMap((mapping) => [...mapping.aliases])
 
 		expect(aliases.filter((alias) => alias.includes(' '))).not.toEqual([])
 	})
 
-	it('give the loan template a domain no other corpus template claims', () => {
-		const loan = buildLoanTemplate()
-		const others = collectInterpretCorpusTemplates().filter((template) => template.id !== loan.id)
+	it('give the loan recipe a domain no other corpus recipe claims', () => {
+		const loan = buildLoanRecipe()
+		const others = collectInterpretCorpusRecipes().filter((recipe) => recipe.id !== loan.id)
 
-		expect(others.map((template) => template.domain)).not.toContain(loan.domain)
+		expect(others.map((recipe) => recipe.domain)).not.toContain(loan.domain)
 	})
 
-	it('give the statistics template one alias-free mapping, so every number lands in one field', () => {
-		const mappings = buildStatisticsTemplate().mappings
+	it('give the statistics recipe one alias-free mapping, so every number lands in one field', () => {
+		const mappings = buildStatisticsRecipe().mappings
 
 		expect(mappings.map((mapping) => mapping.field)).toEqual(['value'])
 		expect(mappings.flatMap((mapping) => [...mapping.aliases])).toEqual([])

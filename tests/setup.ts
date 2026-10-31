@@ -18,7 +18,7 @@ import type {
 	ExtractResult,
 	Interpretation,
 	RecordStamp,
-	Template,
+	Recipe,
 } from '@src/core'
 import { isArray } from '@orkestrel/contract'
 import {
@@ -76,9 +76,9 @@ export function addInterpretNote(
 	}))
 }
 
-/** Builds an interpreter over the shared extraction vocabulary and templates. */
-export function buildCorpusInterpret(templates = [buildInsuranceTemplate()]): Interpret {
-	return new Interpret({ templates, extractor: createCorpusExtractor() })
+/** Builds an interpreter over the shared extraction vocabulary and recipes. */
+export function buildCorpusInterpret(recipes = [buildInsuranceRecipe()]): Interpret {
+	return new Interpret({ recipes, extractor: createCorpusExtractor() })
 }
 
 /** Builds a symbolic definition whose solved total exercises the result narrower. */
@@ -98,14 +98,14 @@ export function buildInterpretSolvedDefinition(): ReturnType<typeof createSymbol
 	)
 }
 
-/** Collects the templates used by the interpreter corpus. */
-export function collectInterpretCorpusTemplates(): readonly Template[] {
+/** Collects the recipes used by the interpreter corpus. */
+export function collectInterpretCorpusRecipes(): readonly Recipe[] {
 	return [
-		buildInterpretTemplate(),
-		buildInsuranceTemplate(),
-		buildEligibilityTemplate(),
-		buildLoanTemplate(),
-		buildStatisticsTemplate(),
+		buildInterpretRecipe(),
+		buildInsuranceRecipe(),
+		buildEligibilityRecipe(),
+		buildLoanRecipe(),
+		buildStatisticsRecipe(),
 	]
 }
 
@@ -226,25 +226,25 @@ export const TRICKY_KEYS: readonly string[] = Object.freeze([
 // ── Interprets fixtures (environment-agnostic) ────────────────────────────────
 
 /**
- * Builds a small, neutral `Template` — a single `value` entity mapping onto a
+ * Builds a small, neutral `Recipe` — a single `value` entity mapping onto a
  * one-factor quantitative definition — the shared fixture the `interprets`
  * validator, helper, stage, and orchestrator tests seed a registry with
  * instead of hand-writing the same literal repeatedly
  * (`.claude/rules/tests.md` § Test contract).
  *
  * @param overrides - Fields merged over the neutral defaults
- * @returns The built template
+ * @returns The built recipe
  */
-export function buildInterpretTemplate(overrides?: Partial<Template>): Template {
+export function buildInterpretRecipe(overrides?: Partial<Recipe>): Recipe {
 	return {
-		id: 'template-1',
+		id: 'recipe-1',
 		name: 'Arithmetic',
 		domain: 'arithmetic',
 		intents: ['calculate'],
 		mappings: [{ entity: 'value', aliases: ['amount', 'number'], field: 'value' }],
 		defaults: [],
 		computations: [],
-		definition: createQuantitativeDefinition('template-1', 'Arithmetic', [
+		definition: createQuantitativeDefinition('recipe-1', 'Arithmetic', [
 			createFactorGroup('total', 'sum', [createFieldFactor('value', 'value')]),
 		]),
 		...overrides,
@@ -254,7 +254,7 @@ export function buildInterpretTemplate(overrides?: Partial<Template>): Template 
 /**
  * Lists the neutral caller ACTION vocabulary the interprets integration corpus wires
  * into its `Extractor` (`token → action-name`). The redesign has no built-in
- * worldview — every domain/action word a template answers
+ * worldview — every domain/action word a recipe answers
  * to must be supplied here, not baked into core.
  */
 export const INTERPRET_ACTIONS: Readonly<Record<string, string>> = Object.freeze({
@@ -266,9 +266,9 @@ export const INTERPRET_ACTIONS: Readonly<Record<string, string>> = Object.freeze
 
 /**
  * Lists the neutral caller DOMAIN vocabulary the interprets integration corpus wires
- * into its `Extractor` (`domain-name → keyword-list`). A template's own `domain`
+ * into its `Extractor` (`domain-name → keyword-list`). A recipe's own `domain`
  * no longer auto-classifies — a caller MUST list each
- * template's domain keywords here for domain classification to fire.
+ * recipe's domain keywords here for domain classification to fire.
  */
 export const INTERPRET_DOMAINS: Readonly<Record<string, readonly string[]>> = Object.freeze({
 	arithmetic: ['arithmetic'],
@@ -290,16 +290,16 @@ export function createCorpusExtractor(): ExtractorInterface {
 }
 
 /**
- * Builds the auto-insurance corpus template — the redesign's terrain-vocabulary
+ * Builds the auto-insurance corpus recipe — the redesign's terrain-vocabulary
  * analog of scsr's `DEFAULT_TEMPLATES` insurance fixture: a required `age`
  * mapping, `accidents`/`coverage`/`deductible` defaults, and a declarative
  * `monthly = deductible / 12` computation (`createOperation('divide', …)` — the
  * closure-free `ComputedField` replacing scsr's `InferenceRule.compute`).
  *
  * @param overrides - Fields merged over the corpus defaults
- * @returns The built template
+ * @returns The built recipe
  */
-export function buildInsuranceTemplate(overrides?: Partial<Template>): Template {
+export function buildInsuranceRecipe(overrides?: Partial<Recipe>): Recipe {
 	return {
 		id: 'insurance-auto',
 		name: 'Auto Insurance',
@@ -329,14 +329,14 @@ export function buildInsuranceTemplate(overrides?: Partial<Template>): Template 
 }
 
 /**
- * Builds the eligibility corpus template — two optional mappings (`age`,
+ * Builds the eligibility corpus recipe — two optional mappings (`age`,
  * `score`) whose aliases exercise fuzzy keyword-proximity assignment against a
  * complex sentence, over an (empty-rule) logical definition.
  *
  * @param overrides - Fields merged over the corpus defaults
- * @returns The built template
+ * @returns The built recipe
  */
-export function buildEligibilityTemplate(overrides?: Partial<Template>): Template {
+export function buildEligibilityRecipe(overrides?: Partial<Recipe>): Recipe {
 	return {
 		id: 'eligibility',
 		name: 'Eligibility',
@@ -354,14 +354,14 @@ export function buildEligibilityTemplate(overrides?: Partial<Template>): Templat
 }
 
 /**
- * Builds the personal-loan corpus template — a distinct `loan` domain used to
- * pin multi-template best-match selection (the domain/action pair that scores
- * highest wins; no arbitrary `templates[0]` fallback).
+ * Builds the personal-loan corpus recipe — a distinct `loan` domain used to
+ * pin multi-recipe best-match selection (the domain/action pair that scores
+ * highest wins; no arbitrary `recipes[0]` fallback).
  *
  * @param overrides - Fields merged over the corpus defaults
- * @returns The built template
+ * @returns The built recipe
  */
-export function buildLoanTemplate(overrides?: Partial<Template>): Template {
+export function buildLoanRecipe(overrides?: Partial<Recipe>): Recipe {
 	return {
 		id: 'loan-personal',
 		name: 'Personal Loan',
@@ -378,15 +378,15 @@ export function buildLoanTemplate(overrides?: Partial<Template>): Template {
 }
 
 /**
- * Builds the statistics corpus template — a SINGLE `value` mapping so extraction
+ * Builds the statistics corpus recipe — a SINGLE `value` mapping so extraction
  * collects every number: one number lands as a scalar, several as an array the
  * `Generator` keeps as it stands. An aggregate over that array is a
  * `ComputedField` the caller declares through `overrides`.
  *
  * @param overrides - Fields merged over the corpus defaults
- * @returns The built template
+ * @returns The built recipe
  */
-export function buildStatisticsTemplate(overrides?: Partial<Template>): Template {
+export function buildStatisticsRecipe(overrides?: Partial<Recipe>): Recipe {
 	return {
 		id: 'statistics',
 		name: 'Statistics',

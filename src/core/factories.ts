@@ -18,13 +18,13 @@ import type {
 	NormalizerOptions,
 	SubjectManagerInterface,
 	SubjectManagerOptions,
-	TemplateManagerInterface,
-	TemplateManagerOptions,
+	RecipeManagerInterface,
+	RecipeManagerOptions,
 } from './types.js'
 import { Interpret } from './Interpret.js'
 import { Narrator } from './Narrator.js'
 import { InterpretContext } from './InterpretContext.js'
-import { TemplateManager } from './managers/TemplateManager.js'
+import { RecipeManager } from './managers/RecipeManager.js'
 import { SubjectManager } from './managers/SubjectManager.js'
 import { DefinitionManager } from './managers/DefinitionManager.js'
 import { Clarifier } from './stages/Clarifier.js'
@@ -47,11 +47,11 @@ import { Normalizer } from './stages/Normalizer.js'
  * `InterpretOptions` carries no per-stage option record; `floor` is the one
  * value threaded into a built-in stage, reaching the `Clarifier`.
  *
- * @param options - Optional templates, context, stage implementations, the
+ * @param options - Optional recipes, context, stage implementations, the
  *   `similarity` / `floor` axes, and emitter hooks
  * @returns A working {@link InterpretInterface}
  *
- * @example Interpret text against an added template
+ * @example Interpret text against an added recipe
  * ```ts
  * import { createExtractor, createInterpret } from '@orkestrel/interpret'
  * import {
@@ -65,7 +65,7 @@ import { Normalizer } from './stages/Normalizer.js'
  * 		actions: { calculate: 'calculate' },
  * 		domains: { arithmetic: ['arithmetic'] },
  * 	}),
- * 	templates: [
+ * 	recipes: [
  * 		{
  * 			id: 't1',
  * 			name: 'Arithmetic',
@@ -114,7 +114,7 @@ export function createNormalizer(options?: NormalizerOptions): NormalizerInterfa
 }
 
 /**
- * Creates a template-agnostic intent classifier and number extractor, returning a
+ * Creates a recipe-agnostic intent classifier and number extractor, returning a
  * stateless {@link ExtractorInterface}.
  *
  * @param options - Optional caller `actions` / `domains` vocabularies
@@ -188,28 +188,28 @@ export function createGenerator(): GeneratorInterface {
 }
 
 /**
- * Creates a template registry, returning a working {@link TemplateManagerInterface}.
+ * Creates a recipe registry, returning a working {@link RecipeManagerInterface}.
  *
  * @param options - Optional initial seed collection
- * @returns A working {@link TemplateManagerInterface}
+ * @returns A working {@link RecipeManagerInterface}
  *
  * @example
  * ```ts
  * import { createFactorGroup, createFieldFactor, createQuantitativeDefinition } from '@orkestrel/reason'
- * import { createTemplateManager } from '@orkestrel/interpret'
+ * import { createRecipeManager } from '@orkestrel/interpret'
  *
- * const templates = createTemplateManager({
- * 	templates: [{
+ * const recipes = createRecipeManager({
+ * 	recipes: [{
  * 		id: 't1', name: 'Arithmetic', domain: 'arithmetic', intents: ['calculate'],
  * 		mappings: [{ entity: 'value', aliases: [], field: 'value' }], defaults: [], computations: [],
  * 		definition: createQuantitativeDefinition('t1', 'Arithmetic', [createFactorGroup('total', 'sum', [createFieldFactor('value', 'value')])]),
  * 	}],
  * })
- * templates.count // 1
+ * recipes.count // 1
  * ```
  */
-export function createTemplateManager(options?: TemplateManagerOptions): TemplateManagerInterface {
-	return new TemplateManager(options)
+export function createRecipeManager(options?: RecipeManagerOptions): RecipeManagerInterface {
+	return new RecipeManager(options)
 }
 
 /**

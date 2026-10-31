@@ -1,11 +1,5 @@
 import type { Subject } from '@orkestrel/reason'
-import type {
-	Entity,
-	FieldMapping,
-	GenerateResult,
-	GeneratorInterface,
-	Template,
-} from '../types.js'
+import type { Entity, FieldMapping, GenerateResult, GeneratorInterface, Recipe } from '../types.js'
 import { isArray } from '@orkestrel/contract'
 import { setField } from '../helpers.js'
 
@@ -14,14 +8,14 @@ import { setField } from '../helpers.js'
  * entity set, plus its complete field audit.
  *
  * @remarks
- * `entity → field` through `template.mappings` (an `EntityMapping.entity` name
+ * `entity → field` through `recipe.mappings` (an `EntityMapping.entity` name
  * lookup); an entity whose name matches no mapping lands on the field named
  * by its own `name` — the shape `Clarifier` uses for its synthesized
  * default/computed entities, so one lookup rule serves both extraction-
- * mapped and template-data-derived fields. A single-element array value
+ * mapped and recipe-data-derived fields. A single-element array value
  * unwraps to its scalar; every other value lands as it stands, so a
  * multi-element array stays an array. The stage derives no field of its own:
- * an aggregate over an array-valued entity is a `ComputedField` the template
+ * an aggregate over an array-valued entity is a `ComputedField` the recipe
  * author declares, resolved by `Clarifier` before this stage runs.
  * `confidence` is the mean of the input entities' own confidences (`0` for
  * an empty entity set). A `FieldMapping` is emitted for every field that
@@ -56,11 +50,11 @@ import { setField } from '../helpers.js'
  * ```
  */
 export class Generator implements GeneratorInterface {
-	generate(entities: readonly Entity[], template: Template): GenerateResult {
+	generate(entities: readonly Entity[], recipe: Recipe): GenerateResult {
 		const mappings: FieldMapping[] = []
 
 		const subject = Iterator.from(entities).reduce<Subject>((prior, entity) => {
-			const mapping = template.mappings.find((candidate) => candidate.entity === entity.name)
+			const mapping = recipe.mappings.find((candidate) => candidate.entity === entity.name)
 			const field = mapping === undefined ? entity.name : mapping.field
 			const value = entity.value
 
@@ -93,6 +87,6 @@ export class Generator implements GeneratorInterface {
 				? 0
 				: entities.reduce((total, entity) => total + entity.confidence, 0) / entities.length
 
-		return { subject, definition: template.definition, mappings, confidence }
+		return { subject, definition: recipe.definition, mappings, confidence }
 	}
 }

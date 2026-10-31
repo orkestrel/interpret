@@ -18,7 +18,7 @@ import { digestValue } from '../helpers.js'
  *
  * @remarks
  * Generic over the value it holds and the record it mints, so
- * {@link TemplateManager}, {@link SubjectManager}, and
+ * {@link RecipeManager}, {@link SubjectManager}, and
  * {@link DefinitionManager} each compose one instance rather than repeating
  * the same registry. A concrete manager keeps only what actually differs: its
  * accessor noun pair, its id source, and the {@link RecordFunction} that names

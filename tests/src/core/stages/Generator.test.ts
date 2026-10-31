@@ -1,7 +1,7 @@
 import type { Entity } from '@src/core'
 import { Generator } from '@src/core'
 import { describe, expect, it } from 'vitest'
-import { buildInterpretTemplate, TRICKY_KEYS } from '../../../setup.js'
+import { buildInterpretRecipe, TRICKY_KEYS } from '../../../setup.js'
 
 // The `Generator` stage — entity → field, single-element array unwrap, mean
 // confidence, and a `FieldMapping` for EVERY subject field.
@@ -9,14 +9,14 @@ import { buildInterpretTemplate, TRICKY_KEYS } from '../../../setup.js'
 describe('Generator', () => {
 	const generator = new Generator()
 
-	it('maps an entity to its template field and builds the subject', () => {
-		const template = buildInterpretTemplate()
+	it('maps an entity to its recipe field and builds the subject', () => {
+		const recipe = buildInterpretRecipe()
 		const entities: readonly Entity[] = [
 			{ name: 'value', value: 42, provenance: { category: 'extracted' }, confidence: 0.9 },
 		]
-		const result = generator.generate(entities, template)
+		const result = generator.generate(entities, recipe)
 		expect(result.subject).toEqual({ value: 42 })
-		expect(result.definition).toBe(template.definition)
+		expect(result.definition).toBe(recipe.definition)
 		expect(result.mappings).toEqual([
 			{
 				field: 'value',
@@ -30,17 +30,17 @@ describe('Generator', () => {
 	})
 
 	it('falls back to the entity name itself as the field when no mapping matches', () => {
-		const template = buildInterpretTemplate({ mappings: [] })
+		const recipe = buildInterpretRecipe({ mappings: [] })
 		const entities: readonly Entity[] = [
 			{ name: 'term', value: 12, provenance: { category: 'default' }, confidence: 1 },
 		]
-		const result = generator.generate(entities, template)
+		const result = generator.generate(entities, recipe)
 		expect(result.subject).toEqual({ term: 12 })
 		expect(result.mappings[0]?.field).toBe('term')
 	})
 
 	it('unwraps a single-element array value to its scalar', () => {
-		const template = buildInterpretTemplate()
+		const recipe = buildInterpretRecipe()
 		const entities: readonly Entity[] = [
 			{
 				name: 'value',
@@ -49,12 +49,12 @@ describe('Generator', () => {
 				confidence: 0.9,
 			},
 		]
-		const result = generator.generate(entities, template)
+		const result = generator.generate(entities, recipe)
 		expect(result.subject.value).toBe(42)
 	})
 
 	it('keeps a multi-element numeric array as it stands, deriving no sibling field', () => {
-		const template = buildInterpretTemplate()
+		const recipe = buildInterpretRecipe()
 		const entities: readonly Entity[] = [
 			{
 				name: 'value',
@@ -63,14 +63,14 @@ describe('Generator', () => {
 				confidence: 0.9,
 			},
 		]
-		const result = generator.generate(entities, template)
+		const result = generator.generate(entities, recipe)
 		expect(result.subject).toEqual({ value: [10, 20, 30] })
 		expect(result.mappings).toHaveLength(1)
 		expect(result.mappings[0]?.provenance.category).toBe('extracted')
 	})
 
 	it('writes a nested array mapping at its own path, deriving no sibling field', () => {
-		const template = buildInterpretTemplate({
+		const recipe = buildInterpretRecipe({
 			mappings: [{ entity: 'value', aliases: [], field: ['address', 'amounts'] }],
 		})
 		const entities: readonly Entity[] = [
@@ -81,13 +81,13 @@ describe('Generator', () => {
 				confidence: 0.9,
 			},
 		]
-		const result = generator.generate(entities, template)
+		const result = generator.generate(entities, recipe)
 		expect(result.subject).toEqual({ address: { amounts: [10, 20, 30] } })
 		expect(result.mappings.map((mapping) => mapping.field)).toEqual([['address', 'amounts']])
 	})
 
 	it('leaves a multi-element NON-numeric array untouched', () => {
-		const template = buildInterpretTemplate()
+		const recipe = buildInterpretRecipe()
 		const entities: readonly Entity[] = [
 			{
 				name: 'value',
@@ -96,13 +96,13 @@ describe('Generator', () => {
 				confidence: 0.5,
 			},
 		]
-		const result = generator.generate(entities, template)
+		const result = generator.generate(entities, recipe)
 		expect(result.subject).toEqual({ value: ['a', 'b'] })
 		expect(result.mappings).toHaveLength(1)
 	})
 
 	it('emits a FieldMapping for EVERY field, including defaults and computed entries', () => {
-		const template = buildInterpretTemplate()
+		const recipe = buildInterpretRecipe()
 		const entities: readonly Entity[] = [
 			{ name: 'value', value: 42, provenance: { category: 'extracted' }, confidence: 0.9 },
 			{ name: 'term', value: 12, provenance: { category: 'default' }, confidence: 1 },
@@ -113,7 +113,7 @@ describe('Generator', () => {
 				confidence: 0.9,
 			},
 		]
-		const result = generator.generate(entities, template)
+		const result = generator.generate(entities, recipe)
 		expect(result.mappings).toHaveLength(3)
 		expect(result.mappings.map((mapping) => mapping.field).sort()).toEqual([
 			'monthly',
@@ -123,24 +123,24 @@ describe('Generator', () => {
 	})
 
 	it('confidence is the mean of the input entities, 0 for an empty set', () => {
-		const template = buildInterpretTemplate()
-		expect(generator.generate([], template).confidence).toBe(0)
+		const recipe = buildInterpretRecipe()
+		expect(generator.generate([], recipe).confidence).toBe(0)
 		const entities: readonly Entity[] = [
 			{ name: 'a', value: 1, provenance: { category: 'extracted' }, confidence: 1 },
 			{ name: 'b', value: 2, provenance: { category: 'extracted' }, confidence: 0.5 },
 		]
-		expect(generator.generate(entities, buildInterpretTemplate({ mappings: [] })).confidence).toBe(
+		expect(generator.generate(entities, buildInterpretRecipe({ mappings: [] })).confidence).toBe(
 			0.75,
 		)
 	})
 
 	it('assigns every TRICKY_KEYS value as a field path, refusing UNSAFE_FIELD_SEGMENTS (prototype-pollution defense)', () => {
 		// UPDATED for the refactored `setField` semantics: `UNSAFE_FIELD_SEGMENTS`
-		// (constants.ts) refuses `__proto__` / `prototype` / `constructor` — not
+		// (`@orkestrel/template`) refuses `__proto__` / `prototype` / `constructor` — not
 		// only `__proto__` as the pre-refactor expectation pinned.
 		const UNSAFE = new Set(['__proto__', 'prototype', 'constructor'])
 		const observed = TRICKY_KEYS.map((key) => {
-			const template = buildInterpretTemplate({
+			const recipe = buildInterpretRecipe({
 				mappings: [{ entity: 'value', aliases: [], field: key }],
 			})
 			const entities: readonly Entity[] = [
@@ -151,7 +151,7 @@ describe('Generator', () => {
 					confidence: 1,
 				},
 			]
-			const result = generator.generate(entities, template)
+			const result = generator.generate(entities, recipe)
 			const owned = Object.hasOwn(result.subject, key)
 			return {
 				key,
@@ -171,7 +171,7 @@ describe('Generator', () => {
 	})
 
 	it('is deterministic across repeated calls', () => {
-		const template = buildInterpretTemplate()
+		const recipe = buildInterpretRecipe()
 		const entities: readonly Entity[] = [
 			{
 				name: 'value',
@@ -180,12 +180,12 @@ describe('Generator', () => {
 				confidence: 0.9,
 			},
 		]
-		expect(generator.generate(entities, template)).toEqual(generator.generate(entities, template))
+		expect(generator.generate(entities, recipe)).toEqual(generator.generate(entities, recipe))
 	})
 
 	describe('immutability', () => {
 		it('never mutates the input entities array or its element objects', () => {
-			const template = buildInterpretTemplate()
+			const recipe = buildInterpretRecipe()
 			const entity: Entity = {
 				name: 'value',
 				value: 42,
@@ -194,18 +194,18 @@ describe('Generator', () => {
 			}
 			const entities = Object.freeze([entity])
 			const before = structuredClone(entities)
-			const result = generator.generate(entities, template)
+			const result = generator.generate(entities, recipe)
 			expect(entities).toEqual(before)
 			expect(result.subject).not.toBe(entities)
 		})
 
 		it('never mutates a multi-element array entity value while building the subject', () => {
-			const template = buildInterpretTemplate()
+			const recipe = buildInterpretRecipe()
 			const value = Object.freeze([10, 20, 30])
 			const entities: readonly Entity[] = [
 				{ name: 'value', value, provenance: { category: 'extracted' }, confidence: 0.9 },
 			]
-			const result = generator.generate(entities, template)
+			const result = generator.generate(entities, recipe)
 			// `value` stays frozen and unchanged (a mutation would throw under
 			// strict mode / fail this equality) — the array is carried through,
 			// never mutated in place, even though it is not deep-cloned.
@@ -214,12 +214,12 @@ describe('Generator', () => {
 		})
 
 		it('builds a fresh subject reference on every call — no shared mutable state across calls', () => {
-			const template = buildInterpretTemplate()
+			const recipe = buildInterpretRecipe()
 			const entities: readonly Entity[] = [
 				{ name: 'value', value: 1, provenance: { category: 'extracted' }, confidence: 1 },
 			]
-			const first = generator.generate(entities, template)
-			const second = generator.generate(entities, template)
+			const first = generator.generate(entities, recipe)
+			const second = generator.generate(entities, recipe)
 			expect(first.subject).not.toBe(second.subject)
 			expect(first.subject).toEqual(second.subject)
 		})

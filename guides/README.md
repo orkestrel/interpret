@@ -44,11 +44,9 @@ this guide set.
 [`template.md`](template.md) is a byte-identical mirror of the guide
 for `@orkestrel/template` — a runtime dependency. It documents **that
 package's** surface (the string-fill `Template` / `TemplateManager`), not
-anything sourced in this repo; it is kept here for the same reason. Note the
-name collision: this documents `@orkestrel/template`'s own string-fill
-`Template` / `TemplateManager` classes, not this repo's distinct
-`Template` / `TemplateManager` intent-registry classes, which remain
-documented in [`interpret.md`](interpret.md).
+anything sourced in this repo; it is kept here for the same reason. This
+repo's intent registry is `Recipe` / `RecipeManager`, documented in
+[`interpret.md`](interpret.md).
 
 ## See also
 

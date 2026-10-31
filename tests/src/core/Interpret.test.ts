@@ -15,12 +15,18 @@ import {
 	createSymbolicReasoner,
 	createVariable,
 } from '@orkestrel/reason'
-import { createNarrator, Interpret, InterpretContext, isInterpretError } from '@src/core'
+import {
+	createNarrator,
+	digestValue,
+	Interpret,
+	InterpretContext,
+	isInterpretError,
+} from '@src/core'
 import { captureError, createRecorders } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import {
-	buildInsuranceTemplate,
-	buildInterpretTemplate,
+	buildInsuranceRecipe,
+	buildInterpretRecipe,
 	createCorpusExtractor,
 	createWeakInterpretExtractor,
 	createInterpretStageFailures,
@@ -28,41 +34,41 @@ import {
 
 // The `Interpret` orchestrator — registry, synchronous
 // `[normalize, extract, clarify, format, generate]` pipeline,
-// explicit NO_TEMPLATE / LOW_CONFIDENCE gates, visible stage-throw failures,
+// explicit NO_RECIPE / LOW_CONFIDENCE gates, visible stage-throw failures,
 // reverse passthroughs, emitter, and DESTROYED teardown.
 
 describe('Interpret', () => {
 	describe('registry', () => {
-		it('adds, looks up, lists, and removes templates as plain data', () => {
+		it('adds, looks up, lists, and removes recipes as plain data', () => {
 			const interpret = new Interpret()
-			const template = buildInterpretTemplate()
-			interpret.add(template)
-			expect(interpret.template('template-1')).toEqual(template)
-			expect(interpret.templates()).toEqual([template])
-			expect(interpret.remove('template-1')).toBe(true)
-			expect(interpret.template('template-1')).toBeUndefined()
+			const recipe = buildInterpretRecipe()
+			interpret.add(recipe)
+			expect(interpret.recipe('recipe-1')).toEqual(recipe)
+			expect(interpret.recipes()).toEqual([recipe])
+			expect(interpret.remove('recipe-1')).toBe(true)
+			expect(interpret.recipe('recipe-1')).toBeUndefined()
 			interpret.destroy()
 		})
 
-		it('removes a listed batch all-or-nothing, and every template with no argument', () => {
+		it('removes a listed batch all-or-nothing, and every recipe with no argument', () => {
 			const interpret = new Interpret()
-			interpret.add(buildInterpretTemplate())
-			interpret.add(buildInsuranceTemplate())
-			expect(interpret.remove(['template-1', 'absent'])).toBe(false)
-			expect(interpret.templates()).toHaveLength(2)
-			expect(interpret.remove(['template-1', 'insurance-auto'])).toBe(true)
-			expect(interpret.templates()).toEqual([])
-			interpret.add(buildInterpretTemplate())
+			interpret.add(buildInterpretRecipe())
+			interpret.add(buildInsuranceRecipe())
+			expect(interpret.remove(['recipe-1', 'absent'])).toBe(false)
+			expect(interpret.recipes()).toHaveLength(2)
+			expect(interpret.remove(['recipe-1', 'insurance-auto'])).toBe(true)
+			expect(interpret.recipes()).toEqual([])
+			interpret.add(buildInterpretRecipe())
 			expect(interpret.remove()).toBeUndefined()
-			expect(interpret.templates()).toEqual([])
+			expect(interpret.recipes()).toEqual([])
 			interpret.destroy()
 		})
 
-		it('emits add with the template id', () => {
+		it('emits add with the recipe id', () => {
 			const interpret = new Interpret()
 			const events = createRecorders<InterpretEventMap, 'add'>(interpret.emitter, ['add'])
-			interpret.add(buildInterpretTemplate())
-			expect(events.add.calls).toEqual([['template-1']])
+			interpret.add(buildInterpretRecipe())
+			expect(events.add.calls).toEqual([['recipe-1']])
 			interpret.destroy()
 		})
 	})
@@ -70,7 +76,7 @@ describe('Interpret', () => {
 	describe('pipeline', () => {
 		it('runs the normalize/extract/clarify/format/generate stages in order and produces a complete result', () => {
 			const interpret = new Interpret({
-				templates: [buildInsuranceTemplate()],
+				recipes: [buildInsuranceRecipe()],
 				extractor: createCorpusExtractor(),
 			})
 			const result = interpret.interpret('calculate insurance age 25')
@@ -86,13 +92,21 @@ describe('Interpret', () => {
 			expect(result.failures).toEqual([])
 			expect(result.subject).toMatchObject({ age: 25, accidents: 0, coverage: 'standard' })
 			expect(result.text).toBe('calculate insurance age 25')
-			expect(result.digest.length).toBeGreaterThan(0)
+			expect(result.digest).toBe(
+				digestValue({
+					text: 'calculate insurance age 25',
+					recipeId: 'insurance-auto',
+					recipeVersion: 1,
+					subject: result.subject,
+					definition: result.definition,
+				}),
+			)
 			interpret.destroy()
 		})
 
 		it('stores no completeness flag, so a reader derives it from ambiguities and failures', () => {
 			const interpret = new Interpret({
-				templates: [buildInsuranceTemplate()],
+				recipes: [buildInsuranceRecipe()],
 				extractor: createCorpusExtractor(),
 			})
 			const resolved = interpret.interpret('calculate insurance age 25')
@@ -108,7 +122,7 @@ describe('Interpret', () => {
 
 		it('records structured, non-blob per-stage input/output snapshots that chain across stages', () => {
 			const interpret = new Interpret({
-				templates: [buildInsuranceTemplate()],
+				recipes: [buildInsuranceRecipe()],
 				extractor: createCorpusExtractor(),
 			})
 			const result = interpret.interpret('calculate insurance age 25')
@@ -126,7 +140,7 @@ describe('Interpret', () => {
 
 		it('emits interpret once and error zero on the happy path', () => {
 			const interpret = new Interpret({
-				templates: [buildInsuranceTemplate()],
+				recipes: [buildInsuranceRecipe()],
 				extractor: createCorpusExtractor(),
 			})
 			const events = createRecorders<InterpretEventMap, 'interpret' | 'error'>(interpret.emitter, [
@@ -140,10 +154,10 @@ describe('Interpret', () => {
 		})
 	})
 
-	describe('NO_TEMPLATE gate', () => {
-		it('yields an explicit incomplete result with a field:intent ambiguity, never a fallback template', () => {
+	describe('NO_RECIPE gate', () => {
+		it('yields an explicit incomplete result with a field:intent ambiguity, never a fallback recipe', () => {
 			const interpret = new Interpret({
-				templates: [buildInsuranceTemplate()],
+				recipes: [buildInsuranceRecipe()],
 				extractor: createCorpusExtractor(),
 			})
 			const result = interpret.interpret('what is the meaning of life')
@@ -155,14 +169,24 @@ describe('Interpret', () => {
 			expect(result.ambiguities[0]?.field).toBe('intent')
 			expect(result.ambiguities[0]?.required).toBe(true)
 			expect(result.ambiguities[0]?.candidates).toEqual(['insurance'])
-			expect(result.failures[0]?.code).toBe('NO_TEMPLATE')
+			expect(result.failures[0]?.code).toBe('NO_RECIPE')
+			expect(result.failures[0]?.message).toBe('No added recipe matched the classified intent')
+			expect(result.digest).toBe(
+				digestValue({
+					text: 'what is the meaning of life',
+					recipeId: undefined,
+					recipeVersion: undefined,
+					subject: undefined,
+					definition: undefined,
+				}),
+			)
 			expect(result.stages).toHaveLength(5)
 			interpret.destroy()
 		})
 
 		it('renders the gate question through the lexicon, so a caller rewords it', () => {
 			const interpret = new Interpret({
-				templates: [buildInsuranceTemplate()],
+				recipes: [buildInsuranceRecipe()],
 				extractor: createCorpusExtractor(),
 				narrator: { lexicon: { templates: { 'ambiguity.intent': 'Which domain?' } } },
 			})
@@ -171,23 +195,23 @@ describe('Interpret', () => {
 			interpret.destroy()
 		})
 
-		it('fires NO_TEMPLATE even against a non-empty registry (no templates[0] fallback)', () => {
+		it('fires NO_RECIPE even against a non-empty registry (no recipes[0] fallback)', () => {
 			const interpret = new Interpret({
-				templates: [buildInsuranceTemplate()],
+				recipes: [buildInsuranceRecipe()],
 				extractor: createCorpusExtractor(),
 			})
 			const result = interpret.interpret('compute statistics 42')
 			expect(result.ambiguities).not.toEqual([])
-			expect(result.failures[0]?.code).toBe('NO_TEMPLATE')
+			expect(result.failures[0]?.code).toBe('NO_RECIPE')
 			interpret.destroy()
 		})
 	})
 
 	describe('LOW_CONFIDENCE gate', () => {
-		it('honors the configured floor: a matched template with sub-floor intent is incomplete, entities still assigned', () => {
+		it('honors the configured floor: a matched recipe with sub-floor intent is incomplete, entities still assigned', () => {
 			const weakExtractor: ExtractorInterface = createWeakInterpretExtractor()
 			const interpret = new Interpret({
-				templates: [buildInsuranceTemplate()],
+				recipes: [buildInsuranceRecipe()],
 				extractor: weakExtractor,
 			})
 			const result = interpret.interpret('calculate insurance age 25')
@@ -204,7 +228,7 @@ describe('Interpret', () => {
 		it('marks a throwing stage on its record AND on failures, emits error, and stays visible-incomplete', () => {
 			const throwingNormalizer: NormalizerInterface = createInterpretStageFailures().normalizer
 			const interpret = new Interpret({
-				templates: [buildInsuranceTemplate()],
+				recipes: [buildInsuranceRecipe()],
 				extractor: createCorpusExtractor(),
 				normalizer: throwingNormalizer,
 			})
@@ -225,7 +249,7 @@ describe('Interpret', () => {
 		it('marks EXTRACT_FAILED on a throwing extractor', () => {
 			const throwingExtractor: ExtractorInterface = createInterpretStageFailures().extractor
 			const interpret = new Interpret({
-				templates: [buildInsuranceTemplate()],
+				recipes: [buildInsuranceRecipe()],
 				extractor: throwingExtractor,
 			})
 			const result = interpret.interpret('calculate insurance age 25')
@@ -239,7 +263,7 @@ describe('Interpret', () => {
 		it('marks CLARIFY_FAILED on a throwing clarifier', () => {
 			const throwingClarifier: ClarifierInterface = createInterpretStageFailures().clarifier
 			const interpret = new Interpret({
-				templates: [buildInsuranceTemplate()],
+				recipes: [buildInsuranceRecipe()],
 				extractor: createCorpusExtractor(),
 				clarifier: throwingClarifier,
 			})
@@ -254,7 +278,7 @@ describe('Interpret', () => {
 		it('marks FORMAT_FAILED on a throwing formatter', () => {
 			const throwingFormatter: FormatterInterface = createInterpretStageFailures().formatter
 			const interpret = new Interpret({
-				templates: [buildInsuranceTemplate()],
+				recipes: [buildInsuranceRecipe()],
 				extractor: createCorpusExtractor(),
 				formatter: throwingFormatter,
 			})
@@ -269,7 +293,7 @@ describe('Interpret', () => {
 		it('marks GENERATE_FAILED on a throwing generator', () => {
 			const throwingGenerator: GeneratorInterface = createInterpretStageFailures().generator
 			const interpret = new Interpret({
-				templates: [buildInsuranceTemplate()],
+				recipes: [buildInsuranceRecipe()],
 				extractor: createCorpusExtractor(),
 				generator: throwingGenerator,
 			})
@@ -285,7 +309,7 @@ describe('Interpret', () => {
 	describe('reverse direction', () => {
 		it('describe delegates to its owned narrator', () => {
 			const interpret = new Interpret()
-			const definition = buildInterpretTemplate().definition
+			const definition = buildInterpretRecipe().definition
 			expect(interpret.describe(definition)).toBe(createNarrator().describe(definition))
 			interpret.destroy()
 		})
@@ -310,7 +334,7 @@ describe('Interpret', () => {
 					lexicon: { templates: { 'definition.quantitative': '{{name}} has {{count}} group(s)' } },
 				},
 			})
-			const definition = buildInterpretTemplate().definition
+			const definition = buildInterpretRecipe().definition
 			expect(interpret.describe(definition)).toBe('Arithmetic has 1 group(s)')
 			interpret.destroy()
 		})

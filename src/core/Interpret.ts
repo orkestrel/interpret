@@ -24,16 +24,16 @@ import type {
 	NormalizerInterface,
 	StageFailure,
 	StageRecord,
-	Template,
+	Recipe,
 } from './types.js'
 import { attempt, isError, isString } from '@orkestrel/contract'
 import { Emitter } from '@orkestrel/emitter'
 import { assignEntities } from './compilers.js'
 import { DEFAULT_INTERPRET_FLOOR, DEFAULT_INTERPRET_SIMILARITY } from './constants.js'
 import { InterpretError } from './errors.js'
-import { digestValue, matchTemplate } from './helpers.js'
+import { digestValue, matchRecipe } from './helpers.js'
 import { InterpretContext } from './InterpretContext.js'
-import { TemplateManager } from './managers/TemplateManager.js'
+import { RecipeManager } from './managers/RecipeManager.js'
 import { Narrator } from './Narrator.js'
 import { Clarifier } from './stages/Clarifier.js'
 import { Extractor } from './stages/Extractor.js'
@@ -44,24 +44,24 @@ import { Normalizer } from './stages/Normalizer.js'
 /**
  * Implements the interpretation orchestrator — the sole public entry point of the
  * `interprets` module, mirroring the reasons `Reason` orchestrator shape: it runs the
- * `[normalize, extract, clarify, format, generate]` pipeline, owns the template
+ * `[normalize, extract, clarify, format, generate]` pipeline, owns the recipe
  * registry and the context, and exposes the reverse direction.
  *
  * @remarks
  * `interpret()` is genuinely synchronous — it returns its
  * {@link Interpretation} directly, never a `Promise` — each phase producing
  * one {@link StageRecord}. Between `extract` and `clarify` the orchestrator matches
- * the classified {@link Intent} against its added {@link Template}s and,
- * on a match, assigns the extracted numbers to that template's mappings
- * (`assignEntities`) — a template-owned step, not a sixth stage. No match, or a
- * matched template whose intent confidence falls below the configured `floor`,
+ * the classified {@link Intent} against its added {@link Recipe}s and,
+ * on a match, assigns the extracted numbers to that recipe's mappings
+ * (`assignEntities`) — a recipe-owned step, not a sixth stage. No match, or a
+ * matched recipe whose intent confidence falls below the configured `floor`,
  * yields an explicit, auditable incomplete result (a `field: 'intent'`
  * ambiguity, absent subject/definition) rather than an arbitrary fallback
- * template. A stage throw is caught, marked on its record and on
+ * recipe. A stage throw is caught, marked on its record and on
  * `failures`, emitted as `error`, and still yields a visible incomplete result
  * — never a silent fallback. Every result carries a `digest` over its original
- * text plus the matched template id/version and the built subject/definition,
- * so re-running the same text against the same template version reproduces the
+ * text plus the matched recipe id/version and the built subject/definition,
+ * so re-running the same text against the same recipe version reproduces the
  * same digest (the replay contract). `describe` / `narrate` are the reverse
  * direction (structure → prose). `destroy()` is idempotent, tears down the
  * registry and the context it constructed itself — a context supplied through
@@ -76,7 +76,7 @@ import { Normalizer } from './stages/Normalizer.js'
  *
  * const interpret = new Interpret({
  * 	extractor: new Extractor({ actions: { calculate: 'calculate' }, domains: { arithmetic: ['arithmetic'] } }),
- * 	templates: [
+ * 	recipes: [
  * 		{
  * 			id: 't1',
  * 			name: 'Arithmetic',
@@ -95,7 +95,7 @@ import { Normalizer } from './stages/Normalizer.js'
  * ```
  */
 export class Interpret implements InterpretInterface {
-	readonly #templates: TemplateManager
+	readonly #recipes: RecipeManager
 	readonly #context: InterpretContextInterface
 	readonly #ownsContext: boolean
 	readonly #normalizer: NormalizerInterface
@@ -112,8 +112,8 @@ export class Interpret implements InterpretInterface {
 	constructor(options?: InterpretOptions) {
 		this.#similarity = options?.similarity ?? DEFAULT_INTERPRET_SIMILARITY
 		this.#floor = options?.floor ?? DEFAULT_INTERPRET_FLOOR
-		this.#templates = new TemplateManager({
-			...(options?.templates === undefined ? {} : { templates: options.templates }),
+		this.#recipes = new RecipeManager({
+			...(options?.recipes === undefined ? {} : { recipes: options.recipes }),
 		})
 		this.#ownsContext = options?.context === undefined
 		this.#context =
@@ -187,8 +187,8 @@ export class Interpret implements InterpretInterface {
 		stages.push({ stage: 'extract', input: normalized.text, output: extract, failed: false })
 
 		const intent = extract.intent
-		const templates = this.#templates.templates().map((record) => record.template)
-		const matched = matchTemplate(intent, templates, this.#floor)
+		const recipes = this.#recipes.recipes().map((record) => record.recipe)
+		const matched = matchRecipe(intent, recipes, this.#floor)
 
 		if (matched === undefined) {
 			return this.#gate(
@@ -197,7 +197,7 @@ export class Interpret implements InterpretInterface {
 				intent,
 				[],
 				stages,
-				'NO_TEMPLATE',
+				'NO_RECIPE',
 				undefined,
 				undefined,
 			)
@@ -209,7 +209,7 @@ export class Interpret implements InterpretInterface {
 			normalized.text,
 			this.#similarity,
 		)
-		const record = this.#templates.template(matched.id)
+		const record = this.#recipes.recipe(matched.id)
 		const version = record?.version
 
 		if (intent.confidence < this.#floor) {
@@ -298,8 +298,8 @@ export class Interpret implements InterpretInterface {
 
 		const digest = digestValue({
 			text,
-			templateId: matched.id,
-			templateVersion: version,
+			recipeId: matched.id,
+			recipeVersion: version,
 			subject: generated.subject,
 			definition: generated.definition,
 		})
@@ -326,10 +326,10 @@ export class Interpret implements InterpretInterface {
 		return result
 	}
 
-	add(template: Template): void {
+	add(recipe: Recipe): void {
 		this.#ensureAlive()
-		this.#templates.add(template, { id: template.id })
-		this.#emitter.emit('add', template.id)
+		this.#recipes.add(recipe, { id: recipe.id })
+		this.#emitter.emit('add', recipe.id)
 	}
 
 	remove(ids: readonly string[]): boolean
@@ -337,19 +337,19 @@ export class Interpret implements InterpretInterface {
 	remove(): void
 	remove(target?: string | readonly string[]): boolean | void {
 		this.#ensureAlive()
-		if (target === undefined) return this.#templates.remove()
-		if (isString(target)) return this.#templates.remove(target)
-		return this.#templates.remove(target)
+		if (target === undefined) return this.#recipes.remove()
+		if (isString(target)) return this.#recipes.remove(target)
+		return this.#recipes.remove(target)
 	}
 
-	template(id: string): Template | undefined {
+	recipe(id: string): Recipe | undefined {
 		this.#ensureAlive()
-		return this.#templates.template(id)?.template
+		return this.#recipes.recipe(id)?.recipe
 	}
 
-	templates(): readonly Template[] {
+	recipes(): readonly Recipe[] {
 		this.#ensureAlive()
-		return this.#templates.templates().map((record) => record.template)
+		return this.#recipes.recipes().map((record) => record.recipe)
 	}
 
 	describe(definition: Definition): string {
@@ -364,16 +364,16 @@ export class Interpret implements InterpretInterface {
 
 	destroy(): void {
 		if (this.#destroyed) return
-		this.#templates.destroy()
+		this.#recipes.destroy()
 		if (this.#ownsContext) this.#context.destroy()
 		this.#destroyed = true
 		this.#emitter.emit('destroy')
 		this.#emitter.destroy()
 	}
 
-	// A NO_TEMPLATE / LOW_CONFIDENCE match gate — an explicit incomplete result
+	// A NO_RECIPE / LOW_CONFIDENCE match gate — an explicit incomplete result
 	// carrying a `field: 'intent'` ambiguity whose candidates are the added
-	// templates' domain names, plus the matching StageFailure. The question
+	// recipes' domain names, plus the matching StageFailure. The question
 	// renders through the narrator's `ambiguity.*` line, so gate wording stays
 	// caller data. No `error` emit — a gate is a deliberate incomplete outcome,
 	// not a stage throw.
@@ -383,17 +383,15 @@ export class Interpret implements InterpretInterface {
 		intent: Intent,
 		entities: readonly Entity[],
 		stages: StageRecord[],
-		code: 'NO_TEMPLATE' | 'LOW_CONFIDENCE',
-		templateId: string | undefined,
-		templateVersion: number | undefined,
+		code: 'NO_RECIPE' | 'LOW_CONFIDENCE',
+		recipeId: string | undefined,
+		recipeVersion: number | undefined,
 	): Interpretation {
-		const domains = [
-			...new Set(this.#templates.templates().map((record) => record.template.domain)),
-		]
+		const domains = [...new Set(this.#recipes.recipes().map((record) => record.recipe.domain))]
 		const ambiguity: Ambiguity = {
 			field: 'intent',
 			question: this.#narrator.line(
-				code === 'NO_TEMPLATE' ? 'ambiguity.intent' : 'ambiguity.confidence',
+				code === 'NO_RECIPE' ? 'ambiguity.intent' : 'ambiguity.confidence',
 				{},
 			),
 			candidates: domains,
@@ -403,8 +401,8 @@ export class Interpret implements InterpretInterface {
 			stage: 'clarify',
 			code,
 			message:
-				code === 'NO_TEMPLATE'
-					? 'No added template matched the classified intent'
+				code === 'NO_RECIPE'
+					? 'No added recipe matched the classified intent'
 					: 'Classified intent confidence fell below the configured floor',
 		}
 		return this.#assemble(
@@ -416,8 +414,8 @@ export class Interpret implements InterpretInterface {
 			stages,
 			[failure],
 			['clarify', 'format', 'generate'],
-			templateId,
-			templateVersion,
+			recipeId,
+			recipeVersion,
 		)
 	}
 
@@ -436,8 +434,8 @@ export class Interpret implements InterpretInterface {
 		input: unknown,
 		error: unknown,
 		remaining: readonly InterpretStage[],
-		templateId: string | undefined,
-		templateVersion: number | undefined,
+		recipeId: string | undefined,
+		recipeVersion: number | undefined,
 	): Interpretation {
 		const message = isError(error) ? error.message : String(error)
 		stages.push({ stage, input, output: undefined, failed: true, error: message })
@@ -451,8 +449,8 @@ export class Interpret implements InterpretInterface {
 			stages,
 			[{ stage, code, message }],
 			remaining,
-			templateId,
-			templateVersion,
+			recipeId,
+			recipeVersion,
 		)
 	}
 
@@ -469,16 +467,16 @@ export class Interpret implements InterpretInterface {
 		stages: StageRecord[],
 		failures: readonly StageFailure[],
 		remaining: readonly InterpretStage[],
-		templateId: string | undefined,
-		templateVersion: number | undefined,
+		recipeId: string | undefined,
+		recipeVersion: number | undefined,
 	): Interpretation {
 		for (const stage of remaining) {
 			stages.push({ stage, input: undefined, output: undefined, failed: false })
 		}
 		const digest = digestValue({
 			text,
-			templateId,
-			templateVersion,
+			recipeId,
+			recipeVersion,
 			subject: undefined,
 			definition: undefined,
 		})

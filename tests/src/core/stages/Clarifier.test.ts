@@ -2,11 +2,7 @@ import type { Entity, Intent } from '@src/core'
 import { createConstant, createOperation, createVariable } from '@orkestrel/reason'
 import { Clarifier, Narrator } from '@src/core'
 import { describe, expect, it } from 'vitest'
-import {
-	buildInterpretation,
-	buildInterpretTemplate,
-	seedInterpretContext,
-} from '../../../setup.js'
+import { buildInterpretation, buildInterpretRecipe, seedInterpretContext } from '../../../setup.js'
 
 // The `Clarifier` stage — carry-over, defaults, computed fields (topological,
 // gap-on-cycle), and floor-gated ambiguities. Drives a REAL
@@ -18,11 +14,11 @@ const intent: Intent = { action: 'calculate', domain: 'arithmetic', confidence: 
 describe('Clarifier', () => {
 	it('passes through fresh entities untouched when nothing else applies', () => {
 		const clarifier = new Clarifier()
-		const template = buildInterpretTemplate()
+		const recipe = buildInterpretRecipe()
 		const entities: readonly Entity[] = [
 			{ name: 'value', value: 42, provenance: { category: 'extracted' }, confidence: 0.9 },
 		]
-		const result = clarifier.clarify(entities, template, undefined, intent)
+		const result = clarifier.clarify(entities, recipe, undefined, intent)
 		expect(result.entities).toEqual(entities)
 		expect(result.ambiguities).toEqual([])
 		expect(Object.hasOwn(result, 'complete')).toBe(false)
@@ -31,7 +27,7 @@ describe('Clarifier', () => {
 	describe('carry-over', () => {
 		it('carries a same-domain prior entity when the fresh set leaves it unfilled', () => {
 			const clarifier = new Clarifier()
-			const template = buildInterpretTemplate({
+			const recipe = buildInterpretRecipe({
 				mappings: [{ entity: 'value', aliases: [], field: 'value' }],
 			})
 			const prior = buildInterpretation({
@@ -40,7 +36,7 @@ describe('Clarifier', () => {
 					{ name: 'value', value: 99, provenance: { category: 'extracted' }, confidence: 1 },
 				],
 			})
-			const result = clarifier.clarify([], template, seedInterpretContext([prior]), intent)
+			const result = clarifier.clarify([], recipe, seedInterpretContext([prior]), intent)
 			expect(result.entities).toEqual([
 				{ name: 'value', value: 99, provenance: { category: 'carried' }, confidence: 0.7 },
 			])
@@ -48,7 +44,7 @@ describe('Clarifier', () => {
 
 		it('drops carry-over across a domain change', () => {
 			const clarifier = new Clarifier()
-			const template = buildInterpretTemplate({
+			const recipe = buildInterpretRecipe({
 				mappings: [{ entity: 'value', aliases: [], field: 'value' }],
 			})
 			const prior = buildInterpretation({
@@ -57,13 +53,13 @@ describe('Clarifier', () => {
 					{ name: 'value', value: 99, provenance: { category: 'extracted' }, confidence: 1 },
 				],
 			})
-			const result = clarifier.clarify([], template, seedInterpretContext([prior]), intent)
+			const result = clarifier.clarify([], recipe, seedInterpretContext([prior]), intent)
 			expect(result.entities).toEqual([])
 		})
 
 		it('a fresh value wins over a carried one', () => {
 			const clarifier = new Clarifier()
-			const template = buildInterpretTemplate({
+			const recipe = buildInterpretRecipe({
 				mappings: [{ entity: 'value', aliases: [], field: 'value' }],
 			})
 			const prior = buildInterpretation({
@@ -75,19 +71,19 @@ describe('Clarifier', () => {
 			const fresh: readonly Entity[] = [
 				{ name: 'value', value: 5, provenance: { category: 'extracted' }, confidence: 1 },
 			]
-			const result = clarifier.clarify(fresh, template, seedInterpretContext([prior]), intent)
+			const result = clarifier.clarify(fresh, recipe, seedInterpretContext([prior]), intent)
 			expect(result.entities).toEqual(fresh)
 		})
 	})
 
 	describe('defaults', () => {
-		it('fills an unresolved field from the template default', () => {
+		it('fills an unresolved field from the recipe default', () => {
 			const clarifier = new Clarifier()
-			const template = buildInterpretTemplate({
+			const recipe = buildInterpretRecipe({
 				mappings: [],
 				defaults: [{ field: 'term', value: 12 }],
 			})
-			const result = clarifier.clarify([], template, undefined, intent)
+			const result = clarifier.clarify([], recipe, undefined, intent)
 			expect(result.entities).toEqual([
 				{ name: 'term', value: 12, provenance: { category: 'default' }, confidence: 1 },
 			])
@@ -95,14 +91,14 @@ describe('Clarifier', () => {
 
 		it('never overwrites an already-filled field', () => {
 			const clarifier = new Clarifier()
-			const template = buildInterpretTemplate({
+			const recipe = buildInterpretRecipe({
 				mappings: [{ entity: 'term', aliases: [], field: 'term' }],
 				defaults: [{ field: 'term', value: 12 }],
 			})
 			const fresh: readonly Entity[] = [
 				{ name: 'term', value: 24, provenance: { category: 'extracted' }, confidence: 1 },
 			]
-			const result = clarifier.clarify(fresh, template, undefined, intent)
+			const result = clarifier.clarify(fresh, recipe, undefined, intent)
 			expect(result.entities).toEqual(fresh)
 		})
 	})
@@ -110,7 +106,7 @@ describe('Clarifier', () => {
 	describe('computed fields', () => {
 		it('resolves a computed field through resolveExpression against resolved bindings', () => {
 			const clarifier = new Clarifier()
-			const template = buildInterpretTemplate({
+			const recipe = buildInterpretRecipe({
 				mappings: [{ entity: 'deductible', aliases: [], field: 'deductible' }],
 				computations: [
 					{
@@ -122,7 +118,7 @@ describe('Clarifier', () => {
 			const fresh: readonly Entity[] = [
 				{ name: 'deductible', value: 6000, provenance: { category: 'extracted' }, confidence: 1 },
 			]
-			const result = clarifier.clarify(fresh, template, undefined, intent)
+			const result = clarifier.clarify(fresh, recipe, undefined, intent)
 			const computed = result.entities.find((entity) => entity.name === 'monthly')
 			expect(computed).toEqual({
 				name: 'monthly',
@@ -134,7 +130,7 @@ describe('Clarifier', () => {
 
 		it('binds each numeric element of an array-valued field under its index', () => {
 			const clarifier = new Clarifier()
-			const template = buildInterpretTemplate({
+			const recipe = buildInterpretRecipe({
 				mappings: [{ entity: 'value', aliases: [], field: 'value' }],
 				computations: [
 					{
@@ -155,13 +151,13 @@ describe('Clarifier', () => {
 					confidence: 0.9,
 				},
 			]
-			const result = clarifier.clarify(fresh, template, undefined, intent)
+			const result = clarifier.clarify(fresh, recipe, undefined, intent)
 			expect(result.entities.find((entity) => entity.name === 'total')?.value).toBe(60)
 		})
 
 		it('leaves a computation over a non-numeric array element a gap', () => {
 			const clarifier = new Clarifier()
-			const template = buildInterpretTemplate({
+			const recipe = buildInterpretRecipe({
 				mappings: [{ entity: 'value', aliases: [], field: 'value' }],
 				computations: [
 					{
@@ -182,13 +178,13 @@ describe('Clarifier', () => {
 					confidence: 0.9,
 				},
 			]
-			const result = clarifier.clarify(fresh, template, undefined, intent)
+			const result = clarifier.clarify(fresh, recipe, undefined, intent)
 			expect(result.entities.find((entity) => entity.name === 'total')).toBeUndefined()
 		})
 
 		it('resolves multi-step computed fields in dependency (topological) order', () => {
 			const clarifier = new Clarifier()
-			const template = buildInterpretTemplate({
+			const recipe = buildInterpretRecipe({
 				mappings: [{ entity: 'value', aliases: [], field: 'value' }],
 				computations: [
 					// 'yearly' depends on 'monthly', which depends on the fresh 'value'
@@ -205,14 +201,14 @@ describe('Clarifier', () => {
 			const fresh: readonly Entity[] = [
 				{ name: 'value', value: 1200, provenance: { category: 'extracted' }, confidence: 1 },
 			]
-			const result = clarifier.clarify(fresh, template, undefined, intent)
+			const result = clarifier.clarify(fresh, recipe, undefined, intent)
 			expect(result.entities.find((entity) => entity.name === 'monthly')?.value).toBe(100)
 			expect(result.entities.find((entity) => entity.name === 'yearly')?.value).toBe(1200)
 		})
 
 		it('an unresolved input variable leaves the computed field a gap', () => {
 			const clarifier = new Clarifier()
-			const template = buildInterpretTemplate({
+			const recipe = buildInterpretRecipe({
 				mappings: [],
 				computations: [
 					{
@@ -221,13 +217,13 @@ describe('Clarifier', () => {
 					},
 				],
 			})
-			const result = clarifier.clarify([], template, undefined, intent)
+			const result = clarifier.clarify([], recipe, undefined, intent)
 			expect(result.entities.find((entity) => entity.name === 'monthly')).toBeUndefined()
 		})
 
 		it('a divide-by-zero non-finite result leaves the computed field a gap', () => {
 			const clarifier = new Clarifier()
-			const template = buildInterpretTemplate({
+			const recipe = buildInterpretRecipe({
 				mappings: [{ entity: 'value', aliases: [], field: 'value' }],
 				computations: [
 					{
@@ -239,13 +235,13 @@ describe('Clarifier', () => {
 			const fresh: readonly Entity[] = [
 				{ name: 'value', value: 10, provenance: { category: 'extracted' }, confidence: 1 },
 			]
-			const result = clarifier.clarify(fresh, template, undefined, intent)
+			const result = clarifier.clarify(fresh, recipe, undefined, intent)
 			expect(result.entities.find((entity) => entity.name === 'ratio')).toBeUndefined()
 		})
 
 		it('a dependency cycle leaves every cyclic field a gap', () => {
 			const clarifier = new Clarifier()
-			const template = buildInterpretTemplate({
+			const recipe = buildInterpretRecipe({
 				mappings: [],
 				computations: [
 					{
@@ -258,7 +254,7 @@ describe('Clarifier', () => {
 					},
 				],
 			})
-			const result = clarifier.clarify([], template, undefined, intent)
+			const result = clarifier.clarify([], recipe, undefined, intent)
 			expect(result.entities.find((entity) => entity.name === 'a')).toBeUndefined()
 			expect(result.entities.find((entity) => entity.name === 'b')).toBeUndefined()
 		})
@@ -267,10 +263,10 @@ describe('Clarifier', () => {
 	describe('ambiguities', () => {
 		it('raises an ambiguity for a required mapping left unresolved', () => {
 			const clarifier = new Clarifier()
-			const template = buildInterpretTemplate({
+			const recipe = buildInterpretRecipe({
 				mappings: [{ entity: 'value', aliases: [], field: 'value', required: true }],
 			})
-			const result = clarifier.clarify([], template, undefined, intent)
+			const result = clarifier.clarify([], recipe, undefined, intent)
 			expect(result.ambiguities).toEqual([
 				{ field: 'value', question: 'What is your value?', candidates: [], required: true },
 			])
@@ -282,10 +278,10 @@ describe('Clarifier', () => {
 					lexicon: { templates: { 'ambiguity.entity': 'Which {{entity}}?' } },
 				}),
 			})
-			const template = buildInterpretTemplate({
+			const recipe = buildInterpretRecipe({
 				mappings: [{ entity: 'value', aliases: [], field: 'value', required: true }],
 			})
-			const result = clarifier.clarify([], template, undefined, intent)
+			const result = clarifier.clarify([], recipe, undefined, intent)
 			expect(result.ambiguities).toEqual([
 				{ field: 'value', question: 'Which value?', candidates: [], required: true },
 			])
@@ -293,49 +289,49 @@ describe('Clarifier', () => {
 
 		it('never raises an ambiguity for a non-required mapping', () => {
 			const clarifier = new Clarifier()
-			const template = buildInterpretTemplate({
+			const recipe = buildInterpretRecipe({
 				mappings: [{ entity: 'value', aliases: [], field: 'value' }],
 			})
-			const result = clarifier.clarify([], template, undefined, intent)
+			const result = clarifier.clarify([], recipe, undefined, intent)
 			expect(result.ambiguities).toEqual([])
 		})
 
 		it('honors the configured floor — a below-floor entity still raises its ambiguity', () => {
 			const clarifier = new Clarifier({ floor: 0.95 })
-			const template = buildInterpretTemplate({
+			const recipe = buildInterpretRecipe({
 				mappings: [{ entity: 'value', aliases: [], field: 'value', required: true }],
 			})
 			const fresh: readonly Entity[] = [
 				{ name: 'value', value: 42, provenance: { category: 'extracted' }, confidence: 0.7 },
 			]
-			const result = clarifier.clarify(fresh, template, undefined, intent)
+			const result = clarifier.clarify(fresh, recipe, undefined, intent)
 			expect(result.ambiguities).toHaveLength(1)
 		})
 
 		it('a low floor accepts the same entity as resolved', () => {
 			const clarifier = new Clarifier({ floor: 0.3 })
-			const template = buildInterpretTemplate({
+			const recipe = buildInterpretRecipe({
 				mappings: [{ entity: 'value', aliases: [], field: 'value', required: true }],
 			})
 			const fresh: readonly Entity[] = [
 				{ name: 'value', value: 42, provenance: { category: 'extracted' }, confidence: 0.7 },
 			]
-			const result = clarifier.clarify(fresh, template, undefined, intent)
+			const result = clarifier.clarify(fresh, recipe, undefined, intent)
 			expect(result.ambiguities).toEqual([])
 		})
 	})
 
 	it('is deterministic across repeated calls', () => {
 		const clarifier = new Clarifier()
-		const template = buildInterpretTemplate({
+		const recipe = buildInterpretRecipe({
 			mappings: [{ entity: 'value', aliases: [], field: 'value' }],
 			defaults: [{ field: 'term', value: 12 }],
 		})
 		const fresh: readonly Entity[] = [
 			{ name: 'value', value: 42, provenance: { category: 'extracted' }, confidence: 0.9 },
 		]
-		expect(clarifier.clarify(fresh, template, undefined, intent)).toEqual(
-			clarifier.clarify(fresh, template, undefined, intent),
+		expect(clarifier.clarify(fresh, recipe, undefined, intent)).toEqual(
+			clarifier.clarify(fresh, recipe, undefined, intent),
 		)
 	})
 })

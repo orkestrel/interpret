@@ -1,36 +1,36 @@
 import type { EmitterInterface } from '@orkestrel/emitter'
 import type {
 	RecordOptions,
-	Template,
-	TemplateManagerEventMap,
-	TemplateManagerInterface,
-	TemplateManagerOptions,
-	TemplateRecord,
+	Recipe,
+	RecipeManagerEventMap,
+	RecipeManagerInterface,
+	RecipeManagerOptions,
+	RecipeRecord,
 } from '../types.js'
 import { isString } from '@orkestrel/contract'
 import { RecordManager } from './RecordManager.js'
 
 /**
- * Implements the template registry — a self-owning, versioned and content-hashed
- * record-holder for the {@link Template}s an `Interpret` orchestrator matches
+ * Implements the recipe registry — a self-owning, versioned and content-hashed
+ * record-holder for the {@link Recipe}s an `Interpret` orchestrator matches
  * against.
  *
  * @remarks
  * `count` — the registry's lone tally — plus the singular/plural accessor
- * pair (`template` / `templates`) and the batch `remove` overloads.
+ * pair (`recipe` / `recipes`) and the batch `remove` overloads.
  * A composed {@link RecordManager} owns the collection, the content-derived
  * `hash`, and the version rule, so an identical re-add keeps its version and
  * the batch `remove(ids)` form stays all-or-nothing. This class adds what is
- * template-specific: the accessor nouns, the record id defaulting to
- * `template.id`, and the `template` field on each record. `destroy()` is
+ * recipe-specific: the accessor nouns, the record id defaulting to
+ * `recipe.id`, and the `recipe` field on each record. `destroy()` is
  * idempotent; every method afterwards throws `InterpretError('DESTROYED', …)`.
  *
  * @example
  * ```ts
  * import { createFactorGroup, createFieldFactor, createQuantitativeDefinition } from '@orkestrel/reason'
- * import { TemplateManager } from '@orkestrel/interpret'
+ * import { RecipeManager } from '@orkestrel/interpret'
  *
- * const manager = new TemplateManager()
+ * const manager = new RecipeManager()
  * const record = manager.add({
  * 	id: 't1',
  * 	name: 'Arithmetic',
@@ -47,19 +47,19 @@ import { RecordManager } from './RecordManager.js'
  * manager.count // 1
  * ```
  */
-export class TemplateManager implements TemplateManagerInterface {
-	readonly #records: RecordManager<Template, TemplateRecord>
+export class RecipeManager implements RecipeManagerInterface {
+	readonly #records: RecordManager<Recipe, RecipeRecord>
 
-	constructor(options?: TemplateManagerOptions) {
-		this.#records = new RecordManager<Template, TemplateRecord>({
-			entity: 'Template',
+	constructor(options?: RecipeManagerOptions) {
+		this.#records = new RecordManager<Recipe, RecipeRecord>({
+			entity: 'Recipe',
 			...(options?.on === undefined ? {} : { on: options.on }),
 			...(options?.error === undefined ? {} : { error: options.error }),
 		})
-		for (const template of options?.templates ?? []) this.add(template)
+		for (const recipe of options?.recipes ?? []) this.add(recipe)
 	}
 
-	get emitter(): EmitterInterface<TemplateManagerEventMap> {
+	get emitter(): EmitterInterface<RecipeManagerEventMap> {
 		return this.#records.emitter
 	}
 
@@ -71,18 +71,18 @@ export class TemplateManager implements TemplateManagerInterface {
 		return this.#records.has(id)
 	}
 
-	template(id: string): TemplateRecord | undefined {
+	recipe(id: string): RecipeRecord | undefined {
 		return this.#records.record(id)
 	}
 
-	templates(): readonly TemplateRecord[] {
+	recipes(): readonly RecipeRecord[] {
 		return this.#records.records()
 	}
 
-	add(template: Template, options?: RecordOptions): TemplateRecord {
-		return this.#records.add(options?.id ?? template.id, template, (stamp, value) => ({
+	add(recipe: Recipe, options?: RecordOptions): RecipeRecord {
+		return this.#records.add(options?.id ?? recipe.id, recipe, (stamp, value) => ({
 			id: stamp.id,
-			template: value,
+			recipe: value,
 			version: stamp.version,
 			hash: stamp.hash,
 		}))

@@ -1,15 +1,16 @@
 import type { FieldPath } from '@orkestrel/contract'
 import type { Subject, SymbolicExpression } from '@orkestrel/reason'
-import type { Intent, NarratorInterface, Template } from './types.js'
+import type { Intent, NarratorInterface, Recipe } from './types.js'
 import { isArray, isFiniteNumber, isRecord } from '@orkestrel/contract'
 import { applyOperation } from '@orkestrel/reason'
+import { UNSAFE_FIELD_SEGMENTS } from '@orkestrel/template'
 import { BigramCounter } from './BigramCounter.js'
-import { CONFIDENCE_EXACT, NUMBER_PATTERN, UNSAFE_FIELD_SEGMENTS } from './constants.js'
+import { CONFIDENCE_EXACT, NUMBER_PATTERN } from './constants.js'
 
 // The interprets pure-leaf inventory — every function here is
 // a referentially-transparent computation with no instance state, exported
 // and independently unit-testable. Stateful orchestration (the fixed
-// pipeline, entity assignment sequencing, template registration) lives on the
+// pipeline, entity assignment sequencing, recipe registration) lives on the
 // `Interpret` orchestrator and its stage classes, never here.
 
 // === Regex safety
@@ -43,7 +44,7 @@ export function escapeRegExp(text: string): string {
  * freshly copied, so the input and every intermediate record stay untouched.
  * Prototype-pollution-safe: a `field` containing `__proto__`,
  * `prototype`, or `constructor` at any segment (checked against
- * `UNSAFE_FIELD_SEGMENTS`) is refused as a no-op, returning `subject`
+ * `@orkestrel/template`'s `UNSAFE_FIELD_SEGMENTS`) is refused as a no-op, returning `subject`
  * unchanged. A non-record value already sitting at an intermediate segment is
  * replaced by a fresh record rather than descended into.
  *
@@ -161,7 +162,7 @@ export function tokenize(text: string): readonly string[] {
  * @remarks
  * Numbers-only: this is the module's entire extraction contract — no date,
  * text-entity, or negation parsing. Mining a domain's own entity vocabulary is
- * the caller's business, supplied through a `Template`.
+ * the caller's business, supplied through a `Recipe`.
  *
  * @param text - The text to scan
  * @returns Every extracted number, in left-to-right order
@@ -200,10 +201,10 @@ export function extractNumbers(text: string): readonly number[] {
  * unclassified intent is visibly absent. Combined confidence (pinned): the
  * action and the domain both fire → their average; exactly one fires → its
  * value times `0.5`; neither → `0`. There is no built-in worldview and no
- * auto-classification from an added template's own `domain` name — a caller
- * must list a template's domain among `domains` for it to classify. No
+ * auto-classification from an added recipe's own `domain` name — a caller
+ * must list a recipe's domain among `domains` for it to classify. No
  * `floor` parameter: the confidence floor gate lives at the orchestrator's
- * `matchTemplate` step, never inside classification itself.
+ * `matchRecipe` step, never inside classification itself.
  *
  * @param text - The (normalized) text to classify
  * @param actions - The caller's token → action-name vocabulary
@@ -415,79 +416,79 @@ export function digestValue(value: unknown): string {
 	return (hash >>> 0).toString(16).padStart(8, '0')
 }
 
-// === Template matching
+// === Recipe matching
 
 /**
- * Scores how well a classified intent matches one template's domain + action.
+ * Scores how well a classified intent matches one recipe's domain + action.
  *
  * @remarks
  * An absent axis scores `0` for that half — an unclassified intent matches no
- * template on the axis it never carried.
+ * recipe on the axis it never carried.
  *
  * @param intent - The classified intent
- * @param template - The candidate template
+ * @param recipe - The candidate recipe
  * @returns A score in `[0, 1]` — the mean of the domain match (`1`/`0`) and
- * the action match (`1`/`0`, `template.intents` containing `intent.action`)
+ * the action match (`1`/`0`, `recipe.intents` containing `intent.action`)
  *
  * @example
  * ```ts
- * import { scoreTemplate } from '@orkestrel/interpret'
+ * import { scoreRecipe } from '@orkestrel/interpret'
  *
- * scoreTemplate(
+ * scoreRecipe(
  * 	{ action: 'compute', domain: 'rating', confidence: 1 },
  * 	{ id: 't1', name: 'T', domain: 'rating', intents: ['compute'], mappings: [], defaults: [], computations: [], definition: { reasoning: 'symbolic', id: 't1', name: 'T', equations: [], variables: {} } },
  * ) // 1
  * ```
  */
-export function scoreTemplate(intent: Intent, template: Template): number {
+export function scoreRecipe(intent: Intent, recipe: Recipe): number {
 	const domain = intent.domain
 	const action = intent.action
 	const domainScore =
-		domain !== undefined && template.domain.toLowerCase() === domain.toLowerCase() ? 1 : 0
+		domain !== undefined && recipe.domain.toLowerCase() === domain.toLowerCase() ? 1 : 0
 	const actionScore =
 		action !== undefined &&
-		template.intents.some((candidate) => candidate.toLowerCase() === action.toLowerCase())
+		recipe.intents.some((candidate) => candidate.toLowerCase() === action.toLowerCase())
 			? 1
 			: 0
 	return (domainScore + actionScore) / 2
 }
 
 /**
- * Finds the best-scoring added template for a classified intent, gated by a
+ * Finds the best-scoring added recipe for a classified intent, gated by a
  * confidence floor.
  *
  * @remarks
- * Explicit no-match, never an arbitrary fallback template: an empty registry,
+ * Explicit no-match, never an arbitrary fallback recipe: an empty registry,
  * and a best score strictly below `floor`, each return `undefined`.
  *
  * @param intent - The classified intent
- * @param templates - The added templates to score
+ * @param recipes - The added recipes to score
  * @param floor - The minimum score a match must clear
- * @returns The best-scoring template, or `undefined` on no qualifying match
+ * @returns The best-scoring recipe, or `undefined` on no qualifying match
  *
  * @example
  * ```ts
- * import { matchTemplate } from '@orkestrel/interpret'
+ * import { matchRecipe } from '@orkestrel/interpret'
  *
- * matchTemplate({ confidence: 0 }, [], 0.3) // undefined — empty registry
+ * matchRecipe({ confidence: 0 }, [], 0.3) // undefined — empty registry
  * ```
  */
-export function matchTemplate(
+export function matchRecipe(
 	intent: Intent,
-	templates: readonly Template[],
+	recipes: readonly Recipe[],
 	floor: number,
-): Template | undefined {
-	const best = Iterator.from(templates).reduce<{
-		readonly template: Template | undefined
+): Recipe | undefined {
+	const best = Iterator.from(recipes).reduce<{
+		readonly recipe: Recipe | undefined
 		readonly score: number
 	}>(
-		(current, template) => {
-			const score = scoreTemplate(intent, template)
-			return score > current.score ? { template, score } : current
+		(current, recipe) => {
+			const score = scoreRecipe(intent, recipe)
+			return score > current.score ? { recipe, score } : current
 		},
-		{ template: undefined, score: -1 },
+		{ recipe: undefined, score: -1 },
 	)
-	return best.template !== undefined && best.score >= floor ? best.template : undefined
+	return best.recipe !== undefined && best.score >= floor ? best.recipe : undefined
 }
 
 // === Computed fields

@@ -2,13 +2,13 @@
 
 > A synchronous, deterministic bidirectional bridge between natural language and the
 > `@orkestrel/reason` engine: a forward pipeline that normalizes raw text, classifies its
-> intent, matches an added `Template`, clarifies the fields extraction left open, and
+> intent, matches an added `Recipe`, clarifies the fields extraction left open, and
 > generates a `Subject` and `Definition` pair ready for `Reason.reason`, plus a reverse
 > direction that renders a `Definition`, a `Subject`, or a `ReasonResult` to
 > display-neutral prose through a lexicon-driven `Narrator`.
 
 Install the package, wire an orchestrator with the action and domain vocabularies your
-domain speaks, add the templates it answers, and call `interpret()` on each turn of raw
+domain speaks, add the recipes it answers, and call `interpret()` on each turn of raw
 text. Environment-agnostic — no I/O, and no browser or server assumptions. Part of the
 `@orkestrel` line.
 
@@ -42,7 +42,7 @@ const interpret = createInterpret({
 		actions: { calculate: 'calculate' },
 		domains: { arithmetic: ['arithmetic'] },
 	}),
-	templates: [
+	recipes: [
 		{
 			id: 't1',
 			name: 'Arithmetic',
@@ -65,14 +65,14 @@ interpret.destroy()
 ```
 
 `interpret()` is genuinely synchronous and runs the fixed pipeline
-`[normalize, extract, clarify, format, generate]`. A `NO_TEMPLATE` or `LOW_CONFIDENCE`
+`[normalize, extract, clarify, format, generate]`. A `NO_RECIPE` or `LOW_CONFIDENCE`
 non-match, and a thrown stage, each yield a visible incomplete result rather than an arbitrary
 fallback.
 
 ## Guide
 
 For the full surface — the `Interpret` orchestrator, the pipeline
-stages, the template/subject/definition managers, the cross-turn context,
+stages, the recipe/subject/definition managers, the cross-turn context,
 the lexicon-driven `Narrator`, helpers, validators, factories, errors, and
 the observation surface — see
 [`guides/interpret.md`](guides/interpret.md).
