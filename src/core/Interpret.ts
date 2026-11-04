@@ -28,7 +28,7 @@ import type {
 } from './types.js'
 import { attempt, isError, isString } from '@orkestrel/contract'
 import { Emitter } from '@orkestrel/emitter'
-import { assignEntities, findForeignNumbers } from './compilers.js'
+import { assignEntities, scanNumbers } from './compilers.js'
 import { DEFAULT_INTERPRET_FLOOR, DEFAULT_INTERPRET_SIMILARITY } from './constants.js'
 import { InterpretError } from './errors.js'
 import { assertRecipe, digestValue, findUnclaimedNumbers, matchRecipe } from './helpers.js'
@@ -206,8 +206,9 @@ export class Interpret implements InterpretInterface {
 			)
 		}
 
+		const numbers = scanNumbers(normalized.text)
 		const assigned = assignEntities(
-			extract.numbers,
+			numbers,
 			matched.mappings,
 			normalized.text,
 			this.#similarity,
@@ -235,7 +236,7 @@ export class Interpret implements InterpretInterface {
 				matched,
 				this.#context,
 				intent,
-				findUnclaimedNumbers(extract.numbers, assigned, findForeignNumbers(normalized.text)),
+				findUnclaimedNumbers(numbers, assigned),
 			),
 		)
 		if (!clarifiedResult.success) {
@@ -291,7 +292,7 @@ export class Interpret implements InterpretInterface {
 			const digest = digestValue({
 				text,
 				recipeId: matched.id,
-				recipeVersion: version,
+				version: version,
 				subject: undefined,
 				definition: matched.definition,
 			})
@@ -300,7 +301,7 @@ export class Interpret implements InterpretInterface {
 				normalized: normalized.text,
 				intent,
 				recipe: matched.id,
-				...(version === undefined ? {} : { recipeVersion: version }),
+				...(version === undefined ? {} : { version: version }),
 				entities: clarified.entities,
 				definition: matched.definition,
 				mappings: [],
@@ -344,7 +345,7 @@ export class Interpret implements InterpretInterface {
 		const digest = digestValue({
 			text,
 			recipeId: matched.id,
-			recipeVersion: version,
+			version: version,
 			subject: generated.subject,
 			definition: generated.definition,
 		})
@@ -353,7 +354,7 @@ export class Interpret implements InterpretInterface {
 			normalized: normalized.text,
 			intent,
 			recipe: matched.id,
-			...(version === undefined ? {} : { recipeVersion: version }),
+			...(version === undefined ? {} : { version: version }),
 			entities: clarified.entities,
 			subject: generated.subject,
 			definition: generated.definition,
@@ -435,7 +436,7 @@ export class Interpret implements InterpretInterface {
 		stages: StageRecord[],
 		code: 'NO_RECIPE' | 'LOW_CONFIDENCE',
 		recipeId: string | undefined,
-		recipeVersion: number | undefined,
+		version: number | undefined,
 	): Interpretation {
 		const domains = [...new Set(this.#recipes.recipes().map((record) => record.recipe.domain))]
 		const ambiguity: Ambiguity = {
@@ -465,7 +466,7 @@ export class Interpret implements InterpretInterface {
 			[failure],
 			['clarify', 'format', 'generate'],
 			recipeId,
-			recipeVersion,
+			version,
 		)
 	}
 
@@ -485,7 +486,7 @@ export class Interpret implements InterpretInterface {
 		error: unknown,
 		remaining: readonly InterpretStage[],
 		recipeId: string | undefined,
-		recipeVersion: number | undefined,
+		version: number | undefined,
 	): Interpretation {
 		const message = isError(error) ? error.message : String(error)
 		stages.push({ stage, input, output: undefined, failed: true, error: message })
@@ -500,7 +501,7 @@ export class Interpret implements InterpretInterface {
 			[{ stage, code, message }],
 			remaining,
 			recipeId,
-			recipeVersion,
+			version,
 		)
 	}
 
@@ -518,7 +519,7 @@ export class Interpret implements InterpretInterface {
 		failures: readonly StageFailure[],
 		remaining: readonly InterpretStage[],
 		recipeId: string | undefined,
-		recipeVersion: number | undefined,
+		version: number | undefined,
 	): Interpretation {
 		for (const stage of remaining) {
 			stages.push({ stage, input: undefined, output: undefined, failed: false })
@@ -526,7 +527,7 @@ export class Interpret implements InterpretInterface {
 		const digest = digestValue({
 			text,
 			recipeId,
-			recipeVersion,
+			version,
 			subject: undefined,
 			definition: undefined,
 		})
@@ -535,7 +536,7 @@ export class Interpret implements InterpretInterface {
 			normalized,
 			intent,
 			...(recipeId === undefined ? {} : { recipe: recipeId }),
-			...(recipeVersion === undefined ? {} : { recipeVersion }),
+			...(version === undefined ? {} : { version }),
 			entities,
 			mappings: [],
 			ambiguities,

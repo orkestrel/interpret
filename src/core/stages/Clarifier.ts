@@ -102,7 +102,7 @@ export class Clarifier implements ClarifierInterface {
 		recipe: Recipe,
 		context: InterpretContextInterface | undefined,
 		intent: Intent,
-		unclaimed: readonly number[] = [],
+		unclaimed: ReadonlyArray<number | string> = [],
 	): ClarifyResult {
 		const resolved: Entity[] = [...entities]
 		const filledEntityNames = new Set(resolved.map((entity) => entity.name))
@@ -283,7 +283,7 @@ export class Clarifier implements ClarifierInterface {
 		recipe: Recipe,
 		resolved: readonly Entity[],
 		faults: readonly AuditFault[],
-		unclaimed: readonly number[],
+		unclaimed: ReadonlyArray<number | string>,
 	): readonly Ambiguity[] {
 		const candidates = unclaimed.map(String)
 		const refused = new Set(faults.map((fault) => formatField(fault.path)))

@@ -26,7 +26,7 @@ import {
 // A recipe and an interpretation as shapes, so they reach an LLM, a tool, and MCP as JSON Schema.
 // An interpretation is shaped in its JSON projection, where a non-finite number is `null`.
 
-/** Describes a number `readNumbers` read. */
+/** Describes a number `scanNumbers` read. */
 export const readNumberShape: ContractShape = objectShape({
 	raw: stringShape(),
 	start: numberShape(),
@@ -47,7 +47,7 @@ export const readNumberShape: ContractShape = objectShape({
 	weak: optionalShape(booleanShape()),
 	tail: optionalShape(booleanShape()),
 	yearish: optionalShape(booleanShape()),
-	phoneLike: optionalShape(booleanShape()),
+	phone: optionalShape(booleanShape()),
 	reference: optionalShape(stringShape()),
 	unit: optionalShape(stringShape()),
 	sentence: numberShape(),
@@ -155,7 +155,7 @@ export const interpretationShape: ContractShape = objectShape({
 	normalized: stringShape(),
 	intent: intentShape,
 	recipe: optionalShape(stringShape()),
-	recipeVersion: optionalShape(numberShape()),
+	version: optionalShape(numberShape()),
 	entities: arrayShape(entityShape),
 	subject: optionalShape(jsonShape()),
 	definition: optionalShape(jsonShape()),

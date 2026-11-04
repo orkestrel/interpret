@@ -18,6 +18,7 @@ import {
 	applyReplacements,
 	assertRecipe,
 	assignEntities,
+	scanNumbers,
 	buildSubject,
 	canonicalize,
 	canonicalizeNode,
@@ -26,16 +27,15 @@ import {
 	collectRequiredFields,
 	collectShapeDefaults,
 	createNarrator,
-	describeRecipeShape,
+	scanRecipeShape,
 	digestValue,
 	extractNumbers,
 	findEntityField,
 	findAnchoredNumber,
 	findFieldDescription,
-	findForeignNumbers,
 	findUnclaimedNumbers,
-	isArrayField,
-	isFieldFilled,
+	matchesArrayField,
+	matchesFilledField,
 	isInterpretError,
 	matchAlias,
 	matchRecipe,
@@ -115,9 +115,11 @@ describe('extractNumbers', () => {
 
 describe('assignEntities', () => {
 	it('single mapping onto an array field collects every number, one included', () => {
-		const mappings = [{ entity: 'readings', aliases: [], field: 'readings' }]
+		const mappings = [{ entity: 'readings', aliases: ['value', 'values'], field: 'readings' }]
 		const shape = objectShape({ readings: arrayShape(numberShape()) })
-		expect(assignEntities([10, 20, 30], mappings, 'values 10 20 30', 0.8, shape)).toEqual([
+		expect(
+			assignEntities(scanNumbers('values 10 20 30'), mappings, 'values 10 20 30', 0.8, shape),
+		).toEqual([
 			{
 				name: 'readings',
 				value: [10, 20, 30],
@@ -125,7 +127,7 @@ describe('assignEntities', () => {
 				confidence: 0.9,
 			},
 		])
-		expect(assignEntities([42], mappings, 'value 42', 0.8, shape)).toEqual([
+		expect(assignEntities(scanNumbers('value 42'), mappings, 'value 42', 0.8, shape)).toEqual([
 			{
 				name: 'readings',
 				value: [42],
@@ -138,8 +140,12 @@ describe('assignEntities', () => {
 	it('single mapping onto a scalar field takes an anchored number and collects none', () => {
 		const mappings = [{ entity: 'age', aliases: [], field: 'age' }]
 		const shape = objectShape({ age: numberShape() })
-		expect(assignEntities([1, 2], mappings, 'one 1 two 2', 0.8, shape)).toEqual([])
-		expect(assignEntities([25, 1], mappings, 'age 25 and one 1', 0.8, shape)).toEqual([
+		expect(assignEntities(scanNumbers('one 1 two 2'), mappings, 'one 1 two 2', 0.8, shape)).toEqual(
+			[],
+		)
+		expect(
+			assignEntities(scanNumbers('age 25 and one 1'), mappings, 'age 25 and one 1', 0.8, shape),
+		).toEqual([
 			{
 				name: 'age',
 				value: 25,
@@ -155,7 +161,13 @@ describe('assignEntities', () => {
 			{ entity: 'scores', aliases: [], field: 'scores' },
 		]
 		const shape = objectShape({ age: numberShape(), scores: arrayShape(numberShape()) })
-		const entities = assignEntities([25, 7], mappings, 'age 25, scores 7', 0.8, shape)
+		const entities = assignEntities(
+			scanNumbers('age 25, scores 7'),
+			mappings,
+			'age 25, scores 7',
+			0.8,
+			shape,
+		)
 		expect(entities.find((entity) => entity.name === 'scores')?.value).toEqual([7])
 		expect(entities.find((entity) => entity.name === 'age')?.value).toBe(25)
 	})
@@ -166,7 +178,7 @@ describe('assignEntities', () => {
 			{ entity: 'score', aliases: ['credit score'], field: 'score' },
 		]
 		const entities = assignEntities(
-			[0.85, 720],
+			scanNumbers('the rate is 0.85 and the score is 720'),
 			mappings,
 			'the rate is 0.85 and the score is 720',
 			0.8,
@@ -180,7 +192,13 @@ describe('assignEntities', () => {
 
 	it('load-bearing corpus pin: "score 85 near \'score\'" assigns to the score field', () => {
 		const mappings = [{ entity: 'score', aliases: ['credit score'], field: 'score' }]
-		const entities = assignEntities([85], mappings, 'the score is 85', 0.8, OPEN_SHAPE)
+		const entities = assignEntities(
+			scanNumbers('the score is 85'),
+			mappings,
+			'the score is 85',
+			0.8,
+			OPEN_SHAPE,
+		)
 		expect(entities).toEqual([
 			{
 				name: 'score',
@@ -197,14 +215,14 @@ describe('assignEntities', () => {
 			{ entity: 'income', aliases: [], field: 'income' },
 		]
 		const entities = assignEntities(
-			[25, 50000],
+			scanNumbers('age is 25, income was $50,000'),
 			mappings,
 			'age is 25, income was $50,000',
 			0.8,
 			OPEN_SHAPE,
 		)
 		expect(entities.find((entity) => entity.name === 'age')?.value).toBe(25)
-		expect(entities.find((entity) => entity.name === 'income')?.value).toBe(50000)
+		expect(entities.find((entity) => entity.name === 'income')).toBeUndefined()
 	})
 
 	it('locates an entity token holding a regex metacharacter literally', () => {
@@ -213,7 +231,7 @@ describe('assignEntities', () => {
 			{ entity: 'other', aliases: [], field: 'other' },
 		]
 		const entities = assignEntities(
-			[100, 200, 5],
+			scanNumbers('net.pay 100 then netxpay 200 other 5'),
 			mappings,
 			'net.pay 100 then netxpay 200 other 5',
 			0.8,
@@ -232,7 +250,9 @@ describe('assignEntities', () => {
 			{ entity: 'width', aliases: [], field: 'width' },
 			{ entity: 'height', aliases: [], field: 'height' },
 		]
-		expect(assignEntities([4, 8], mappings, 'dimensions 4 8', 0.8, OPEN_SHAPE)).toEqual([])
+		expect(
+			assignEntities(scanNumbers('dimensions 4 8'), mappings, 'dimensions 4 8', 0.8, OPEN_SHAPE),
+		).toEqual([])
 	})
 
 	it('an anchor claims nothing across a clause, nor from a tie', () => {
@@ -241,13 +261,21 @@ describe('assignEntities', () => {
 			{ entity: 'term', aliases: [], field: 'term' },
 		]
 		expect(
-			assignEntities([7], mappings, 'the rate, then term 7', 0.8, OPEN_SHAPE).map(
-				(entity) => entity.name,
-			),
+			assignEntities(
+				scanNumbers('the rate, then term 7'),
+				mappings,
+				'the rate, then term 7',
+				0.8,
+				OPEN_SHAPE,
+			).map((entity) => entity.name),
 		).toEqual(['term'])
-		expect(assignEntities([5, 7], mappings, '5 rate 7', 0.8, OPEN_SHAPE)).toEqual([])
+		expect(assignEntities(scanNumbers('5 rate 7'), mappings, '5 rate 7', 0.8, OPEN_SHAPE)).toEqual(
+			[],
+		)
 		expect(
-			assignEntities([5, 7], mappings, '5  rate 7', 0.8, OPEN_SHAPE).map((entity) => entity.value),
+			assignEntities(scanNumbers('5  rate 7'), mappings, '5  rate 7', 0.8, OPEN_SHAPE).map(
+				(entity) => entity.value,
+			),
 		).toEqual([7])
 	})
 
@@ -256,7 +284,13 @@ describe('assignEntities', () => {
 			{ entity: 'rate', aliases: [], field: 'rate' },
 			{ entity: 'term', aliases: [], field: 'term' },
 		]
-		const entities = assignEntities([7, 900], mappings, 'rate term 7 and more 900', 0.8, OPEN_SHAPE)
+		const entities = assignEntities(
+			scanNumbers('rate term 7 and more 900'),
+			mappings,
+			'rate term 7 and more 900',
+			0.8,
+			OPEN_SHAPE,
+		)
 		expect(entities.map((entity) => entity.name)).toEqual(['term'])
 		expect(entities[0]?.value).toBe(7)
 	})
@@ -266,12 +300,16 @@ describe('assignEntities', () => {
 			{ entity: 'rate', aliases: [], field: 'rate' },
 			{ entity: 'term', aliases: [], field: 'term' },
 		]
-		expect(assignEntities([7], mappings, 'rate 7 term', 0.8, OPEN_SHAPE)).toEqual([])
+		expect(
+			assignEntities(scanNumbers('rate 7 term'), mappings, 'rate 7 term', 0.8, OPEN_SHAPE),
+		).toEqual([])
 	})
 
 	it('an anchor never claims the digits inside its own word', () => {
 		const mappings = [{ entity: '401k', aliases: [], field: 'plan' }]
-		expect(assignEntities([401], mappings, '401k balance', 0.8, OPEN_SHAPE)).toEqual([])
+		expect(
+			assignEntities(scanNumbers('401k balance'), mappings, '401k balance', 0.8, OPEN_SHAPE),
+		).toEqual([])
 	})
 
 	it('a number the extractor did not read shifts nothing and is not claimed', () => {
@@ -280,15 +318,33 @@ describe('assignEntities', () => {
 			{ entity: 'rate', aliases: [], field: 'rate' },
 		]
 		const huge = '9'.repeat(400)
-		const entities = assignEntities([5], mappings, `age ${huge}, rate 5`, 0.8, OPEN_SHAPE)
+		const entities = assignEntities(
+			scanNumbers(`age ${huge}, rate 5`),
+			mappings,
+			`age ${huge}, rate 5`,
+			0.8,
+			OPEN_SHAPE,
+		)
 		expect(entities.map((entity) => [entity.name, entity.value])).toEqual([['rate', 5]])
-		const injected = assignEntities([25], mappings, 'age 25, rate 5', 0.8, OPEN_SHAPE)
+		const injected = assignEntities(
+			scanNumbers('age 25, rate 5').slice(0, 1),
+			mappings,
+			'age 25, rate 5',
+			0.8,
+			OPEN_SHAPE,
+		)
 		expect(injected.map((entity) => [entity.name, entity.value])).toEqual([['age', 25]])
 	})
 
 	it('an anchor after a character that changes length in lower case still sits where it is', () => {
 		const mappings = [{ entity: 'age', aliases: [], field: 'age' }]
-		const entities = assignEntities([30], mappings, '\u0130\u0130 age 30', 0.8, OPEN_SHAPE)
+		const entities = assignEntities(
+			scanNumbers('\u0130\u0130 age 30'),
+			mappings,
+			'\u0130\u0130 age 30',
+			0.8,
+			OPEN_SHAPE,
+		)
 		expect(entities[0]?.value).toBe(30)
 	})
 
@@ -296,7 +352,7 @@ describe('assignEntities', () => {
 		const mappings = [{ entity: 'amount', aliases: ['dollars'], field: 'amount' }]
 		const secondMapping = [{ entity: 'other', aliases: ['euros'], field: 'other' }]
 		const entities = assignEntities(
-			[10, 20],
+			scanNumbers('dollar 10, euro 20'),
 			[...mappings, ...secondMapping],
 			'dollar 10, euro 20',
 			0.5,
@@ -315,7 +371,7 @@ describe('assignEntities', () => {
 			{ entity: 'score', aliases: ['credit score'], field: 'score' },
 		]
 		const entities = assignEntities(
-			[25, 720],
+			scanNumbers('25 year old with score 720'),
 			mappings,
 			'25 year old with score 720',
 			0.8,
@@ -331,8 +387,8 @@ describe('assignEntities', () => {
 			{ entity: 'income', aliases: [], field: 'income' },
 		]
 		const text = 'age is 25, income was $50,000'
-		expect(assignEntities([25, 50000], mappings, text, 0.8, OPEN_SHAPE)).toEqual(
-			assignEntities([25, 50000], mappings, text, 0.8, OPEN_SHAPE),
+		expect(assignEntities(scanNumbers(text), mappings, text, 0.8, OPEN_SHAPE)).toEqual(
+			assignEntities(scanNumbers(text), mappings, text, 0.8, OPEN_SHAPE),
 		)
 	})
 })
@@ -727,7 +783,7 @@ describe("the recipe's shape", () => {
 		).toEqual({ age: 25, terms: { rate: 3 } })
 	})
 
-	it('isArrayField reads an array and a nullable array, and nothing else', () => {
+	it('matchesArrayField reads an array and a nullable array, and nothing else', () => {
 		const shape = objectShape({
 			a: arrayShape(numberShape()),
 			b: nullableShape(arrayShape(numberShape())),
@@ -735,18 +791,18 @@ describe("the recipe's shape", () => {
 			d: numberShape(),
 			e: nullableShape(numberShape()),
 		})
-		expect(isArrayField(shape, 'a')).toBe(true)
-		expect(isArrayField(shape, 'b')).toBe(true)
-		expect(isArrayField(shape, 'c')).toBe(true)
-		expect(isArrayField(shape, 'd')).toBe(false)
-		expect(isArrayField(shape, 'e')).toBe(false)
-		expect(isArrayField(shape, 'absent')).toBe(false)
+		expect(matchesArrayField(shape, 'a')).toBe(true)
+		expect(matchesArrayField(shape, 'b')).toBe(true)
+		expect(matchesArrayField(shape, 'c')).toBe(true)
+		expect(matchesArrayField(shape, 'd')).toBe(false)
+		expect(matchesArrayField(shape, 'e')).toBe(false)
+		expect(matchesArrayField(shape, 'absent')).toBe(false)
 	})
 
 	it('findUnclaimedNumbers takes one number per claim, and reads an array by element', () => {
-		expect(findUnclaimedNumbers([25, 700], [entity])).toEqual([700])
-		expect(findUnclaimedNumbers([25, 25], [entity])).toEqual([25])
-		expect(findUnclaimedNumbers([1, 2, 3], [{ ...entity, value: [1, 3] }])).toEqual([2])
+		expect(findUnclaimedNumbers(scanNumbers('25 700'), [entity])).toEqual([700])
+		expect(findUnclaimedNumbers(scanNumbers('25 25'), [entity])).toEqual([25])
+		expect(findUnclaimedNumbers(scanNumbers('1 2 3'), [{ ...entity, value: [1, 3] }])).toEqual([2])
 		expect(findUnclaimedNumbers([], [entity])).toEqual([])
 	})
 
@@ -871,7 +927,7 @@ describe("the recipe's shape", () => {
 		expect(settled[0]).toBe(entity)
 	})
 
-	it('describeRecipeShape reads the shape, what is mapped, and what is computed', () => {
+	it('scanRecipeShape reads the shape, what is mapped, and what is computed', () => {
 		const recipe = buildInterpretRecipe({
 			mappings: [
 				{ entity: 'age', aliases: [], field: 'age' },
@@ -880,14 +936,14 @@ describe("the recipe's shape", () => {
 			computations: [{ field: 'total', expression: createConstant(1) }],
 			shape: objectShape({ age: numberShape() }),
 		})
-		expect(describeRecipeShape(recipe)).toEqual([
+		expect(scanRecipeShape(recipe)).toEqual([
 			'Field "agee" is mapped, and the shape does not declare it',
 			'Field "total" is computed, and the shape does not declare it',
 		])
-		expect(describeRecipeShape(buildInterpretRecipe({ shape: numberShape() }))).toEqual(
+		expect(scanRecipeShape(buildInterpretRecipe({ shape: numberShape() }))).toEqual(
 			expect.arrayContaining(['Shape must describe an object']),
 		)
-		expect(describeRecipeShape(buildInterpretRecipe())).toEqual([])
+		expect(scanRecipeShape(buildInterpretRecipe())).toEqual([])
 	})
 
 	it('assertRecipe throws DEFINITION with what is wrong, and passes what stands', () => {
@@ -958,18 +1014,18 @@ describe('choosing a recipe asks rather than picks', () => {
 })
 
 describe('a recipe that cannot work', () => {
-	it('describeRecipeShape names a required field nothing fills', () => {
+	it('scanRecipeShape names a required field nothing fills', () => {
 		const recipe = buildInterpretRecipe({
 			mappings: [],
 			shape: objectShape({ age: numberShape(), terms: objectShape({ rate: numberShape() }) }),
 		})
-		expect(describeRecipeShape(recipe)).toEqual([
+		expect(scanRecipeShape(recipe)).toEqual([
 			'Field "age" is required, and no mapping or computation fills it',
 			'Field "terms.rate" is required, and no mapping or computation fills it',
 		])
 	})
 
-	it('describeRecipeShape takes a mapping above or below a required field', () => {
+	it('scanRecipeShape takes a mapping above or below a required field', () => {
 		const below = buildInterpretRecipe({
 			mappings: [{ entity: 'rate', aliases: [], field: ['terms', 'rate'] }],
 			shape: objectShape({ terms: objectShape({ rate: numberShape() }) }),
@@ -978,23 +1034,23 @@ describe('a recipe that cannot work', () => {
 			mappings: [{ entity: 'terms', aliases: [], field: 'terms' }],
 			shape: objectShape({ terms: objectShape({ rate: numberShape() }) }),
 		})
-		expect(describeRecipeShape(below)).toEqual([])
-		expect(describeRecipeShape(above)).toEqual([])
+		expect(scanRecipeShape(below)).toEqual([])
+		expect(scanRecipeShape(above)).toEqual([])
 	})
 
-	it('describeRecipeShape names a variable nothing fills, and takes an element of a field', () => {
+	it('scanRecipeShape names a variable nothing fills, and takes an element of a field', () => {
 		const typo = buildInterpretRecipe({
 			mappings: [{ entity: 'value', aliases: [], field: 'value' }],
 			computations: [{ field: 'total', expression: createVariable('valuee') }],
 		})
-		expect(describeRecipeShape(typo)).toEqual([
+		expect(scanRecipeShape(typo)).toEqual([
 			'Computation of "total" reads "valuee", which nothing fills',
 		])
 		const element = buildInterpretRecipe({
 			mappings: [{ entity: 'value', aliases: [], field: 'value' }],
 			computations: [{ field: 'total', expression: createVariable('value.0') }],
 		})
-		expect(describeRecipeShape(element)).toEqual([])
+		expect(scanRecipeShape(element)).toEqual([])
 		const defaulted = buildInterpretRecipe({
 			mappings: [],
 			computations: [{ field: 'total', expression: createVariable('rate') }],
@@ -1003,12 +1059,12 @@ describe('a recipe that cannot work', () => {
 				total: numberShape(),
 			}),
 		})
-		expect(describeRecipeShape(defaulted)).toEqual([])
+		expect(scanRecipeShape(defaulted)).toEqual([])
 	})
 
-	it('describeRecipeShape names a shape that does not compile', () => {
+	it('scanRecipeShape names a shape that does not compile', () => {
 		const recipe = buildInterpretRecipe({ mappings: [], shape: UNCOMPILABLE_SHAPE })
-		const errors = describeRecipeShape(recipe)
+		const errors = scanRecipeShape(recipe)
 		expect(errors).toHaveLength(1)
 		expect(errors[0]).toContain('Shape does not compile')
 	})
@@ -1027,12 +1083,12 @@ describe('a recipe that cannot work', () => {
 		expect(collectRequiredFields(OPEN_SHAPE)).toEqual([])
 	})
 
-	it('isFieldFilled takes the field, one above it, or one inside it, and never a near name', () => {
-		expect(isFieldFilled('a', ['a'])).toBe(true)
-		expect(isFieldFilled('a.b', ['a'])).toBe(true)
-		expect(isFieldFilled('a', ['a.b'])).toBe(true)
-		expect(isFieldFilled('a', ['ab'])).toBe(false)
-		expect(isFieldFilled('a', [])).toBe(false)
+	it('matchesFilledField takes the field, one above it, or one inside it, and never a near name', () => {
+		expect(matchesFilledField('a', ['a'])).toBe(true)
+		expect(matchesFilledField('a.b', ['a'])).toBe(true)
+		expect(matchesFilledField('a', ['a.b'])).toBe(true)
+		expect(matchesFilledField('a', ['ab'])).toBe(false)
+		expect(matchesFilledField('a', [])).toBe(false)
 	})
 })
 
@@ -1047,14 +1103,8 @@ describe('reading what a text holds beside a recipe', () => {
 		expect(digestValue({ a: 1n })).not.toBe(digestValue({ a: 2n }))
 	})
 
-	it('findForeignNumbers answers in the digit runs extractNumbers reads', () => {
-		expect(findForeignNumbers('call 555-0142 about 40 hours')).toEqual([555, 142])
-		expect(findForeignNumbers('in 2019, 40 hours')).toEqual([2019])
-		expect(findForeignNumbers('40 hours')).toEqual([])
-	})
-
 	it('findUnclaimedNumbers sets aside what belongs to no quantity', () => {
-		expect(findUnclaimedNumbers([2019, 40], [], [2019])).toEqual([40])
-		expect(findUnclaimedNumbers([2019, 2019], [], [2019])).toEqual([2019])
+		expect(findUnclaimedNumbers(scanNumbers('in 2019, 40 hours'), [])).toEqual([40])
+		expect(findUnclaimedNumbers(scanNumbers('call 555-0142 about 40 hours'), [])).toEqual([40])
 	})
 })

@@ -226,6 +226,8 @@ export interface TextSpan {
  * it is money, "20s". `spoken` — "twelve fifty". `joined` — "two thousand and five hundred" joined
  * ambiguously. `frequency` — "twice a week". `loose` — "a couple". `range` — "12 to 18", "5 or 6".
  * `dimensions` — "20 x 30". `overflow` — past what a number holds exactly.
+ * `precision` — scaling would change under six-decimal rounding. Unsupported exponents use
+ * `shorthand`; unsupported scale compositions use `joined`.
  */
 export type NumberUnreadable =
 	| 'fraction'
@@ -240,6 +242,7 @@ export type NumberUnreadable =
 	| 'range'
 	| 'dimensions'
 	| 'overflow'
+	| 'precision'
 
 /** Names what a number that belongs to no quantity is: a year, a date, a time, a reference, and so on. */
 export type NumberForeign =
@@ -267,7 +270,7 @@ export type NumberForeign =
  * and `unit` say what it measures, `scaled` that a suffix multiplied it, and `word` that it was
  * written out. `hedged` says the writer marks it inexact, `suspect` that the sentence dates, corrects,
  * or negates it, `changed` that the sentence holds a change word, and `composite` that it needs
- * arithmetic. `loose`, `magnitude`, `weak`, `tail`, `yearish`, and `phoneLike` are weaker readings
+ * arithmetic. `loose`, `magnitude`, `weak`, `tail`, `yearish`, and `phone` are weaker readings
  * for a caller to weigh. `reference` names the word that introduced it as an identifier. `sentence`
  * and `segment` count where it sits.
  */
@@ -289,7 +292,7 @@ export interface ReadNumber extends TextSpan {
 	readonly weak?: boolean
 	readonly tail?: boolean
 	readonly yearish?: boolean
-	readonly phoneLike?: boolean
+	readonly phone?: boolean
 	readonly reference?: string
 	readonly unit?: string
 	readonly sentence: number
@@ -304,11 +307,11 @@ export interface ReaderMarks extends Omit<ReadNumber, 'raw' | 'start' | 'unit'> 
 	readonly index: number
 	readonly attached?: boolean
 	readonly glued?: boolean
-	readonly wordGlue?: boolean
+	readonly abbreviated?: boolean
 }
 
 /** Represents a written-out cardinal as far as it has been read. */
-export interface CardinalReading {
+export interface CardinalResult {
 	readonly value: number
 	readonly part: number
 	readonly next: number
@@ -318,7 +321,7 @@ export interface CardinalReading {
 }
 
 /** Represents a written-out number, as the token it reads to and where the walk resumes. */
-export interface WordNumberReading {
+export interface WordNumberResult {
 	readonly token: ReaderTokenInterface
 	readonly next: number
 }
@@ -429,11 +432,11 @@ export interface GenerateResult {
  * is also absent while a required ambiguity is open, because a subject the door refused
  * is no subject. An interpretation is complete when `ambiguities` and `failures` are
  * both empty; no stored flag repeats that fact. `repairs` and `defaulted` are what
- * the door accepted and filled. `recipe` and `recipeVersion` name the recipe matched, since a
+ * the door accepted and filled. `recipe` and `version` name the recipe matched, since a
  * `definition`'s id is independent of it. `stages` always holds one record per
  * phase, `[normalize, extract, clarify, format, generate]`,
  * in order. `digest` is `digestValue` over `{text, recipeId,
- * recipeVersion, subject, definition}` — re-running the same original text
+ * version, subject, definition}` — re-running the same original text
  * against the same recipe version reproduces the same digest (the replay
  * contract).
  */
@@ -442,7 +445,7 @@ export interface Interpretation {
 	readonly normalized: string
 	readonly intent: Intent
 	readonly recipe?: string
-	readonly recipeVersion?: number
+	readonly version?: number
 	readonly entities: readonly Entity[]
 	readonly subject?: Subject
 	readonly definition?: Definition
@@ -908,7 +911,7 @@ export interface ClarifierInterface {
 		recipe: Recipe,
 		context: InterpretContextInterface | undefined,
 		intent: Intent,
-		unclaimed?: readonly number[],
+		unclaimed?: ReadonlyArray<number | string>,
 	): ClarifyResult
 }
 

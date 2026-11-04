@@ -65,8 +65,7 @@ export const CONFIDENCE_COMPUTED = 0.9
 export const CLAUSE_BREAK_PATTERN = /[!?;\n]|[.,](?!\d)|\b(?:and|but|while|though|although)\b/gi
 
 /**
- * Holds the numeric-entity extraction pattern shared by `extractNumbers` and
- * `assignEntities` — an optional leading `$`, thousands-comma-grouped digits,
+ * Holds the digit-only pattern for `extractNumbers`: an optional currency prefix, grouped digits,
  * an optional decimal fraction, and an optional trailing `%`.
  *
  * @remarks
@@ -420,6 +419,7 @@ export const NUMBER_UNREADABLE_REASONS: readonly NumberUnreadable[] = Object.fre
 	'range',
 	'dimensions',
 	'overflow',
+	'precision',
 ])
 
 /** Lists every `NumberForeign` kind, frozen, for the shape that describes a read number. */

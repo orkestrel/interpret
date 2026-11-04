@@ -1,10 +1,10 @@
 import type {
-	CardinalReading,
+	CardinalResult,
 	NumberForeign,
 	ReaderMarks,
 	ReaderTokenInterface,
 	ReadNumber,
-	WordNumberReading,
+	WordNumberResult,
 } from './types.js'
 import { READER_SCALES, READER_SHAPES, READER_WORDS } from './constants.js'
 import { ReaderToken } from './ReaderToken.js'
@@ -25,7 +25,7 @@ export class NumberReader {
 	// A scanner's cursors: the pass's place, the place absorbing units, and the cardinal being read.
 	#at = 0
 	#cursor = 0
-	#cardinal: CardinalReading = { value: 0, part: 0, next: 0, last: '', money: false }
+	#cardinal: CardinalResult = { value: 0, part: 0, next: 0, last: '', money: false }
 
 	read(text: string): readonly ReadNumber[] {
 		const tokens = this.#annotate(this.#markPairs(this.#mergeNumbers(this.#scan(text))))
@@ -115,7 +115,7 @@ export class NumberReader {
 		}
 		if (glued && this.#isDigit(source[at + 1]) && last?.form === 'word') {
 			const mark = new ReaderToken('mark', '-', 'glue', 'glue', at, at + 1)
-			mark.mark({ wordGlue: last.lower.length <= 2 })
+			mark.mark({ abbreviated: last.lower.length <= 2 })
 			tokens.push(mark)
 			return at + 1
 		}
@@ -192,6 +192,11 @@ export class NumberReader {
 
 	// Letters glued to a literal: an ordinal, a clock suffix, shorthand, or a word for the walkers.
 	#readSuffix(source: string, token: ReaderTokenInterface): void {
+		const exponent = /^[eE][+-]?\d+/.exec(source.slice(token.marks.end))?.[0]
+		if (exponent !== undefined) {
+			token.mark({ unreadable: 'shorthand', end: token.marks.end + exponent.length })
+			return
+		}
 		const letters = /^[a-z]+/i.exec(source.slice(token.marks.end))?.[0]
 		if (letters === undefined) return
 		const suffix = letters.toLowerCase()
@@ -216,8 +221,14 @@ export class NumberReader {
 
 	#scale(token: ReaderTokenInterface, scale: number): void {
 		const { value } = token.marks
+		const product = value === undefined ? undefined : value * scale
 		token.mark({
-			...(value === undefined ? {} : { value: Number((value * scale).toFixed(6)) }),
+			...(product === undefined ? {} : { value: product }),
+			...(token.marks.scaled === true
+				? { unreadable: 'joined' as const }
+				: product !== undefined && Number(product.toFixed(6)) !== product
+					? { unreadable: 'precision' as const }
+					: {}),
 			scaled: true,
 		})
 	}
@@ -248,7 +259,7 @@ export class NumberReader {
 	}
 
 	// A strict cardinal grammar. A spoken pairing such as "twelve fifty" reads as unreadable, never a guess.
-	#readCardinal(raw: readonly ReaderTokenInterface[], first: number): CardinalReading {
+	#readCardinal(raw: readonly ReaderTokenInterface[], first: number): CardinalResult {
 		const article = raw[first]?.lower === 'a' || raw[first]?.lower === 'an'
 		this.#cardinal = {
 			value: 0,
@@ -284,6 +295,9 @@ export class NumberReader {
 		const scale = this.#own(READER_SCALES.word, word)
 		if (scale !== undefined) {
 			return this.#growCardinal({
+				...(last === 'scale' || (value > 0 && scale >= value)
+					? { unreadable: 'joined' as const }
+					: {}),
 				value: value + whole * scale,
 				part: 0,
 				last: 'scale',
@@ -296,7 +310,7 @@ export class NumberReader {
 		return false
 	}
 
-	#growCardinal(reading: Partial<CardinalReading>): true {
+	#growCardinal(reading: Partial<CardinalResult>): true {
 		this.#cardinal = { ...this.#cardinal, ...reading, next: this.#cardinal.next + 1 }
 		return true
 	}
@@ -328,7 +342,7 @@ export class NumberReader {
 	#readWordNumber(
 		raw: readonly ReaderTokenInterface[],
 		index: number,
-	): WordNumberReading | undefined {
+	): WordNumberResult | undefined {
 		const token = raw[index]
 		if (token === undefined) return undefined
 		const next = raw[index + 1]
@@ -387,7 +401,7 @@ export class NumberReader {
 		}
 	}
 
-	#readHalf(raw: readonly ReaderTokenInterface[], index: number): WordNumberReading | undefined {
+	#readHalf(raw: readonly ReaderTokenInterface[], index: number): WordNumberResult | undefined {
 		const next = raw[index + 1]
 		if (raw[index - 1]?.lower === 'a' && raw[index - 2]?.lower === 'and') {
 			return {
@@ -413,7 +427,7 @@ export class NumberReader {
 		}
 	}
 
-	#readLoose(raw: readonly ReaderTokenInterface[], index: number): WordNumberReading {
+	#readLoose(raw: readonly ReaderTokenInterface[], index: number): WordNumberResult {
 		const hop = raw[index + 1]?.lower === 'of' ? 2 : 1
 		const follow = raw[index + hop]?.lower ?? ''
 		if (READER_WORDS.magnitudes.has(follow) || follow === 'dollars' || follow === 'bucks') {
@@ -521,7 +535,7 @@ export class NumberReader {
 		}
 		if (token.lower === 'glue') {
 			const next = raw[index + 1]
-			if (token.marks.wordGlue === true && next?.form === 'number') {
+			if (token.marks.abbreviated === true && next?.form === 'number') {
 				next.mark({ foreign: 'identifier' })
 			}
 			return index + 1
@@ -674,7 +688,7 @@ export class NumberReader {
 		) {
 			token.mark({ foreign: 'address' })
 		}
-		if (/^\d{7,}$/.test(token.raw) && scaled !== true) token.mark({ phoneLike: true })
+		if (/^\d{7,}$/.test(token.raw) && scaled !== true) token.mark({ phone: true })
 		if (/^(?:19|20)\d{2}$/.test(token.raw) && scaled !== true) {
 			const nextIsHead = nextWord?.form === 'word' && !READER_WORDS.functions.has(nextWord.lower)
 			if (unreadable === 'range' || (READER_WORDS.yearCues.has(before ?? '') && !nextIsHead)) {
@@ -812,7 +826,7 @@ export class NumberReader {
 			...(marks.weak === true ? { weak: true } : {}),
 			...(marks.tail === true ? { tail: true } : {}),
 			...(marks.yearish === true ? { yearish: true } : {}),
-			...(marks.phoneLike === true ? { phoneLike: true } : {}),
+			...(marks.phone === true ? { phone: true } : {}),
 			...(marks.reference === undefined ? {} : { reference: marks.reference }),
 			...(unit !== undefined && READER_WORDS.generalUnits.has(unit.canon)
 				? { unit: unit.canon }

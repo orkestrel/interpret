@@ -7,7 +7,7 @@ import { interpretationShape, readNumberShape } from './shapers.js'
 export const interpretationContract: ContractInterface<unknown> =
 	createContract(interpretationShape)
 
-/** Publishes what `readNumbers` returns as a contract. */
+/** Publishes what `scanNumbers` returns as a contract. */
 export const readNumbersContract: ContractInterface<unknown> = createContract(
 	arrayShape(readNumberShape),
 )

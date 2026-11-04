@@ -312,7 +312,9 @@ export function createNarrator(options?: NarratorOptions): NarratorInterface {
  * Creates a `Recipe` as a contract. Cross it on `is`, never `parse`.
  *
  * @remarks
- * A function because a definition's shape is recursive and costs at import.
+ * A function because a definition's shape is recursive and costs at import. `is` reads a nested
+ * `shape` as any JSON value and the guard reads it as a shape, so a recipe crossing a boundary goes
+ * through `isRecipe` as well.
  *
  * @returns The recipe's contract
  *

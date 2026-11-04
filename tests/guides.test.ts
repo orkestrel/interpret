@@ -57,6 +57,7 @@ await new GuideCommand({
 	const {
 		applyReplacements,
 		assignEntities,
+		scanNumbers,
 		canonicalize,
 		canonicalizeNode,
 		CONFIDENCE_ALIAS,
@@ -401,7 +402,7 @@ await new GuideCommand({
 			expect(scoreSimilarity('rate', 'rate')).toBe(1)
 			expect(matchAlias('valu', ['value', 'amount'], 0.6)).toBeCloseTo(0.86, 2)
 			const assigned = assignEntities(
-				[25, 720],
+				scanNumbers('age 25 with score 720'),
 				[
 					{ entity: 'age', aliases: ['years old'], field: 'age' },
 					{ entity: 'score', aliases: ['credit score'], field: 'score' },

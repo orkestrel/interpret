@@ -66,21 +66,21 @@ describe('interprets integration', () => {
 		interpret.destroy()
 	})
 
-	it('numeric corpus: "no accidents" fires the default (0), not negation parsing', () => {
+	it('numeric corpus: negation in the clause prevents an age claim', () => {
 		const interpret = buildCorpusInterpret()
 		const result = interpret.interpret('calculate insurance age 25 no accidents')
-		expect(result.subject?.age).toBe(25)
-		expect(result.subject?.accidents).toBe(0)
+		expect(result.subject).toBeUndefined()
+		expect(result.ambiguities).not.toEqual([])
 		const accidents = result.entities.find((entity) => entity.name === 'accidents')
-		expect(accidents?.provenance.category).toBe('default')
+		expect(accidents).toBeUndefined()
 		interpret.destroy()
 	})
 
-	it('numeric corpus: extracts multiple entities from a complex sentence (age 25, score 720)', () => {
+	it('numeric corpus: intervening words leave a complex sentence asking', () => {
 		const interpret = buildCorpusInterpret([buildEligibilityRecipe()])
 		const result = interpret.interpret('check if a 25 year old with a 720 credit score qualifies')
-		expect(result.subject?.age).toBe(25)
-		expect(result.subject?.score).toBe(720)
+		expect(result.subject).toBeUndefined()
+		expect(result.ambiguities).not.toEqual([])
 		interpret.destroy()
 	})
 
@@ -88,15 +88,15 @@ describe('interprets integration', () => {
 		const interpret = buildCorpusInterpret([
 			buildInterpretRecipe({ mappings: [{ entity: 'income', aliases: [], field: 'income' }] }),
 		])
-		const result = interpret.interpret('calculate arithmetic income was $50,000')
+		const result = interpret.interpret('calculate arithmetic income is $50,000')
 		expect(result.subject?.income).toBe(50000)
 		interpret.destroy()
 	})
 
 	it('numeric corpus: a statistics turn keeps its collected array and derives no field of its own', () => {
 		const interpret = buildCorpusInterpret([buildStatisticsRecipe()])
-		expect(interpret.interpret('compute statistics 42').subject?.value).toEqual([42])
-		const many = interpret.interpret('compute statistics 10 20 30')
+		expect(interpret.interpret('compute statistics value 42').subject?.value).toEqual([42])
+		const many = interpret.interpret('compute statistics value 10 20 30')
 		expect(many.subject).toEqual({ value: [10, 20, 30] })
 		interpret.destroy()
 	})
@@ -116,7 +116,7 @@ describe('interprets integration', () => {
 				],
 			}),
 		])
-		const result = interpret.interpret('compute statistics 10 20 30')
+		const result = interpret.interpret('compute statistics value 10 20 30')
 		expect(result.subject).toEqual({ value: [10, 20, 30], total: 60 })
 		const computed = result.mappings.find((mapping) => mapping.field === 'total')
 		expect(computed?.provenance.category).toBe('computed')

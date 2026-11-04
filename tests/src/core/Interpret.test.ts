@@ -7,6 +7,7 @@ import type {
 	NormalizerInterface,
 } from '@src/core'
 import {
+	arrayShape,
 	isRecord,
 	isString,
 	numberShape,
@@ -55,6 +56,131 @@ import {
 // reverse passthroughs, emitter, and DESTROYED teardown.
 
 describe('Interpret', () => {
+	it('asks rather than collecting an empty array from unreadable input', () => {
+		const interpret = new Interpret({
+			recipes: [buildInterpretRecipe({ shape: objectShape({ value: arrayShape(numberShape()) }) })],
+			extractor: createCorpusExtractor(),
+		})
+		const result = interpret.interpret('calculate arithmetic value 1.2M')
+		expect(result.subject).toBeUndefined()
+		expect(result.ambiguities).not.toEqual([])
+		interpret.destroy()
+	})
+
+	it('asks on an unclaimed number but retains a default beside a phone', () => {
+		const interpret = new Interpret({
+			recipes: [
+				buildInterpretRecipe({
+					shape: objectShape({ value: optionalShape(numberShape(), { default: 10 }) }),
+				}),
+			],
+			extractor: createCorpusExtractor(),
+		})
+		const asked = interpret.interpret('calculate arithmetic 42')
+		expect(asked.subject).toBeUndefined()
+		expect(asked.ambiguities[0]?.candidates).toEqual(['42'])
+		const phone = interpret.interpret('calculate arithmetic call 555-0142')
+		expect(phone.subject).toEqual({ value: 10 })
+		expect(phone.ambiguities).toEqual([])
+		interpret.destroy()
+	})
+
+	it('requires an anchor before collecting an array mapping', () => {
+		const interpret = new Interpret({
+			recipes: [buildInterpretRecipe({ shape: objectShape({ value: arrayShape(numberShape()) }) })],
+			extractor: createCorpusExtractor(),
+		})
+		const result = interpret.interpret('calculate arithmetic 42')
+		expect(result.subject).toBeUndefined()
+		expect(result.ambiguities).not.toEqual([])
+		expect(result.failures).toEqual([])
+		interpret.destroy()
+	})
+
+	it('refuses a negated anchored value', () => {
+		const interpret = new Interpret({
+			recipes: [buildInterpretRecipe({ shape: objectShape({ value: numberShape() }) })],
+			extractor: createCorpusExtractor(),
+		})
+		const result = interpret.interpret('calculate arithmetic value is not 20')
+		expect(result.subject).toBeUndefined()
+		expect(result.ambiguities).not.toEqual([])
+		expect(result.failures).toEqual([])
+		interpret.destroy()
+	})
+
+	it('refuses an intervening population phrase', () => {
+		const interpret = new Interpret({
+			recipes: [buildInterpretRecipe({ shape: objectShape({ value: numberShape() }) })],
+			extractor: createCorpusExtractor(),
+		})
+		const result = interpret.interpret('calculate arithmetic value for 20 people')
+		expect(result.subject).toBeUndefined()
+		expect(result.ambiguities).not.toEqual([])
+		expect(result.failures).toEqual([])
+		interpret.destroy()
+	})
+
+	it('refuses an intervening unknown fee phrase', () => {
+		const interpret = new Interpret({
+			recipes: [buildInterpretRecipe({ shape: objectShape({ value: numberShape() }) })],
+			extractor: createCorpusExtractor(),
+		})
+		const result = interpret.interpret('calculate arithmetic value unknown fee 20')
+		expect(result.subject).toBeUndefined()
+		expect(result.ambiguities).not.toEqual([])
+		expect(result.failures).toEqual([])
+		interpret.destroy()
+	})
+
+	it('assigns the exact shorthand value instead of its digit fragment', () => {
+		const interpret = new Interpret({
+			recipes: [buildInterpretRecipe({ shape: objectShape({ value: numberShape() }) })],
+			extractor: createCorpusExtractor(),
+		})
+		const result = interpret.interpret('calculate arithmetic value 50k')
+		expect(result.subject).toEqual({ value: 50000 })
+		expect(result.ambiguities).toEqual([])
+		expect(result.failures).toEqual([])
+		interpret.destroy()
+	})
+
+	it('assigns the exact monetary scale instead of its digit fragment', () => {
+		const interpret = new Interpret({
+			recipes: [buildInterpretRecipe({ shape: objectShape({ value: numberShape() }) })],
+			extractor: createCorpusExtractor(),
+		})
+		const result = interpret.interpret('calculate arithmetic value $1.2M')
+		expect(result.subject).toEqual({ value: 1200000 })
+		expect(result.ambiguities).toEqual([])
+		expect(result.failures).toEqual([])
+		interpret.destroy()
+	})
+
+	it('asks instead of assigning a range fragment', () => {
+		const interpret = new Interpret({
+			recipes: [buildInterpretRecipe({ shape: objectShape({ value: numberShape() }) })],
+			extractor: createCorpusExtractor(),
+		})
+		const result = interpret.interpret('calculate arithmetic value 3-4')
+		expect(result.subject).toBeUndefined()
+		expect(result.ambiguities).not.toEqual([])
+		expect(result.failures).toEqual([])
+		interpret.destroy()
+	})
+
+	it('asks instead of assigning an unreadable shorthand value', () => {
+		const interpret = new Interpret({
+			recipes: [buildInterpretRecipe({ shape: objectShape({ value: numberShape() }) })],
+			extractor: createCorpusExtractor(),
+		})
+		const result = interpret.interpret('calculate arithmetic value 1.2M')
+		expect(result.subject).toBeUndefined()
+		expect(result.ambiguities).not.toEqual([])
+		expect(result.failures).toEqual([])
+		interpret.destroy()
+	})
+
 	describe('registry', () => {
 		it('adds, looks up, lists, and removes recipes as plain data', () => {
 			const interpret = new Interpret()
@@ -113,7 +239,7 @@ describe('Interpret', () => {
 				digestValue({
 					text: 'calculate insurance age 25',
 					recipeId: 'insurance-auto',
-					recipeVersion: 1,
+					version: 1,
 					subject: result.subject,
 					definition: result.definition,
 				}),
@@ -192,7 +318,7 @@ describe('Interpret', () => {
 				digestValue({
 					text: 'what is the meaning of life',
 					recipeId: undefined,
-					recipeVersion: undefined,
+					version: undefined,
 					subject: undefined,
 					definition: undefined,
 				}),
@@ -419,7 +545,7 @@ describe("Interpret — the recipe's shape", () => {
 			digestValue({
 				text: 'calculate insurance',
 				recipeId: recipe.id,
-				recipeVersion: 1,
+				version: 1,
 				subject: undefined,
 				definition: recipe.definition,
 			}),
@@ -625,7 +751,7 @@ describe('Interpret — which recipe was chosen', () => {
 		const interpret = new Interpret({ recipes: [recipe], extractor: createCorpusExtractor() })
 		const result = interpret.interpret('calculate insurance age 25')
 		expect(result.recipe).toBe('chosen')
-		expect(result.recipeVersion).toBe(1)
+		expect(result.version).toBe(1)
 		expect(result.definition?.id).toBe('insurance-auto')
 		interpret.destroy()
 	})
@@ -861,6 +987,15 @@ describe('Interpret — boundaries of what crosses', () => {
 			expect(contract.is(generated)).toBe(true)
 			const shapeless = asRecord(dropRecipeShapes(generated))
 			expect(isRecipe({ ...shapeless, shape: objectShape({}) })).toBe(true)
+		}
+	})
+
+	it('names the gap: is admits a malformed nested shape, and the guard refuses it', () => {
+		const contract = createRecipeContract()
+		const recipe = asRecord(dropRecipeShapes(contract.generate(seededRandom(1))))
+		for (const shape of [42, null, {}, { type: 'nonsense' }]) {
+			expect(contract.is({ ...recipe, shape })).toBe(true)
+			expect(isRecipe({ ...recipe, shape })).toBe(false)
 		}
 	})
 })

@@ -7,6 +7,7 @@ import type {
 	Interpretation,
 	NarratorInterface,
 	Recipe,
+	ReadNumber,
 	ShapeDefault,
 	TextSpan,
 } from './types.js'
@@ -198,12 +199,12 @@ export function extractNumbers(text: string): readonly number[] {
 }
 
 /**
- * Finds the one number an anchor can claim: the nearest in its clause, when no other sits as close.
+ * Finds the nearest directly linked number in an unnegated clause, refusing ties.
  *
  * @remarks
  * Closeness is the gap between the two spans, so a number before an anchor and one after it are
- * measured alike. Distance across a clause is a guess, and so is a tie, so either leaves the
- * anchor with no number and its field to ask.
+ * measured alike. Only whitespace, `is`, `of`, `at`, `to`, `=`, `:`, and articles may link
+ * the spans. Negation in the clause, other intervening text, and ties leave the field to ask.
  *
  * @param text - The text
  * @param anchor - Where the anchor sits
@@ -234,10 +235,17 @@ export function findAnchoredNumber(
 		0,
 	)
 	const end = breaks.find((found) => found.index >= anchor.end)?.index ?? text.length
+	if (/\b(?:not|no|never|neither|nor|cannot)\b|n['’]t\b/i.test(text.slice(start, end)))
+		return undefined
 	const gaps = [...numbers.entries()]
 		.filter(([, number]) => number.start >= start && number.start < end)
 		// A digit inside the anchor's own word, the 401 of `401k`, is no number beside it.
 		.filter(([, number]) => number.end <= anchor.start || number.start >= anchor.end)
+		.filter(([, number]) =>
+			/^(?:\s|=|:|\b(?:is|of|at|to|a|an|the)\b)*$/i.test(
+				text.slice(Math.min(anchor.end, number.end), Math.max(anchor.start, number.start)),
+			),
+		)
 		.map(([index, number]) => ({
 			index,
 			gap: Math.max(number.start - anchor.end, anchor.start - number.end, 0),
@@ -734,14 +742,14 @@ export function buildSubject(
  * @example
  * ```ts
  * import { arrayShape, numberShape, objectShape } from '@orkestrel/contract'
- * import { isArrayField } from '@orkestrel/interpret'
+ * import { matchesArrayField } from '@orkestrel/interpret'
  *
  * const shape = objectShape({ values: arrayShape(numberShape()), age: numberShape() })
- * isArrayField(shape, 'values') // true
- * isArrayField(shape, 'age')    // false
+ * matchesArrayField(shape, 'values') // true
+ * matchesArrayField(shape, 'age')    // false
  * ```
  */
-export function isArrayField(shape: ContractShape, field: FieldPath): boolean {
+export function matchesArrayField(shape: ContractShape, field: FieldPath): boolean {
 	const read = findFieldShape(shape, field).shape
 	return read?.category === 'nullable'
 		? read.inner.category === 'array'
@@ -753,37 +761,37 @@ export function isArrayField(shape: ContractShape, field: FieldPath): boolean {
  *
  * @remarks
  * Each number claims one entity's value, so a number stated twice and read once leaves one
- * behind. An entity holding an array claims each of its elements.
+ * behind. An entity holding an array claims each of its elements. Foreign occurrences are
+ * set aside. Unreadable occurrences contribute their text instead of an inferred value.
  *
  * @param numbers - The numbers read from the text
  * @param entities - The entities assigned from them
- * @param foreign - The numbers that belong to no quantity, which no field could hold
  * @returns The numbers left over, in the order read
  *
  * @example
  * ```ts
- * import { findUnclaimedNumbers } from '@orkestrel/interpret'
+ * import { findUnclaimedNumbers, scanNumbers } from '@orkestrel/interpret'
  *
  * const entity = { name: 'age', value: 25, provenance: { category: 'extracted' }, confidence: 1 }
- * findUnclaimedNumbers([25, 700], [entity]) // [700]
+ * findUnclaimedNumbers(scanNumbers('25 700'), [entity]) // [700]
  * ```
  */
 export function findUnclaimedNumbers(
-	numbers: readonly number[],
+	numbers: readonly ReadNumber[],
 	entities: readonly Entity[],
-	foreign: readonly number[] = [],
-): readonly number[] {
+): ReadonlyArray<number | string> {
 	const claimed = [
 		...entities.flatMap<unknown>((entity) =>
 			isArray(entity.value) ? [...entity.value] : [entity.value],
 		),
-		...foreign,
 	]
-	return numbers.filter((number) => {
-		const at = claimed.indexOf(number)
-		if (at < 0) return true
+	return numbers.flatMap<number | string>((number) => {
+		if (number.foreign !== undefined) return []
+		if (number.unreadable !== undefined || number.value === undefined) return [number.raw]
+		const at = claimed.indexOf(number.value)
+		if (at < 0) return [number.value]
 		claimed.splice(at, 1)
-		return false
+		return []
 	})
 }
 
@@ -920,9 +928,9 @@ export function settleEntities(
  * ```ts
  * import { numberShape, objectShape } from '@orkestrel/contract'
  * import { createLogicalDefinition } from '@orkestrel/reason'
- * import { describeRecipeShape } from '@orkestrel/interpret'
+ * import { scanRecipeShape } from '@orkestrel/interpret'
  *
- * describeRecipeShape({
+ * scanRecipeShape({
  * 	id: 'r',
  * 	name: 'R',
  * 	domain: 'd',
@@ -934,7 +942,7 @@ export function settleEntities(
  * }) // ['Field "agee" is mapped, and the shape does not declare it']
  * ```
  */
-export function describeRecipeShape(recipe: Recipe): readonly string[] {
+export function scanRecipeShape(recipe: Recipe): readonly string[] {
 	const { shape } = recipe
 	const compiled = attempt(() => createContract(shape))
 	const mapped = recipe.mappings
@@ -953,12 +961,12 @@ export function describeRecipeShape(recipe: Recipe): readonly string[] {
 		formatField(entry.field),
 	)
 	const unfilled = collectRequiredFields(shape)
-		.filter((field) => !isFieldFilled(field, filled))
+		.filter((field) => !matchesFilledField(field, filled))
 		.map((field) => `Field "${field}" is required, and no mapping or computation fills it`)
 	const known = [...filled, ...collectShapeDefaults(shape).map((entry) => formatField(entry.field))]
 	const unbound = recipe.computations.flatMap((computation) =>
 		variablesOf(computation.expression)
-			.filter((name) => !isFieldFilled(name.replace(/\.\d+$/, ''), known))
+			.filter((name) => !matchesFilledField(name.replace(/\.\d+$/, ''), known))
 			.map(
 				(name) =>
 					`Computation of "${formatField(computation.field)}" reads "${name}", which nothing fills`,
@@ -1022,14 +1030,14 @@ export function collectRequiredFields(
  *
  * @example
  * ```ts
- * import { isFieldFilled } from '@orkestrel/interpret'
+ * import { matchesFilledField } from '@orkestrel/interpret'
  *
- * isFieldFilled('terms', ['terms.rate'])  // true
- * isFieldFilled('terms.rate', ['terms'])  // true
- * isFieldFilled('terms', ['term'])        // false
+ * matchesFilledField('terms', ['terms.rate'])  // true
+ * matchesFilledField('terms.rate', ['terms'])  // true
+ * matchesFilledField('terms', ['term'])        // false
  * ```
  */
-export function isFieldFilled(field: string, filled: readonly string[]): boolean {
+export function matchesFilledField(field: string, filled: readonly string[]): boolean {
 	return filled.some(
 		(other) => other === field || other.startsWith(`${field}.`) || field.startsWith(`${other}.`),
 	)
@@ -1050,7 +1058,7 @@ export function isFieldFilled(field: string, filled: readonly string[]): boolean
  */
 export function assertRecipe(recipe: unknown): asserts recipe is Recipe {
 	if (!isRecipe(recipe)) throw new InterpretError('DEFINITION', 'Recipe is malformed')
-	const errors = describeRecipeShape(recipe)
+	const errors = scanRecipeShape(recipe)
 	if (errors.length > 0) {
 		throw new InterpretError(
 			'DEFINITION',

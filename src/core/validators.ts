@@ -13,6 +13,7 @@ import type {
 } from './types.js'
 import {
 	arrayOf,
+	isAuditFault,
 	isBoolean,
 	isNumber,
 	isString,
@@ -20,13 +21,7 @@ import {
 	objectOf,
 	recordOf,
 } from '@orkestrel/contract'
-import {
-	isAuditFault,
-	isContractShape,
-	isDefinition,
-	isFieldPath,
-	isSymbolicExpression,
-} from '@orkestrel/reason'
+import { isContractShape, isDefinition, isFieldPath, isSymbolicExpression } from '@orkestrel/reason'
 import { INTERPRET_ERROR_CODES, INTERPRET_STAGES, PROVENANCE_CATEGORIES } from './constants.js'
 
 // Every guard here is a total function — adversarial input (junk, hostile
@@ -365,7 +360,7 @@ export function isInterpretation(value: unknown): value is Interpretation {
 			normalized: isString,
 			intent: isIntent,
 			recipe: isString,
-			recipeVersion: isNumber,
+			version: isNumber,
 			entities: arrayOf(isEntity),
 			subject: objectOf({}),
 			definition: objectOf({}),
@@ -379,6 +374,6 @@ export function isInterpretation(value: unknown): value is Interpretation {
 			confidence: isNumber,
 			digest: isString,
 		},
-		['recipe', 'recipeVersion', 'subject', 'definition'],
+		['recipe', 'version', 'subject', 'definition'],
 	)(value)
 }
