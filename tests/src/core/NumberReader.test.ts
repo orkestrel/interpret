@@ -1,0 +1,295 @@
+import { readNumbers, readNumbersContract } from '@src/core'
+import { describe, expect, it } from 'vitest'
+
+// The number reader: every number with its span and what the words around it say, read exactly
+// or not at all. It assigns nothing to a field, so these read the number and nothing further.
+
+describe('readNumbers — what reads to a value', () => {
+	it.each<[string, number]>([
+		['$350,000', 350000],
+		['6.25%', 6.25],
+		['.5', 0.5],
+		['75k', 75000],
+		['$1.2M', 1200000],
+		['$2b', 2000000000],
+		['250 grand', 250000],
+		['3 thousand', 3000],
+		['three hundred thousand dollars', 300000],
+		['six and a half percent', 6.5],
+		['2 and a quarter', 2.25],
+		['two hundred and fifty', 250],
+		['twenty-five dollars', 25],
+		['a dozen', 12],
+		['half a million', 500000],
+		['half a dozen', 6],
+		['a quarter million', 250000],
+		['a quarter of a million', 250000],
+		['a hundred', 100],
+		['three point five', 3.5],
+	])('%s reads as %d', (text, value) => {
+		const [number] = readNumbers(text)
+		expect(number?.value).toBe(value)
+		expect(number?.unreadable).toBeUndefined()
+	})
+
+	it('says what a number measures', () => {
+		expect(readNumbers('$5')[0]?.money).toBe(true)
+		expect(readNumbers('5 dollars')[0]?.money).toBe(true)
+		expect(readNumbers('5 usd')[0]?.money).toBe(true)
+		expect(readNumbers('5%')[0]?.percent).toBe(true)
+		expect(readNumbers('5 percent')[0]?.percent).toBe(true)
+		expect(readNumbers('5 per cent')[0]?.percent).toBe(true)
+		expect(readNumbers('5k')[0]?.scaled).toBe(true)
+		expect(readNumbers('five')[0]?.word).toBe(true)
+		expect(readNumbers('5')[0]?.money).toBeUndefined()
+		expect(readNumbers('5')[0]?.word).toBeUndefined()
+	})
+
+	it.each<[string, string]>([
+		['40 hours', 'hour'],
+		['40hrs', 'hour'],
+		['40kg', 'kg'],
+		['5 kilograms', 'kg'],
+		['950 sqft', 'sqft'],
+		['500km', 'km'],
+	])('%s binds the unit %s', (text, unit) => {
+		expect(readNumbers(text)[0]?.unit).toBe(unit)
+	})
+
+	it('binds no unit to a word that is not one', () => {
+		expect(Object.hasOwn(readNumbers('40 guests')[0] ?? {}, 'unit')).toBe(false)
+	})
+})
+
+describe('readNumbers — what cannot be read exactly', () => {
+	it.each<[string, string]>([
+		['1.2m', 'shorthand'],
+		['20s', 'shorthand'],
+		['six figures', 'shorthand'],
+		['twelve fifty', 'spoken'],
+		['two fifty', 'spoken'],
+		['€200,000', 'foreign currency'],
+		['£50', 'foreign currency'],
+		['200 euros', 'foreign currency'],
+		['200.000', 'grouping'],
+		['1,20,000', 'grouping'],
+		['a few thousand', 'loose'],
+		['a couple hundred', 'loose'],
+		['a couple', 'loose'],
+		['several', 'loose'],
+		['12 to 18', 'range'],
+		['12-18', 'range'],
+		['5 or 6', 'range'],
+		['between 5 and 6', 'range'],
+		['20 x 30', 'dimensions'],
+		['50 by 60', 'dimensions'],
+		['1/2', 'fraction'],
+		['2½', 'fraction'],
+		['half a cup', 'fraction'],
+		['twice a week', 'frequency'],
+		['-5', 'signed'],
+		['9007199254740993', 'overflow'],
+		['1'.repeat(400), 'overflow'],
+	])('%s is unreadable as %s', (text, reason) => {
+		const [number] = readNumbers(text)
+		expect(number?.unreadable).toBe(reason)
+	})
+
+	it('holds no value it could not read exactly', () => {
+		expect(readNumbers('9007199254740993')[0]?.value).toBeUndefined()
+		expect(readNumbers('a couple')[0]?.value).toBeUndefined()
+		expect(readNumbers('1/2')[0]?.value).toBeUndefined()
+	})
+
+	it('marks both numbers of a pair, because together they state no one value', () => {
+		const pair = readNumbers('12 to 18')
+		expect(pair.map((number) => number.unreadable)).toEqual(['range', 'range'])
+	})
+})
+
+describe('readNumbers — what belongs to no quantity', () => {
+	it.each<[string, string]>([
+		['in 2019', 'year'],
+		['June 14', 'date'],
+		['14 June', 'date'],
+		['2024-01-02', 'date'],
+		['3/14/2024', 'date'],
+		['5pm', 'time'],
+		['5 pm', 'time'],
+		['5:30', 'time'],
+		['555-0142', 'phone'],
+		['555-123-4567', 'phone'],
+		['call me at 5551234', 'phone'],
+		['401k', 'plan'],
+		['a 403(b)', 'plan'],
+		['14th', 'ordinal'],
+		['#12', 'reference'],
+		['v2', 'identifier'],
+		['age 34', 'age'],
+		["I'm 34", 'age'],
+		['34 years old', 'age'],
+		['3 years ago', 'past'],
+		['every 2 weeks', 'period'],
+		['NY 10001', 'zip'],
+		['145 Main Street', 'address'],
+	])('%s is foreign as %s', (text, foreign) => {
+		const number = readNumbers(text).at(-1)
+		expect(number?.foreign).toBe(foreign)
+	})
+
+	it('reads a value a word introduces as a reference, and names the word', () => {
+		const [number] = readNumbers('invoice 7731')
+		expect(number?.reference).toBe('invoice')
+		expect(number?.value).toBe(7731)
+	})
+
+	it('says a year-like number may be one, and leaves it a quantity with a head noun', () => {
+		expect(readNumbers('2019 dollars')[0]?.foreign).toBeUndefined()
+		expect(readNumbers('2019 guests')[0]?.yearish).toBe(true)
+	})
+
+	it('says a long digit run may be a phone number', () => {
+		expect(readNumbers('5551234567')[0]?.phoneLike).toBe(true)
+	})
+})
+
+describe('readNumbers — what the words around it say', () => {
+	it.each([
+		'about 40',
+		'around 40',
+		'roughly 40',
+		'up to 40',
+		'at least 40',
+		'40 or so',
+		'40ish',
+		'100+',
+		'maybe 40',
+		'I think 40',
+	])('%s is hedged', (text) => {
+		expect(readNumbers(text)[0]?.hedged).toBe(true)
+	})
+
+	it('leaves a plain statement unhedged', () => {
+		expect(readNumbers('40 guests')[0]?.hedged).toBeUndefined()
+	})
+
+	it.each([
+		'last 5 hours',
+		'not 5',
+		'in 3 months',
+		'been 5',
+		'actually 5',
+		'sorry, 5',
+		'used to be 5',
+		'make that 5',
+	])('%s is suspect', (text) => {
+		expect(readNumbers(text)[0]?.suspect).toBe(true)
+	})
+
+	it('leaves a verb "last" and a put-in count unsuspected', () => {
+		expect(readNumbers("it'll last 5 hours")[0]?.suspect).toBeUndefined()
+		expect(readNumbers('put in 60 hours')[0]?.suspect).toBeUndefined()
+		expect(readNumbers('sorry to ask, 5')[0]?.suspect).toBeUndefined()
+	})
+
+	it('marks a sentence that holds a change word, and only that sentence', () => {
+		const numbers = readNumbers('It was 5. The rent is 6.')
+		expect(numbers.map((number) => number.changed === true)).toEqual([true, false])
+	})
+
+	it('marks a rate over a period the message also counts', () => {
+		const [rate] = readNumbers('40 hours a week for 2 weeks')
+		expect(rate?.composite).toBe(true)
+		expect(readNumbers('40 hours a week')[0]?.composite).toBeUndefined()
+	})
+
+	it('marks a sentence a composite cue sits in', () => {
+		expect(readNumbers('double 5')[0]?.composite).toBe(true)
+	})
+
+	it('counts sentences and segments', () => {
+		const numbers = readNumbers('5, and 6. Then 7')
+		expect(numbers.map((number) => number.sentence)).toEqual([0, 0, 1])
+		expect(numbers[1]?.segment).toBeGreaterThan(numbers[0]?.segment ?? 0)
+	})
+
+	it("reads no sentence end from an abbreviation's dot", () => {
+		const numbers = readNumbers('5 hrs. and 6 kg')
+		expect(numbers.map((number) => number.sentence)).toEqual([0, 0])
+	})
+})
+
+describe('readNumbers — spans', () => {
+	it.each<[string, string]>([
+		['pay $5 now', '$5'],
+		['pay 5% now', '5%'],
+		['pay 5k now', '5k'],
+		['pay five dollars now', 'five dollars'],
+		['pay three hundred now', 'three hundred'],
+		['pay 2 and a half now', '2 and a half'],
+		['call 555-0142 now', '555-0142'],
+	])('in "%s" the span reads %s', (text, span) => {
+		const [number] = readNumbers(text)
+		expect(text.slice(number?.start, number?.end)).toBe(span)
+	})
+
+	it('indexes the text as given, across what it normalizes', () => {
+		const text = 'it’s 5–ish — $7'
+		const numbers = readNumbers(text)
+		expect(numbers.map((number) => text.slice(number.start, number.end))).toEqual(['5', '$7'])
+	})
+})
+
+describe('readNumbers — total on anything', () => {
+	it('reads nothing from a text with no number', () => {
+		expect(readNumbers('')).toEqual([])
+		expect(readNumbers('   \n ')).toEqual([])
+		expect(readNumbers('no numbers here, thanks')).toEqual([])
+	})
+
+	it.each(['constructor 5', 'toString 5', '__proto__ 5', 'hasOwnProperty 5', 'valueOf'])(
+		'%s reads no prototype member as a word',
+		(text) => {
+			const numbers = readNumbers(text)
+			expect(numbers.every((number) => number.value === 5)).toBe(true)
+		},
+	)
+
+	it('reads a long text of number words without walking it again for each', () => {
+		const numbers = readNumbers('one x '.repeat(20000))
+		expect(numbers).toHaveLength(20000)
+	})
+
+	it('reads a long run of counted periods without comparing each to all', () => {
+		const numbers = readNumbers('5 hours a week for 2 weeks '.repeat(5000))
+		expect(numbers.filter((number) => number.composite === true)).toHaveLength(5000)
+	})
+
+	it('reads a long single cardinal', () => {
+		const numbers = readNumbers('one '.repeat(20000))
+		expect(numbers).toHaveLength(1)
+		expect(numbers[0]?.unreadable).toBe('spoken')
+	})
+})
+
+describe('readNumbers — the contract', () => {
+	const samples = [
+		'$350,000 at 6.25% over 30 years',
+		'a few thousand, twelve fifty, 12 to 18, €5',
+		'in 2019, call 555-0142, about 40 hours a week for 2 weeks',
+		'9007199254740993 and 1/2',
+	]
+
+	it.each(samples)('what it reads from "%s" passes its contract', (text) => {
+		expect(readNumbersContract.audit(readNumbers(text))).toEqual([])
+		expect(readNumbersContract.is(readNumbers(text))).toBe(true)
+	})
+
+	it('never holds a value that is not a finite number', () => {
+		const values = samples.flatMap((text) =>
+			readNumbers(text).flatMap((number) => number.value ?? []),
+		)
+		expect(values.length).toBeGreaterThan(0)
+		expect(values.filter((value) => !Number.isFinite(value))).toEqual([])
+	})
+})

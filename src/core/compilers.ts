@@ -1,6 +1,7 @@
 import type { ContractShape } from '@orkestrel/contract'
-import type { Entity, EntityMapping } from './types.js'
+import type { Entity, EntityMapping, ReadNumber } from './types.js'
 import { EntityCompiler } from './EntityCompiler.js'
+import { NumberReader } from './NumberReader.js'
 
 /**
  * Assigns already-extracted numbers to a matched recipe's entity mappings.
@@ -50,4 +51,28 @@ export function assignEntities(
 	shape: ContractShape,
 ): readonly Entity[] {
 	return new EntityCompiler().execute(numbers, mappings, text, similarity, shape)
+}
+
+/**
+ * Reads every number in a text exactly, or says why it cannot.
+ *
+ * @remarks
+ * Digits, shorthand, and word forms read to a value, and each number carries its span and what
+ * the words around it say. It never assigns a number to a field: read this beside a recipe, and a
+ * check that a proposed value appears here is exact where `extractNumbers` reads digits only.
+ *
+ * @param text - The text to read
+ * @returns Every number, in the order written
+ *
+ * @example
+ * ```ts
+ * import { readNumbers } from '@orkestrel/interpret'
+ *
+ * readNumbers('$75k at 6%').map((number) => number.value) // [75000, 6]
+ * readNumbers('twelve fifty')[0]?.unreadable               // 'spoken'
+ * readNumbers('call 555-0142')[0]?.foreign                 // 'phone'
+ * ```
+ */
+export function readNumbers(text: string): readonly ReadNumber[] {
+	return new NumberReader().read(text)
 }

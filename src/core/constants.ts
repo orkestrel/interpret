@@ -1,4 +1,11 @@
-import type { InterpretErrorCode, InterpretStage, Lexicon, ProvenanceCategory } from './types.js'
+import type {
+	InterpretErrorCode,
+	InterpretStage,
+	Lexicon,
+	NumberForeign,
+	NumberUnreadable,
+	ProvenanceCategory,
+} from './types.js'
 
 // Frozen default data for the interprets module — the sole home for its
 // module-scope literal defaults. Every vocabulary map here is intentionally
@@ -162,4 +169,273 @@ export const INTERPRET_ERROR_CODES: readonly InterpretErrorCode[] = Object.freez
 	'LOW_CONFIDENCE',
 	'DEFINITION',
 	'DESTROYED',
+])
+
+// === The number reader's vocabulary: general English, no domain's
+
+/**
+ * Holds the shapes `NumberReader` recognizes a number by.
+ *
+ * @remarks
+ * Each carries the sticky flag, so every call site builds a fresh `RegExp` from it. `spokenFraction`
+ * tests one character and needs no copy.
+ */
+export const READER_SHAPES = Object.freeze({
+	plan: /40[13]\s?\(?[kb]\)?(?![a-z])/iy,
+	phone: /(?:\+?\d{1,2}[\s.-]?)?\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}(?!\d)/y,
+	shortPhone: /\d{3}-\d{4}(?!\d)/y,
+	iso: /\d{4}-\d{1,2}-\d{1,2}(?!\d)/y,
+	slash: /\d{1,4}\/\d{1,4}(?:\/\d{1,4})?(?!\d)/y,
+	time: /\d{1,2}:\d{2}(?::\d{2})?(?!\d)/y,
+	currency: /(?:us\$|c\$|a\$|usd\s?(?=\.?\d)|\$|\u20ac|\u00a3|\u00a5)\s?(?=\.?\d)/iy,
+	digit: /\d+(?:,\d+)*(?:\.\d+)?|\.\d+/y,
+	word: /[a-z]+(?:'[a-z]+)*/iy,
+	spokenFraction: /[\u00bd\u00bc\u00be\u2153\u2154\u215b]/,
+})
+
+/** Holds the values number words and scale words read to. */
+export const READER_SCALES = Object.freeze({
+	digit: Object.freeze<Record<string, number>>({
+		thousand: 1e3,
+		k: 1e3,
+		grand: 1e3,
+		hundred: 100,
+		million: 1e6,
+		mil: 1e6,
+		mill: 1e6,
+		mn: 1e6,
+		billion: 1e9,
+		bn: 1e9,
+	}),
+	word: Object.freeze<Record<string, number>>({
+		thousand: 1e3,
+		grand: 1e3,
+		million: 1e6,
+		mil: 1e6,
+		billion: 1e9,
+	}),
+	units: Object.freeze<Record<string, number>>({
+		zero: 0,
+		one: 1,
+		two: 2,
+		three: 3,
+		four: 4,
+		five: 5,
+		six: 6,
+		seven: 7,
+		eight: 8,
+		nine: 9,
+		ten: 10,
+		eleven: 11,
+		twelve: 12,
+		thirteen: 13,
+		fourteen: 14,
+		fifteen: 15,
+		sixteen: 16,
+		seventeen: 17,
+		eighteen: 18,
+		nineteen: 19,
+	}),
+	tens: Object.freeze<Record<string, number>>({
+		twenty: 20,
+		thirty: 30,
+		forty: 40,
+		fifty: 50,
+		sixty: 60,
+		seventy: 70,
+		eighty: 80,
+		ninety: 90,
+	}),
+})
+
+/** Holds the word lists `NumberReader` reads a number's surroundings by. */
+export const READER_WORDS = Object.freeze({
+	synonyms: Object.freeze<Record<string, string>>({
+		hr: 'hour',
+		hrs: 'hour',
+		min: 'minute',
+		mins: 'minute',
+		yr: 'year',
+		yrs: 'year',
+		mo: 'month',
+		mos: 'month',
+		mth: 'month',
+		mths: 'month',
+		wk: 'week',
+		wks: 'week',
+		kilo: 'kg',
+		kilos: 'kg',
+		kgs: 'kg',
+		kilogram: 'kg',
+		kilograms: 'kg',
+		kilogramme: 'kg',
+		kilogrammes: 'kg',
+		kms: 'km',
+		kilometer: 'km',
+		kilometers: 'km',
+		kilometre: 'km',
+		kilometres: 'km',
+		gal: 'gallon',
+		gals: 'gallon',
+		sq: 'square',
+		ft: 'foot',
+		feet: 'foot',
+		footage: 'foot',
+		bdrm: 'bedroom',
+		bdrms: 'bedroom',
+		people: 'person',
+		persons: 'person',
+		ppl: 'person',
+	}),
+	per: Object.freeze(new Set('per a an each every /'.split(' '))),
+	months: Object.freeze(
+		new Set(
+			'january february march april may june july august september october november december jan feb mar apr jun jul aug sep sept oct nov dec'.split(
+				' ',
+			),
+		),
+	),
+	yearCues: Object.freeze(
+		new Set(
+			'in since from by until till year during back before after of for spring summer fall autumn winter early late mid fiscal fy class'.split(
+				' ',
+			),
+		),
+	),
+	references: Object.freeze(
+		new Set(
+			'ext extension x no number phone tel telephone fax cell mobile call text order invoice ticket case ref reference account acct id zip zipcode code apt apartment unit flat suite ste room rm building bldg floor page pg version ver model part route hwy highway box po pin step option phase line gate dock bay lot site tier level group batch employee badge form chapter'.split(
+				' ',
+			),
+		),
+	),
+	referenceLinks: Object.freeze(new Set('is : = # number no'.split(' '))),
+	streets: Object.freeze(
+		new Set(
+			'street st avenue ave road rd boulevard blvd drive dr lane ln way court ct place pl terrace'.split(
+				' ',
+			),
+		),
+	),
+	generalUnits: Object.freeze(
+		new Set(
+			'second minute hour day week month year decade kg gram pound lb lbs ton tonne ounce oz km mile meter metre foot inch yard acre hectare liter litre gallon sqft'.split(
+				' ',
+			),
+		),
+	),
+	timeUnits: Object.freeze(new Set('second minute hour day week month year decade'.split(' '))),
+	calendarPeriods: Object.freeze(new Set('day week month year'.split(' '))),
+	countedOver: Object.freeze(new Set('for over'.split(' '))),
+	foreignCurrency: Object.freeze(
+		new Set('euro eur gbp cad aud yen rupee peso franc sterling cent'.split(' ')),
+	),
+	dollars: Object.freeze(new Set('dollars dollar bucks buck usd'.split(' '))),
+	hedgesBefore: Object.freeze(
+		new Set(
+			'about around approximately approx roughly nearly almost estimated under maximum minimum max somewhere'.split(
+				' ',
+			),
+		),
+	),
+	hedgesNear: Object.freeze(new Set('maybe perhaps probably possibly'.split(' '))),
+	hedgePairs: Object.freeze(
+		new Set(
+			'close_to up_to at_least at_most no_more no_less more_than less_than fewer_than just_under just_over well_over slightly_over little_over something_like not_exceeding'.split(
+				' ',
+			),
+		),
+	),
+	doubtPairs: Object.freeze(
+		new Set('i_think i_guess i_believe not_sure might_be could_be may_be'.split(' ')),
+	),
+	hedgesAfter: Object.freeze(new Set('ish max tops minimum something odd'.split(' '))),
+	hedgeAfterPairs: Object.freeze(
+		new Set('or_so or_thereabouts give_or at_most at_least or_more or_less'.split(' ')),
+	),
+	corrections: Object.freeze(
+		new Set(
+			'actually correction scratch rather instead mistake mistaken oops typo meant previously formerly previous prior former ago been old original originally initially earlier'.split(
+				' ',
+			),
+		),
+	),
+	correctionPairs: Object.freeze(new Set('used_to make_that i_mean'.split(' '))),
+	suspectBefore: Object.freeze(new Set('last past not'.split(' '))),
+	offsetBefore: Object.freeze(new Set('in within after'.split(' '))),
+	verbLastBefore: Object.freeze(
+		new Set("will would should could might may can to it'll they'll we'll that'll".split(' ')),
+	),
+	putInBefore: Object.freeze(new Set('put puts putting logged clocked'.split(' '))),
+	changes: Object.freeze(
+		new Set(
+			'was were now new old changed change update updated raised lowered increased decreased reduced dropped went going up down instead rather actually before then originally but'.split(
+				' ',
+			),
+		),
+	),
+	compositeCues: Object.freeze(new Set('twice thrice double triple respectively'.split(' '))),
+	loose: Object.freeze(
+		new Set('couple few several handful dozens hundreds thousands pair trio'.split(' ')),
+	),
+	magnitudes: Object.freeze(new Set('hundred thousand grand million k'.split(' '))),
+	gluedScales: Object.freeze(new Set('k mil mill million thousand grand'.split(' '))),
+	functions: Object.freeze(
+		new Set(
+			'a an the this that these those my our your his her their its it i we you he she they me us them and or but plus so if then than while though although because as at by for from in into of off on onto out over per to under up via with within without about around between before after during until till through across is are was were be been being am do does did has have had will would should can could may might must shall need needs want wants get gets getting got take takes taking took make makes making made use using used put puts pay pays paying paid spend spending charge charges charging cost costs running run runs not no yes also too very just only still now here there what which who how when where why each every all both some any more most much many other another please thanks thank hi hello today tomorrow yesterday tonight next again however looking trying hoping going gonna wondering calculate compute estimate figure work quote extra additional separate different regular'.split(
+				' ',
+			),
+		),
+	),
+	abbreviations: Object.freeze(
+		new Set(
+			'sq ft ext approx no mr mrs ms dr st vs est apt ste hrs hr yrs yr mos mo mins min wk wks kg kgs km kms lb lbs oz gal gals'.split(
+				' ',
+			),
+		),
+	),
+	notOneBefore: Object.freeze(
+		new Set('no this that the another which each every any a an my our some only'.split(' ')),
+	),
+	notOneAfter: Object.freeze(new Set('of more last thing question off'.split(' '))),
+	workOut: Object.freeze(new Set('work worked working works figure figured figuring'.split(' '))),
+	dimensions: Object.freeze(new Set(['x', '\u00d7', 'by', 'times'])),
+	alternatives: Object.freeze(new Set('range to or'.split(' '))),
+	sentenceEnds: Object.freeze(new Set('. ! ? ;'.split(' '))),
+	segmentMarks: Object.freeze(new Set(', : ( ) and but plus while though although'.split(' '))),
+	ageBefore: Object.freeze(new Set("age aged turned turning i'm im he's she's".split(' '))),
+})
+
+/** Lists every `NumberUnreadable` reason, frozen, for the shape that describes a read number. */
+export const NUMBER_UNREADABLE_REASONS: readonly NumberUnreadable[] = Object.freeze([
+	'fraction',
+	'foreign currency',
+	'grouping',
+	'signed',
+	'shorthand',
+	'spoken',
+	'joined',
+	'frequency',
+	'loose',
+	'range',
+	'dimensions',
+	'overflow',
+])
+
+/** Lists every `NumberForeign` kind, frozen, for the shape that describes a read number. */
+export const NUMBER_FOREIGN_KINDS: readonly NumberForeign[] = Object.freeze([
+	'plan',
+	'phone',
+	'date',
+	'time',
+	'identifier',
+	'ordinal',
+	'list',
+	'age',
+	'past',
+	'period',
+	'reference',
+	'zip',
+	'address',
+	'year',
 ])

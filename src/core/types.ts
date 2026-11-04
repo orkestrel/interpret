@@ -217,6 +217,128 @@ export interface TextSpan {
 	readonly end: number
 }
 
+/**
+ * Names why a number's value cannot be read exactly.
+ *
+ * @remarks
+ * `fraction` — "1/2", "½", or "half". `foreign currency` — not dollars. `grouping` — digits grouped
+ * another way, "200.000". `signed` — a leading sign. `shorthand` — "1.2m" with no currency to say
+ * it is money, "20s". `spoken` — "twelve fifty". `joined` — "two thousand and five hundred" joined
+ * ambiguously. `frequency` — "twice a week". `loose` — "a couple". `range` — "12 to 18", "5 or 6".
+ * `dimensions` — "20 x 30". `overflow` — past what a number holds exactly.
+ */
+export type NumberUnreadable =
+	| 'fraction'
+	| 'foreign currency'
+	| 'grouping'
+	| 'signed'
+	| 'shorthand'
+	| 'spoken'
+	| 'joined'
+	| 'frequency'
+	| 'loose'
+	| 'range'
+	| 'dimensions'
+	| 'overflow'
+
+/** Names what a number that belongs to no quantity is: a year, a date, a time, a reference, and so on. */
+export type NumberForeign =
+	| 'plan'
+	| 'phone'
+	| 'date'
+	| 'time'
+	| 'identifier'
+	| 'ordinal'
+	| 'list'
+	| 'age'
+	| 'past'
+	| 'period'
+	| 'reference'
+	| 'zip'
+	| 'address'
+	| 'year'
+
+/**
+ * Represents one number read from a text, with its span and what the words around it say.
+ *
+ * @remarks
+ * `value` is present when digits or words read to a number; read it with `unreadable`, which
+ * says the reading is not exact, and `foreign`, which says it is no quantity. `money`, `percent`,
+ * and `unit` say what it measures, `scaled` that a suffix multiplied it, and `word` that it was
+ * written out. `hedged` says the writer marks it inexact, `suspect` that the sentence dates, corrects,
+ * or negates it, `changed` that the sentence holds a change word, and `composite` that it needs
+ * arithmetic. `loose`, `magnitude`, `weak`, `tail`, `yearish`, and `phoneLike` are weaker readings
+ * for a caller to weigh. `reference` names the word that introduced it as an identifier. `sentence`
+ * and `segment` count where it sits.
+ */
+export interface ReadNumber extends TextSpan {
+	readonly raw: string
+	readonly value?: number
+	readonly unreadable?: NumberUnreadable
+	readonly foreign?: NumberForeign
+	readonly money?: boolean
+	readonly percent?: boolean
+	readonly scaled?: boolean
+	readonly word?: boolean
+	readonly hedged?: boolean
+	readonly suspect?: boolean
+	readonly changed?: boolean
+	readonly composite?: boolean
+	readonly loose?: boolean
+	readonly magnitude?: boolean
+	readonly weak?: boolean
+	readonly tail?: boolean
+	readonly yearish?: boolean
+	readonly phoneLike?: boolean
+	readonly reference?: string
+	readonly unit?: string
+	readonly sentence: number
+	readonly segment: number
+}
+
+/** Names what one scanned token is to `NumberReader`: a number, a word, or a mark. */
+export type ReaderTokenForm = 'number' | 'word' | 'mark'
+
+/** Represents what the number reader's passes have marked on one token so far. */
+export interface ReaderMarks extends Omit<ReadNumber, 'raw' | 'start' | 'unit'> {
+	readonly index: number
+	readonly attached?: boolean
+	readonly glued?: boolean
+	readonly wordGlue?: boolean
+}
+
+/** Represents a written-out cardinal as far as it has been read. */
+export interface CardinalReading {
+	readonly value: number
+	readonly part: number
+	readonly next: number
+	readonly last: string
+	readonly unreadable?: NumberUnreadable
+	readonly money: boolean
+}
+
+/** Represents a written-out number, as the token it reads to and where the walk resumes. */
+export interface WordNumberReading {
+	readonly token: ReaderTokenInterface
+	readonly next: number
+}
+
+/** Declares one scanned token the number reader's passes mark as they walk a sentence. */
+export interface ReaderTokenInterface {
+	readonly form: ReaderTokenForm
+	readonly raw: string
+	readonly lower: string
+	readonly canon: string
+	readonly start: number
+	readonly marks: ReaderMarks
+	/**
+	 * Adds marks to the token.
+	 *
+	 * @param marks - The marks to add, each replacing any it names
+	 */
+	mark(marks: Partial<ReaderMarks>): void
+}
+
 /** Represents one normalization substitution applied to the raw text. */
 export interface TextChange {
 	readonly from: string

@@ -15,10 +15,44 @@ import {
 	faultShape,
 	fieldPathShape,
 } from '@orkestrel/reason'
-import { INTERPRET_ERROR_CODES, INTERPRET_STAGES, PROVENANCE_CATEGORIES } from './constants.js'
+import {
+	INTERPRET_ERROR_CODES,
+	INTERPRET_STAGES,
+	NUMBER_FOREIGN_KINDS,
+	NUMBER_UNREADABLE_REASONS,
+	PROVENANCE_CATEGORIES,
+} from './constants.js'
 
 // A recipe and an interpretation as shapes, so they reach an LLM, a tool, and MCP as JSON Schema.
 // An interpretation is shaped in its JSON projection, where a non-finite number is `null`.
+
+/** Describes a number `readNumbers` read. */
+export const readNumberShape: ContractShape = objectShape({
+	raw: stringShape(),
+	start: numberShape(),
+	end: numberShape(),
+	value: optionalShape(numberShape()),
+	unreadable: optionalShape(literalShape(NUMBER_UNREADABLE_REASONS)),
+	foreign: optionalShape(literalShape(NUMBER_FOREIGN_KINDS)),
+	money: optionalShape(booleanShape()),
+	percent: optionalShape(booleanShape()),
+	scaled: optionalShape(booleanShape()),
+	word: optionalShape(booleanShape()),
+	hedged: optionalShape(booleanShape()),
+	suspect: optionalShape(booleanShape()),
+	changed: optionalShape(booleanShape()),
+	composite: optionalShape(booleanShape()),
+	loose: optionalShape(booleanShape()),
+	magnitude: optionalShape(booleanShape()),
+	weak: optionalShape(booleanShape()),
+	tail: optionalShape(booleanShape()),
+	yearish: optionalShape(booleanShape()),
+	phoneLike: optionalShape(booleanShape()),
+	reference: optionalShape(stringShape()),
+	unit: optionalShape(stringShape()),
+	sentence: numberShape(),
+	segment: numberShape(),
+})
 
 /** Describes an `EntityMapping`. */
 export const entityMappingShape: ContractShape = objectShape({
