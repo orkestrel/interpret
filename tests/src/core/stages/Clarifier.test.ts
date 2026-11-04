@@ -92,7 +92,13 @@ describe('Clarifier', () => {
 			})
 			const result = clarifier.clarify([], recipe, undefined, intent)
 			expect(result.entities).toEqual([
-				{ name: 'term', value: 12, provenance: { category: 'default' }, confidence: 1 },
+				{
+					name: 'term',
+					field: ['term'],
+					value: 12,
+					provenance: { category: 'default' },
+					confidence: 1,
+				},
 			])
 			expect(result.defaulted).toEqual([['term']])
 		})
@@ -291,6 +297,7 @@ describe('Clarifier', () => {
 			const computed = result.entities.find((entity) => entity.name === 'monthly')
 			expect(computed).toEqual({
 				name: 'monthly',
+				field: 'monthly',
 				value: 500,
 				provenance: { category: 'computed' },
 				confidence: 0.9,
@@ -604,5 +611,108 @@ describe('Clarifier', () => {
 		expect(clarifier.clarify(fresh, recipe, undefined, intent)).toEqual(
 			clarifier.clarify(fresh, recipe, undefined, intent),
 		)
+	})
+})
+
+describe('Clarifier — what carries, and what a computation reads', () => {
+	const computing = buildInterpretRecipe({
+		id: 'computing',
+		mappings: [
+			{ entity: 'value', aliases: [], field: 'value' },
+			{ entity: 'double', aliases: [], field: 'double' },
+		],
+		computations: [
+			{
+				field: 'double',
+				expression: createOperation('multiply', createVariable('value'), createConstant(2)),
+			},
+		],
+	})
+
+	it('works a computed value out again on the next turn, and never carries it stale', () => {
+		const clarifier = new Clarifier()
+		const prior = buildInterpretation({
+			intent,
+			recipe: 'computing',
+			entities: [
+				{ name: 'value', value: 5, provenance: { category: 'extracted' }, confidence: 1 },
+				{ name: 'double', value: 10, provenance: { category: 'computed' }, confidence: 0.9 },
+			],
+		})
+		const fresh: readonly Entity[] = [
+			{ name: 'value', value: 6, provenance: { category: 'extracted' }, confidence: 1 },
+		]
+		const result = clarifier.clarify(fresh, computing, seedInterpretContext([prior]), intent)
+		const double = result.entities.find((entity) => entity.name === 'double')
+		expect(double?.value).toBe(12)
+		expect(double?.provenance.category).toBe('computed')
+	})
+
+	it('reads a default again on the next turn, rather than carrying it', () => {
+		const clarifier = new Clarifier()
+		const recipe = buildInterpretRecipe({
+			mappings: [{ entity: 'term', aliases: [], field: 'term' }],
+			shape: objectShape({ term: optionalShape(numberShape(), { default: 12 }) }),
+		})
+		const prior = buildInterpretation({
+			intent,
+			entities: [{ name: 'term', value: 12, provenance: { category: 'default' }, confidence: 1 }],
+		})
+		const result = clarifier.clarify([], recipe, seedInterpretContext([prior]), intent)
+		expect(result.entities[0]?.provenance.category).toBe('default')
+	})
+
+	it('carries nothing from another recipe in the domain', () => {
+		const clarifier = new Clarifier()
+		const prior = buildInterpretation({
+			intent,
+			recipe: 'other',
+			entities: [{ name: 'value', value: 9, provenance: { category: 'extracted' }, confidence: 1 }],
+		})
+		const result = clarifier.clarify([], computing, seedInterpretContext([prior]), intent)
+		expect(result.entities.find((entity) => entity.name === 'value')).toBeUndefined()
+	})
+
+	it('reads no default inside an optional object that is absent, because the door fills none', () => {
+		const clarifier = new Clarifier()
+		const recipe = buildInterpretRecipe({
+			mappings: [{ entity: 'amount', aliases: [], field: 'amount' }],
+			computations: [
+				{
+					field: 'premium',
+					expression: createOperation(
+						'multiply',
+						createVariable('terms.rate'),
+						createVariable('amount'),
+					),
+				},
+			],
+			shape: objectShape({
+				amount: numberShape(),
+				terms: optionalShape(objectShape({ rate: optionalShape(numberShape(), { default: 5 }) })),
+				premium: optionalShape(numberShape()),
+			}),
+		})
+		const fresh: readonly Entity[] = [
+			{ name: 'amount', value: 1000, provenance: { category: 'extracted' }, confidence: 1 },
+		]
+		const result = clarifier.clarify(fresh, recipe, undefined, intent)
+		expect(result.entities.find((entity) => entity.name === 'premium')).toBeUndefined()
+		expect(result.defaulted).toEqual([])
+	})
+
+	it('lands an unmapped entity on its own field, beside a mapping sharing its name', () => {
+		const clarifier = new Clarifier()
+		const recipe = buildInterpretRecipe({
+			mappings: [{ entity: 'age', aliases: [], field: ['person', 'age'] }],
+			computations: [{ field: 'age', expression: createConstant(40) }],
+			shape: objectShape({
+				person: optionalShape(objectShape({ age: numberShape() })),
+				age: numberShape(),
+			}),
+		})
+		const result = clarifier.clarify([], recipe, undefined, intent)
+		expect(result.ambiguities).toEqual([])
+		expect(result.entities[0]?.field).toBe('age')
 	})
 })

@@ -1,5 +1,7 @@
 import type { ContractShape } from '@orkestrel/contract'
 import type { Entity, EntityMapping, ReadNumber } from './types.js'
+import { isFiniteNumber } from '@orkestrel/contract'
+import { NUMBER_PATTERN } from './constants.js'
 import { EntityCompiler } from './EntityCompiler.js'
 import { NumberReader } from './NumberReader.js'
 
@@ -11,8 +13,9 @@ import { NumberReader } from './NumberReader.js'
  * every number at `CONFIDENCE_COLLECT`. Otherwise, per mapping, the rightmost token in the text that equals the entity name
  * (`CONFIDENCE_EXACT`), an alias exactly (`CONFIDENCE_ALIAS`), or an alias
  * fuzzily (through `matchAlias`, confidence = its returned score) becomes a
- * keyword anchor; anchors sort left-to-right and each claims the number
- * `findAnchoredNumber` names, the nearest in its clause when no other sits as close.
+ * keyword anchor; each claims the number `findAnchoredNumber` names, the nearest in its clause
+ * when no other sits as close, and a number two anchors claim goes to the one nearest it, or to
+ * neither on a tie.
  * A mapping with no such number stays unfilled, because position and distance across a
  * clause are guesses: `findUnclaimedNumbers` gives what is left, and `Clarifier` asks. A number landing on a field whose shape is an array
  * lands as an array of one. Every entity
@@ -75,4 +78,33 @@ export function assignEntities(
  */
 export function readNumbers(text: string): readonly ReadNumber[] {
 	return new NumberReader().read(text)
+}
+
+/**
+ * Finds the digit runs that belong to no quantity, as `extractNumbers` reads them.
+ *
+ * @remarks
+ * A phone number is one foreign number to `readNumbers` and two digit runs to `extractNumbers`, so
+ * this answers in the second's terms: every run overlapping a number marked `foreign`.
+ *
+ * @param text - The text to read
+ * @returns The value of each such run, in the order written
+ *
+ * @example
+ * ```ts
+ * import { findForeignNumbers } from '@orkestrel/interpret'
+ *
+ * findForeignNumbers('call 555-0142 about 40 hours') // [555, 142]
+ * ```
+ */
+export function findForeignNumbers(text: string): readonly number[] {
+	const foreign = readNumbers(text).filter((number) => number.foreign !== undefined)
+	return [...text.matchAll(new RegExp(NUMBER_PATTERN.source, NUMBER_PATTERN.flags))].flatMap(
+		(match) => {
+			const end = match.index + match[0].trimEnd().length
+			const value = Number(match[1]?.replace(/,/g, ''))
+			const overlaps = foreign.some((number) => match.index < number.end && number.start < end)
+			return overlaps && isFiniteNumber(value) ? [value] : []
+		},
+	)
 }

@@ -13,6 +13,7 @@ import {
 	objectShape,
 	optionalShape,
 	rawShape,
+	seededRandom,
 	stringShape,
 } from '@orkestrel/contract'
 import {
@@ -41,7 +42,10 @@ import {
 	buildInsuranceRecipe,
 	buildInterpretRecipe,
 	createCorpusExtractor,
+	asRecord,
 	createWeakInterpretExtractor,
+	dropRecipeShapes,
+	UNCOMPILABLE_SHAPE,
 	createInterpretStageFailures,
 } from '../../setup.js'
 
@@ -694,5 +698,169 @@ describe('Interpret — a number no anchor claimed', () => {
 			accidents: 0,
 		})
 		interpret.destroy()
+	})
+})
+
+describe('Interpret — what a refusal leaves behind', () => {
+	const recipe = buildInsuranceRecipe({
+		mappings: [
+			{ entity: 'age', aliases: [], field: 'age' },
+			{ entity: 'score', aliases: [], field: 'score' },
+		],
+		computations: [],
+		shape: objectShape({ age: numberShape(), score: numberShape() }),
+	})
+
+	it('builds nothing while a question is open, so no stage or mapping holds it', () => {
+		const interpret = new Interpret({ recipes: [recipe], extractor: createCorpusExtractor() })
+		const result = interpret.interpret('calculate insurance age 30')
+		expect(Object.hasOwn(result, 'subject')).toBe(false)
+		expect(result.mappings).toEqual([])
+		expect(result.confidence).toBe(0)
+		expect(result.stages.map((stage) => stage.stage)).toEqual([
+			'normalize',
+			'extract',
+			'clarify',
+			'format',
+			'generate',
+		])
+		expect(result.stages[4]?.output).toBeUndefined()
+		expect(JSON.stringify(projectInterpretation(result))).not.toContain('"subject"')
+		expect(result.entities[0]?.value).toBe(30)
+		interpret.destroy()
+	})
+
+	it('a generator that would throw is never reached while a question is open', () => {
+		const stages = createInterpretStageFailures()
+		const interpret = new Interpret({
+			recipes: [recipe],
+			extractor: createCorpusExtractor(),
+			generator: stages.generator,
+		})
+		const result = interpret.interpret('calculate insurance age 30')
+		expect(result.failures).toEqual([])
+		interpret.destroy()
+	})
+})
+
+describe('Interpret — a number that belongs to no quantity', () => {
+	const recipe = buildInsuranceRecipe({
+		mappings: [
+			{ entity: 'age', aliases: [], field: 'age' },
+			{ entity: 'accidents', aliases: [], field: 'accidents' },
+		],
+		computations: [],
+		shape: objectShape({
+			age: numberShape(),
+			accidents: optionalShape(numberShape(), { default: 0 }),
+		}),
+	})
+
+	it('lets a default stand beside a year or a phone number', () => {
+		const interpret = new Interpret({ recipes: [recipe], extractor: createCorpusExtractor() })
+		const dated = interpret.interpret('calculate insurance age 25, in 2019')
+		expect(dated.subject).toEqual({ age: 25, accidents: 0 })
+		const called = interpret.interpret('calculate insurance age 25, call 555-0142')
+		expect(called.subject).toEqual({ age: 25, accidents: 0 })
+		interpret.destroy()
+	})
+
+	it('offers no foreign number as a candidate', () => {
+		const interpret = new Interpret({ recipes: [recipe], extractor: createCorpusExtractor() })
+		const result = interpret.interpret('calculate insurance in 2019')
+		expect(result.ambiguities.flatMap((ambiguity) => ambiguity.candidates)).toEqual([])
+		interpret.destroy()
+	})
+
+	it('still asks over a number that could be a quantity', () => {
+		const interpret = new Interpret({ recipes: [recipe], extractor: createCorpusExtractor() })
+		const result = interpret.interpret('calculate insurance age 25, 3 of them')
+		expect(result.ambiguities[0]?.candidates).toEqual(['3'])
+		interpret.destroy()
+	})
+
+	it('lets an anchor claim a number the reader would call foreign', () => {
+		const interpret = new Interpret({ recipes: [recipe], extractor: createCorpusExtractor() })
+		expect(interpret.interpret('calculate insurance age 25').subject?.age).toBe(25)
+		interpret.destroy()
+	})
+})
+
+describe('Interpret — a recipe that cannot work refuses when added', () => {
+	it.each<[string, Partial<Parameters<typeof buildInsuranceRecipe>[0]>, string]>([
+		[
+			'a required field nothing fills',
+			{ mappings: [], computations: [], shape: objectShape({ age: numberShape() }) },
+			'Field "age" is required',
+		],
+		[
+			'a computation reading nothing',
+			{
+				mappings: [],
+				computations: [{ field: 'total', expression: createVariable('typo') }],
+				shape: objectShape({ total: optionalShape(numberShape()) }),
+			},
+			'reads "typo"',
+		],
+		[
+			'a shape that does not compile',
+			{
+				mappings: [],
+				computations: [],
+				shape: UNCOMPILABLE_SHAPE,
+			},
+			'Shape does not compile',
+		],
+	])('%s', (_name, overrides, message) => {
+		const interpret = new Interpret()
+		const error = captureError(() => interpret.add(buildInsuranceRecipe(overrides)))
+		expect(isInterpretError(error) ? error.code : undefined).toBe('DEFINITION')
+		expect(isInterpretError(error) ? error.message : '').toContain(message)
+		interpret.destroy()
+	})
+})
+
+describe('Interpret — boundaries of what crosses', () => {
+	it('a result with a fault, repairs, and a failed stage passes its contract', () => {
+		const stages = createInterpretStageFailures()
+		const interpret = new Interpret({
+			recipes: [
+				buildInsuranceRecipe({
+					mappings: [
+						{ entity: 'age', aliases: [], field: 'age' },
+						{ entity: 'code', aliases: [], field: 'code' },
+					],
+					computations: [],
+					shape: objectShape({ age: numberShape({ max: 120 }), code: stringShape() }),
+				}),
+			],
+			extractor: createCorpusExtractor(),
+		})
+		const asked = interpret.interpret('calculate insurance age 900, code 7')
+		expect(asked.ambiguities[0]?.fault).toBeDefined()
+		expect(interpretationContract.audit(projectInterpretation(asked))).toEqual([])
+		const repaired = interpret.interpret('calculate insurance age 40, code 7')
+		expect(repaired.repairs).not.toEqual([])
+		expect(interpretationContract.audit(projectInterpretation(repaired))).toEqual([])
+		interpret.destroy()
+		const failing = new Interpret({
+			recipes: [buildInsuranceRecipe()],
+			extractor: createCorpusExtractor(),
+			clarifier: stages.clarifier,
+		})
+		const failed = failing.interpret('calculate insurance age 25')
+		expect(failed.failures).not.toEqual([])
+		expect(interpretationContract.audit(projectInterpretation(failed))).toEqual([])
+		failing.destroy()
+	})
+
+	it('what the recipe contract admits the guard admits, setting a nested shape aside', () => {
+		const contract = createRecipeContract()
+		for (const seed of Array.from({ length: 40 }, (_, index) => index + 1)) {
+			const generated = contract.generate(seededRandom(seed))
+			expect(contract.is(generated)).toBe(true)
+			const shapeless = asRecord(dropRecipeShapes(generated))
+			expect(isRecipe({ ...shapeless, shape: objectShape({}) })).toBe(true)
+		}
 	})
 })

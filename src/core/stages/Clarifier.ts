@@ -26,7 +26,6 @@ import {
 	collectShapeDefaults,
 	findEntityField,
 	findFieldDescription,
-	isNestedField,
 	resolveExpression,
 	settleEntities,
 	variablesOf,
@@ -41,8 +40,9 @@ import { Narrator } from '../Narrator.js'
  *
  * @remarks
  * Resolution order: fresh (already-assigned) entities always win; carry-over
- * fills a mapping only from the same domain's most recent prior turn (a
- * domain change drops carry-over entirely) and never overwrites a fresh
+ * fills a mapping only from the same domain's and recipe's most recent prior turn (a
+ * domain change drops carry-over entirely), only with what was stated, because a
+ * computed or defaulted value is worked out again, and never overwrites a fresh
  * value; computed fields resolve in dependency (topological) order through
  * `resolveExpression` — an unresolved input, a non-finite result, or a
  * dependency cycle leaves the field a gap, never landing an entity; the door then
@@ -141,13 +141,24 @@ export class Clarifier implements ClarifierInterface {
 		resolved: Entity[],
 	): void {
 		if (context === undefined) return
-		const sameDomain = context.previous().filter((prior) => prior.intent.domain === intent.domain)
+		const sameDomain = context
+			.previous()
+			.filter(
+				(prior) =>
+					prior.intent.domain === intent.domain &&
+					(prior.recipe === undefined || prior.recipe === recipe.id),
+			)
 		for (const mapping of recipe.mappings) {
 			if (filledEntityNames.has(mapping.entity)) continue
 			for (const offset of sameDomain.keys()) {
 				const index = sameDomain.length - 1 - offset
 				const prior = sameDomain[index]
-				const found = prior?.entities.find((entity) => entity.name === mapping.entity)
+				const found = prior?.entities.find(
+					(entity) =>
+						entity.name === mapping.entity &&
+						(entity.provenance.category === 'extracted' ||
+							entity.provenance.category === 'carried'),
+				)
 				if (found === undefined) continue
 				resolved.push({
 					name: mapping.entity,
@@ -172,7 +183,8 @@ export class Clarifier implements ClarifierInterface {
 	#resolveComputations(recipe: Recipe, filledFields: Set<string>, resolved: Entity[]): void {
 		const bindings: Record<string, number> = {}
 		const trust = new Map<string, number>()
-		for (const { field, value } of collectShapeDefaults(recipe.shape)) {
+		const subject = buildSubject(resolved, recipe.mappings)
+		for (const { field, value } of collectShapeDefaults(recipe.shape, subject)) {
 			this.#bind(bindings, trust, formatField(field), value, CONFIDENCE_DEFAULT)
 		}
 		for (const entity of resolved) {
@@ -190,9 +202,7 @@ export class Clarifier implements ClarifierInterface {
 			const mapping = recipe.mappings.find((candidate) => formatField(candidate.field) === key)
 			resolved.push({
 				name: mapping?.entity ?? key,
-				...(mapping === undefined && isNestedField(computation.field)
-					? { field: computation.field }
-					: {}),
+				...(mapping === undefined ? { field: computation.field } : {}),
 				value,
 				provenance: { category: 'computed' },
 				confidence,

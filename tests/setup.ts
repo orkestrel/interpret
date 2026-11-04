@@ -12,6 +12,7 @@
 // `@src/core` — the barrel re-exports only local `interprets` modules
 // (`.claude/rules/architecture.md` § Barrel exports).
 
+import type { ContractShape } from '@orkestrel/contract'
 import type { ReasonResult, SymbolicResult } from '@orkestrel/reason'
 import type {
 	ExtractorInterface,
@@ -23,6 +24,7 @@ import type {
 import {
 	arrayShape,
 	isArray,
+	isRecord,
 	numberShape,
 	objectShape,
 	optionalShape,
@@ -231,6 +233,14 @@ export const TRICKY_KEYS: readonly string[] = Object.freeze([
 ])
 
 // ── Interprets fixtures (environment-agnostic) ────────────────────────────────
+
+/** Holds a shape no builder would make, whose default breaks its own bound, so only compiling refuses it. */
+export const UNCOMPILABLE_SHAPE: ContractShape = {
+	category: 'object',
+	properties: {
+		a: { category: 'optional', inner: { category: 'number', min: 0 }, default: -5 },
+	},
+}
 
 /** Holds a shape admitting any field, for a recipe whose test is about something else. */
 export const OPEN_SHAPE = objectShape({}, { additionalProperties: true })
@@ -493,4 +503,32 @@ export class InterpretContextFixture {
 /** Supplies a callable error context. */
 export function createCallableInterpretContext(): (() => void) & { readonly id: string } {
 	return Object.assign(() => {}, { id: 'context' })
+}
+
+/**
+ * Narrows a value generated from a contract to a record, for spreading in a lockstep test.
+ *
+ * @param value - The generated value
+ * @returns The value as a record, or an empty one
+ */
+export function asRecord(value: unknown): Readonly<Record<string, unknown>> {
+	return isRecord(value) ? value : {}
+}
+
+/**
+ * Removes the `shape` a recipe and its definition hold.
+ *
+ * @remarks
+ * A contract reads a nested `shape` as any JSON value and the guard reads it as a shape, so the
+ * lockstep between them holds with those set aside.
+ *
+ * @param value - The generated value
+ * @returns The value with no `shape` key on it or on its definition
+ */
+export function dropRecipeShapes(value: unknown): unknown {
+	if (!isRecord(value)) return value
+	const { shape: _shape, ...rest } = value
+	if (!isRecord(rest.definition)) return rest
+	const { shape: _definitionShape, ...definition } = rest.definition
+	return { ...rest, definition }
 }

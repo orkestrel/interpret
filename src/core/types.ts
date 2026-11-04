@@ -880,7 +880,7 @@ export interface ExtractorInterface {
 }
 
 /**
- * Represents the `Clarifier` stage contract: resolve carry-over, defaults, and computed
+ * Represents the `Clarifier` stage contract: resolve carry-over and computed
  * fields against a set of already-assigned entities, surfacing ambiguities
  * for anything required that stays unresolved.
  */

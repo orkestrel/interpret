@@ -28,7 +28,7 @@ import type {
 } from './types.js'
 import { attempt, isError, isString } from '@orkestrel/contract'
 import { Emitter } from '@orkestrel/emitter'
-import { assignEntities } from './compilers.js'
+import { assignEntities, findForeignNumbers } from './compilers.js'
 import { DEFAULT_INTERPRET_FLOOR, DEFAULT_INTERPRET_SIMILARITY } from './constants.js'
 import { InterpretError } from './errors.js'
 import { assertRecipe, digestValue, findUnclaimedNumbers, matchRecipe } from './helpers.js'
@@ -235,7 +235,7 @@ export class Interpret implements InterpretInterface {
 				matched,
 				this.#context,
 				intent,
-				findUnclaimedNumbers(extract.numbers, assigned),
+				findUnclaimedNumbers(extract.numbers, assigned, findForeignNumbers(normalized.text)),
 			),
 		)
 		if (!clarifiedResult.success) {
@@ -284,6 +284,41 @@ export class Interpret implements InterpretInterface {
 		const formatted: FormatResult = formattedResult.value
 		stages.push({ stage: 'format', input: formatInput, output: formatted, failed: false })
 
+		// A subject the door refused, or one a required question stands over, is no subject, so it
+		// is not built: no stage record or mapping holds what the door refused.
+		if (clarified.ambiguities.some((ambiguity) => ambiguity.required)) {
+			stages.push({ stage: 'generate', input: undefined, output: undefined, failed: false })
+			const digest = digestValue({
+				text,
+				recipeId: matched.id,
+				recipeVersion: version,
+				subject: undefined,
+				definition: matched.definition,
+			})
+			const asked: Interpretation = {
+				text,
+				normalized: normalized.text,
+				intent,
+				recipe: matched.id,
+				...(version === undefined ? {} : { recipeVersion: version }),
+				entities: clarified.entities,
+				definition: matched.definition,
+				mappings: [],
+				ambiguities: clarified.ambiguities,
+				repairs: clarified.repairs,
+				defaulted: clarified.defaulted,
+				prompt: formatted.prompt,
+				stages,
+				failures: [],
+				confidence: 0,
+				digest,
+			}
+			this.#context.definitions.add(matched.definition, { id: matched.definition.id })
+			this.#context.add(asked)
+			this.#emitter.emit('interpret', asked)
+			return asked
+		}
+
 		const generatedResult = attempt(() => this.#generator.generate(clarified.entities, matched))
 		if (!generatedResult.success) {
 			const error = generatedResult.error
@@ -306,13 +341,11 @@ export class Interpret implements InterpretInterface {
 		const generated: GenerateResult = generatedResult.value
 		stages.push({ stage: 'generate', input: clarified.entities, output: generated, failed: false })
 
-		// A subject the door refused, or one a required question stands over, is no subject.
-		const open = clarified.ambiguities.some((ambiguity) => ambiguity.required)
 		const digest = digestValue({
 			text,
 			recipeId: matched.id,
 			recipeVersion: version,
-			subject: open ? undefined : generated.subject,
+			subject: generated.subject,
 			definition: generated.definition,
 		})
 		const result: Interpretation = {
@@ -322,7 +355,7 @@ export class Interpret implements InterpretInterface {
 			recipe: matched.id,
 			...(version === undefined ? {} : { recipeVersion: version }),
 			entities: clarified.entities,
-			...(open ? {} : { subject: generated.subject }),
+			subject: generated.subject,
 			definition: generated.definition,
 			mappings: generated.mappings,
 			ambiguities: clarified.ambiguities,
@@ -335,7 +368,7 @@ export class Interpret implements InterpretInterface {
 			digest,
 		}
 
-		if (!open) this.#context.subjects.add(generated.subject)
+		this.#context.subjects.add(generated.subject)
 		this.#context.definitions.add(generated.definition, { id: generated.definition.id })
 		this.#context.add(result)
 		this.#emitter.emit('interpret', result)

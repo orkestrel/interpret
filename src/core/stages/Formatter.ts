@@ -68,7 +68,8 @@ export class Formatter implements FormatterInterface {
 		ambiguities: readonly Ambiguity[],
 	): FormatResult {
 		const action = intent.action
-		const verb = action === undefined ? '' : (this.#verbs[action] ?? action)
+		const given = action !== undefined && Object.hasOwn(this.#verbs, action)
+		const verb = action === undefined ? '' : ((given ? this.#verbs[action] : undefined) ?? action)
 		const resolved: string[] = []
 		const defaults: string[] = []
 		for (const entity of entities) {

@@ -1,6 +1,6 @@
 import type { ContractShape } from '@orkestrel/contract'
 import type { Entity, EntityMapping } from './types.js'
-import { escapeRegExp } from '@orkestrel/contract'
+import { escapeRegExp, isFiniteNumber } from '@orkestrel/contract'
 import {
 	CONFIDENCE_ALIAS,
 	CONFIDENCE_COLLECT,
@@ -11,7 +11,6 @@ import { findAnchoredNumber, isArrayField, matchAlias, tokenize } from './helper
 
 /** Compiles one text's numeric occurrences into recipe entity assignments. */
 export class EntityCompiler {
-	readonly #used = new Set<number>()
 	readonly #entities: Entity[] = []
 
 	execute(
@@ -34,11 +33,15 @@ export class EntityCompiler {
 			]
 		}
 		const tokens = tokenize(text)
-		const lowerText = text.toLowerCase()
-		const spans = [...text.matchAll(new RegExp(NUMBER_PATTERN.source, NUMBER_PATTERN.flags))].map(
+		// Each span holds its own value, so a number the extractor did not read cannot shift the rest.
+		const spans = [
+			...text.matchAll(new RegExp(NUMBER_PATTERN.source, NUMBER_PATTERN.flags)),
+		].flatMap((match) => {
+			const value = Number(match[1]?.replace(/,/g, ''))
 			// The pattern takes the spaces after a number, which are no part of it.
-			(match) => ({ start: match.index, end: match.index + match[0].trimEnd().length }),
-		)
+			const end = match.index + match[0].trimEnd().length
+			return isFiniteNumber(value) ? [{ start: match.index, end, value }] : []
+		})
 		const matches = Iterator.from(mappings)
 			.map((mapping) => {
 				const entityToken = mapping.entity.toLowerCase()
@@ -50,8 +53,8 @@ export class EntityCompiler {
 					readonly detail: 'keyword' | 'alias'
 				}>(
 					(matched, token) => {
-						const pattern = new RegExp(`(?<![a-z0-9])${escapeRegExp(token)}(?![a-z0-9])`, 'g')
-						const position = Iterator.from(lowerText.matchAll(pattern)).reduce(
+						const pattern = new RegExp(`(?<![a-z0-9])${escapeRegExp(token)}(?![a-z0-9])`, 'gi')
+						const position = Iterator.from(text.matchAll(pattern)).reduce(
 							(_position, found) => found.index,
 							-1,
 						)
@@ -88,17 +91,23 @@ export class EntityCompiler {
 			.filter((match) => match.position >= 0)
 			.toArray()
 			.sort((left, right) => left.position - right.position)
-		for (const match of matches) {
-			const best = findAnchoredNumber(text, { start: match.position, end: match.end }, spans)
-			if (best === undefined || this.#used.has(best)) continue
-			const value = numbers[best]
-			if (value === undefined) continue
-			this.#used.add(best)
+		const claims = matches.flatMap((match) => {
+			const anchored = findAnchoredNumber(text, { start: match.position, end: match.end }, spans)
+			return anchored === undefined ? [] : [{ match, ...anchored }]
+		})
+		for (const claim of claims) {
+			// A number goes to the anchor nearest it, so a farther one cannot take it by coming first.
+			const rivals = claims.filter((other) => other.index === claim.index)
+			const nearest = Math.min(...rivals.map((other) => other.gap))
+			const held = rivals.filter((other) => other.gap === nearest)
+			if (held.length !== 1 || held[0] !== claim) continue
+			const value = spans[claim.index]?.value
+			if (value === undefined || !numbers.includes(value)) continue
 			this.#entities.push({
-				name: match.mapping.entity,
-				value: isArrayField(shape, match.mapping.field) ? [value] : value,
-				provenance: { category: 'extracted', detail: match.detail },
-				confidence: match.confidence,
+				name: claim.match.mapping.entity,
+				value: isArrayField(shape, claim.match.mapping.field) ? [value] : value,
+				provenance: { category: 'extracted', detail: claim.match.detail },
+				confidence: claim.match.confidence,
 			})
 		}
 		return this.#entities

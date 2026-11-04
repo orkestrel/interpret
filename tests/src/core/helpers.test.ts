@@ -23,6 +23,7 @@ import {
 	canonicalizeNode,
 	classifyIntent,
 	collapseWhitespace,
+	collectRequiredFields,
 	collectShapeDefaults,
 	createNarrator,
 	describeRecipeShape,
@@ -31,10 +32,11 @@ import {
 	findEntityField,
 	findAnchoredNumber,
 	findFieldDescription,
+	findForeignNumbers,
 	findUnclaimedNumbers,
 	isArrayField,
+	isFieldFilled,
 	isInterpretError,
-	isNestedField,
 	matchAlias,
 	matchRecipe,
 	renderSubject,
@@ -54,6 +56,7 @@ import {
 	EXTREME_NUMBERS,
 	InterpretFixtureValue,
 	OPEN_SHAPE,
+	UNCOMPILABLE_SHAPE,
 } from '../../setup.js'
 
 // The interprets pure leaves — every function is referentially transparent
@@ -248,22 +251,54 @@ describe('assignEntities', () => {
 		).toEqual([7])
 	})
 
-	it('a number another anchor claimed is not taken second-hand', () => {
+	it('a number goes to the anchor nearest it, and a farther one takes no other', () => {
 		const mappings = [
 			{ entity: 'rate', aliases: [], field: 'rate' },
 			{ entity: 'term', aliases: [], field: 'term' },
 		]
 		const entities = assignEntities([7, 900], mappings, 'rate term 7 and more 900', 0.8, OPEN_SHAPE)
-		expect(entities.map((entity) => entity.name)).toEqual(['rate'])
+		expect(entities.map((entity) => entity.name)).toEqual(['term'])
+		expect(entities[0]?.value).toBe(7)
+	})
+
+	it('a number two anchors sit equally close to goes to neither', () => {
+		const mappings = [
+			{ entity: 'rate', aliases: [], field: 'rate' },
+			{ entity: 'term', aliases: [], field: 'term' },
+		]
+		expect(assignEntities([7], mappings, 'rate 7 term', 0.8, OPEN_SHAPE)).toEqual([])
+	})
+
+	it('an anchor never claims the digits inside its own word', () => {
+		const mappings = [{ entity: '401k', aliases: [], field: 'plan' }]
+		expect(assignEntities([401], mappings, '401k balance', 0.8, OPEN_SHAPE)).toEqual([])
+	})
+
+	it('a number the extractor did not read shifts nothing and is not claimed', () => {
+		const mappings = [
+			{ entity: 'age', aliases: [], field: 'age' },
+			{ entity: 'rate', aliases: [], field: 'rate' },
+		]
+		const huge = '9'.repeat(400)
+		const entities = assignEntities([5], mappings, `age ${huge}, rate 5`, 0.8, OPEN_SHAPE)
+		expect(entities.map((entity) => [entity.name, entity.value])).toEqual([['rate', 5]])
+		const injected = assignEntities([25], mappings, 'age 25, rate 5', 0.8, OPEN_SHAPE)
+		expect(injected.map((entity) => [entity.name, entity.value])).toEqual([['age', 25]])
+	})
+
+	it('an anchor after a character that changes length in lower case still sits where it is', () => {
+		const mappings = [{ entity: 'age', aliases: [], field: 'age' }]
+		const entities = assignEntities([30], mappings, '\u0130\u0130 age 30', 0.8, OPEN_SHAPE)
+		expect(entities[0]?.value).toBe(30)
 	})
 
 	it('alias fuzzy match uses the dynamic matchAlias score as confidence', () => {
 		const mappings = [{ entity: 'amount', aliases: ['dollars'], field: 'amount' }]
-		const secondMapping = [{ entity: 'other', aliases: ['dollars'], field: 'other' }]
+		const secondMapping = [{ entity: 'other', aliases: ['euros'], field: 'other' }]
 		const entities = assignEntities(
 			[10, 20],
 			[...mappings, ...secondMapping],
-			'dollar 10, dolars 20',
+			'dollar 10, euro 20',
 			0.5,
 			OPEN_SHAPE,
 		)
@@ -708,12 +743,6 @@ describe("the recipe's shape", () => {
 		expect(isArrayField(shape, 'absent')).toBe(false)
 	})
 
-	it('isNestedField holds only a path of more than one key', () => {
-		expect(isNestedField(['a', 'b'])).toBe(true)
-		expect(isNestedField(['a'])).toBe(false)
-		expect(isNestedField('a.b')).toBe(false)
-	})
-
 	it('findUnclaimedNumbers takes one number per claim, and reads an array by element', () => {
 		expect(findUnclaimedNumbers([25, 700], [entity])).toEqual([700])
 		expect(findUnclaimedNumbers([25, 25], [entity])).toEqual([25])
@@ -723,11 +752,14 @@ describe("the recipe's shape", () => {
 
 	it('findAnchoredNumber claims the one number nearest in the clause', () => {
 		const rate = { start: 0, end: 4 }
+		const claimed = findAnchoredNumber('rate 5', rate, [{ start: 5, end: 6 }])
+		expect(claimed).toEqual({ index: 0, gap: 1 })
+		expect(findAnchoredNumber('401k', { start: 0, end: 4 }, [{ start: 0, end: 3 }])).toBeUndefined()
 		expect(
 			findAnchoredNumber('rate 5, term 7', rate, [
 				{ start: 5, end: 6 },
 				{ start: 13, end: 14 },
-			]),
+			])?.index,
 		).toBe(0)
 		expect(
 			findAnchoredNumber('5 rate 7', { start: 2, end: 6 }, [
@@ -740,11 +772,11 @@ describe("the recipe's shape", () => {
 			findAnchoredNumber('rate 5 and term 7', { start: 11, end: 15 }, [
 				{ start: 5, end: 6 },
 				{ start: 16, end: 17 },
-			]),
+			])?.index,
 		).toBe(1)
-		expect(findAnchoredNumber('rate 1,200 today', rate, [{ start: 5, end: 10 }])).toBe(0)
-		expect(findAnchoredNumber('rate 1.5 today', rate, [{ start: 5, end: 8 }])).toBe(0)
-		expect(findAnchoredNumber('rate: 6', rate, [{ start: 6, end: 7 }])).toBe(0)
+		expect(findAnchoredNumber('rate 1,200 today', rate, [{ start: 5, end: 10 }])?.index).toBe(0)
+		expect(findAnchoredNumber('rate 1.5 today', rate, [{ start: 5, end: 8 }])?.index).toBe(0)
+		expect(findAnchoredNumber('rate: 6', rate, [{ start: 6, end: 7 }])?.index).toBe(0)
 		expect(findAnchoredNumber('rate', rate, [])).toBeUndefined()
 	})
 
@@ -760,6 +792,20 @@ describe("the recipe's shape", () => {
 		expect(findFieldDescription(shape, 'c')).toBe('C?')
 		expect(findFieldDescription(shape, 'd')).toBeUndefined()
 		expect(findFieldDescription(shape, 'absent')).toBeUndefined()
+	})
+
+	it('collectShapeDefaults, given the subject so far, answers only what the door would fill', () => {
+		const shape = objectShape({
+			a: optionalShape(numberShape(), { default: 1 }),
+			b: optionalShape(objectShape({ c: optionalShape(numberShape(), { default: 2 }) })),
+			d: objectShape({ e: optionalShape(numberShape(), { default: 3 }) }),
+		})
+		expect(collectShapeDefaults(shape, {})).toEqual([{ field: ['a'], value: 1 }])
+		expect(collectShapeDefaults(shape, { a: 9 })).toEqual([])
+		expect(collectShapeDefaults(shape, { a: 9, b: {} })).toEqual([{ field: ['b', 'c'], value: 2 }])
+		expect(collectShapeDefaults(shape, { a: 9, d: { e: 5 } })).toEqual([])
+		expect(collectShapeDefaults(shape, { a: 9, d: {} })).toEqual([{ field: ['d', 'e'], value: 3 }])
+		expect(collectShapeDefaults(shape, { a: undefined })).toEqual([{ field: ['a'], value: 1 }])
 	})
 
 	it('collectShapeDefaults walks objects and stops at a default', () => {
@@ -852,7 +898,10 @@ describe("the recipe's shape", () => {
 			assertRecipe(buildInterpretRecipe({ shape: objectShape({ other: numberShape() }) })),
 		)
 		expect(isInterpretError(invalid) ? invalid.context : undefined).toEqual({
-			errors: ['Field "value" is mapped, and the shape does not declare it'],
+			errors: [
+				'Field "value" is mapped, and the shape does not declare it',
+				'Field "other" is required, and no mapping or computation fills it',
+			],
 		})
 	})
 })
@@ -861,19 +910,18 @@ describe('choosing a recipe asks rather than picks', () => {
 	const actions = { calculate: 'compute', check: 'verify', constructor: 'build' }
 	const domains = { rating: ['rate'], lending: ['loan'] }
 
-	it('classifyIntent names no domain on a tie, and no action when two are named', () => {
+	it('classifyIntent names no domain when two are named, and no action when two are named', () => {
 		expect(classifyIntent('calculate the rate of a loan', actions, domains)).toEqual({
+			action: 'compute',
+			confidence: 0.5,
+		})
+		expect(classifyIntent('calculate the loan rate rate', actions, domains)).toEqual({
 			action: 'compute',
 			confidence: 0.5,
 		})
 		expect(classifyIntent('calculate and check the rate', actions, domains)).toEqual({
 			domain: 'rating',
 			confidence: 0.5,
-		})
-		expect(classifyIntent('calculate the loan rate rate', actions, domains)).toEqual({
-			action: 'compute',
-			domain: 'rating',
-			confidence: 1,
 		})
 	})
 
@@ -888,6 +936,12 @@ describe('choosing a recipe asks rather than picks', () => {
 		expect(matchRecipe({ action: 'calculate', confidence: 0.5 }, [recipe], 0.3)).toBeUndefined()
 	})
 
+	it('matchRecipe refuses a domain no recipe holds, whatever action matches', () => {
+		const recipe = buildInterpretRecipe({ domain: 'claims', intents: ['compute'] })
+		const intent = { action: 'compute', domain: 'rating', confidence: 1 }
+		expect(matchRecipe(intent, [recipe], 0.3)).toBeUndefined()
+	})
+
 	it('matchRecipe takes a domain alone when one recipe holds it', () => {
 		const recipe = buildInterpretRecipe()
 		expect(matchRecipe({ domain: 'arithmetic', confidence: 0.5 }, [recipe], 0.3)).toBe(recipe)
@@ -900,5 +954,107 @@ describe('choosing a recipe asks rather than picks', () => {
 		expect(matchRecipe(intent, [first, second], 0.3)).toBeUndefined()
 		const elsewhere = buildInterpretRecipe({ id: 'third', intents: ['other'] })
 		expect(matchRecipe(intent, [first, elsewhere], 0.3)).toBe(first)
+	})
+})
+
+describe('a recipe that cannot work', () => {
+	it('describeRecipeShape names a required field nothing fills', () => {
+		const recipe = buildInterpretRecipe({
+			mappings: [],
+			shape: objectShape({ age: numberShape(), terms: objectShape({ rate: numberShape() }) }),
+		})
+		expect(describeRecipeShape(recipe)).toEqual([
+			'Field "age" is required, and no mapping or computation fills it',
+			'Field "terms.rate" is required, and no mapping or computation fills it',
+		])
+	})
+
+	it('describeRecipeShape takes a mapping above or below a required field', () => {
+		const below = buildInterpretRecipe({
+			mappings: [{ entity: 'rate', aliases: [], field: ['terms', 'rate'] }],
+			shape: objectShape({ terms: objectShape({ rate: numberShape() }) }),
+		})
+		const above = buildInterpretRecipe({
+			mappings: [{ entity: 'terms', aliases: [], field: 'terms' }],
+			shape: objectShape({ terms: objectShape({ rate: numberShape() }) }),
+		})
+		expect(describeRecipeShape(below)).toEqual([])
+		expect(describeRecipeShape(above)).toEqual([])
+	})
+
+	it('describeRecipeShape names a variable nothing fills, and takes an element of a field', () => {
+		const typo = buildInterpretRecipe({
+			mappings: [{ entity: 'value', aliases: [], field: 'value' }],
+			computations: [{ field: 'total', expression: createVariable('valuee') }],
+		})
+		expect(describeRecipeShape(typo)).toEqual([
+			'Computation of "total" reads "valuee", which nothing fills',
+		])
+		const element = buildInterpretRecipe({
+			mappings: [{ entity: 'value', aliases: [], field: 'value' }],
+			computations: [{ field: 'total', expression: createVariable('value.0') }],
+		})
+		expect(describeRecipeShape(element)).toEqual([])
+		const defaulted = buildInterpretRecipe({
+			mappings: [],
+			computations: [{ field: 'total', expression: createVariable('rate') }],
+			shape: objectShape({
+				rate: optionalShape(numberShape(), { default: 2 }),
+				total: numberShape(),
+			}),
+		})
+		expect(describeRecipeShape(defaulted)).toEqual([])
+	})
+
+	it('describeRecipeShape names a shape that does not compile', () => {
+		const recipe = buildInterpretRecipe({ mappings: [], shape: UNCOMPILABLE_SHAPE })
+		const errors = describeRecipeShape(recipe)
+		expect(errors).toHaveLength(1)
+		expect(errors[0]).toContain('Shape does not compile')
+	})
+
+	it('collectRequiredFields reads through nullable, and leaves optional and open keys out', () => {
+		expect(
+			collectRequiredFields(
+				objectShape({
+					a: numberShape(),
+					b: optionalShape(numberShape()),
+					c: nullableShape(numberShape()),
+					d: objectShape({ e: optionalShape(numberShape()) }),
+				}),
+			),
+		).toEqual(['a', 'c', 'd'])
+		expect(collectRequiredFields(OPEN_SHAPE)).toEqual([])
+	})
+
+	it('isFieldFilled takes the field, one above it, or one inside it, and never a near name', () => {
+		expect(isFieldFilled('a', ['a'])).toBe(true)
+		expect(isFieldFilled('a.b', ['a'])).toBe(true)
+		expect(isFieldFilled('a', ['a.b'])).toBe(true)
+		expect(isFieldFilled('a', ['ab'])).toBe(false)
+		expect(isFieldFilled('a', [])).toBe(false)
+	})
+})
+
+describe('reading what a text holds beside a recipe', () => {
+	it('resolveExpression reads no bound name from the prototype', () => {
+		expect(resolveExpression(createVariable('constructor'), {})).toBeUndefined()
+		expect(resolveExpression(createVariable('toString'), {})).toBeUndefined()
+	})
+
+	it('digestValue reads a bigint rather than throwing', () => {
+		expect(digestValue({ a: 1n })).toBe(digestValue({ a: 1n }))
+		expect(digestValue({ a: 1n })).not.toBe(digestValue({ a: 2n }))
+	})
+
+	it('findForeignNumbers answers in the digit runs extractNumbers reads', () => {
+		expect(findForeignNumbers('call 555-0142 about 40 hours')).toEqual([555, 142])
+		expect(findForeignNumbers('in 2019, 40 hours')).toEqual([2019])
+		expect(findForeignNumbers('40 hours')).toEqual([])
+	})
+
+	it('findUnclaimedNumbers sets aside what belongs to no quantity', () => {
+		expect(findUnclaimedNumbers([2019, 40], [], [2019])).toEqual([40])
+		expect(findUnclaimedNumbers([2019, 2019], [], [2019])).toEqual([2019])
 	})
 })
