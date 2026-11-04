@@ -490,10 +490,28 @@ export function buildInterpretation(overrides?: Partial<Interpretation>): Interp
  * @returns A real `InterpretContext`, seeded with `previous`
  */
 export function seedInterpretContext(previous: readonly Interpretation[]): InterpretContext {
-	const context = new InterpretContext()
+	const context = new InterpretContext({ history: previous.length })
 	for (const interpretation of previous) context.add(interpretation)
 	return context
 }
+
+/** Distinguishes correction waits from anticipation before an ordinary quantity. */
+export const WAIT_READINGS = Object.freeze([
+	{ text: '1,861,800 copies — wait, 1,451,900', entity: 'copies', value: undefined },
+	{ text: '380 watts — wait, no, 540', entity: 'watts', value: undefined },
+	{ text: "I can't wait to start, 5 panels", entity: 'panels', value: 5 },
+])
+
+/** Exercises isolated messages and explicitly retained turns on one interpreter. */
+export const LOAN_HISTORIES = Object.freeze([
+	{ history: undefined, subject: undefined, questions: ['years'], carried: [] },
+	{
+		history: 16,
+		subject: { amount: 50000, income: 120000, years: 5, collateral: 50000 },
+		questions: [],
+		carried: ['years', 'collateral'],
+	},
+])
 
 /** Supplies a class-instance error context. */
 export class InterpretContextFixture {

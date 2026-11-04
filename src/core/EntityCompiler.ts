@@ -4,7 +4,14 @@ import { escapeRegExp } from '@orkestrel/contract'
 import { CONFIDENCE_ALIAS, CONFIDENCE_COLLECT, CONFIDENCE_EXACT } from './constants.js'
 import { findAnchoredNumber, matchesArrayField, tokenize } from './helpers.js'
 
-/** Compiles one text's numeric occurrences into recipe entity assignments. */
+/**
+ * Compiles one text's numeric occurrences into recipe entity assignments.
+ *
+ * @remarks
+ * Aliases match exact token sequences; overlapping anchors keep the later start.
+ * Explicit corrections, including `wait` except `wait to`, refuse occurrences
+ * marked suspect or changed without substituting a rival value.
+ */
 export class EntityCompiler {
 	readonly #entities: Entity[] = []
 
@@ -18,13 +25,13 @@ export class EntityCompiler {
 		const tokens = tokenize(text)
 		const spans = numbers
 		const correction =
-			/\b(?:sorry(?!\s+(?:to|for)\b)|hang\s+on|used\s+to\s+be|(?:was|were)\s+going\s+to\s+be)\b/i.test(
+			/\b(?:wait(?!\s+to\b)|sorry(?!\s+(?:to|for)\b)|hang\s+on|used\s+to\s+be|(?:was|were)\s+going\s+to\s+be)\b/i.test(
 				text,
 			)
 		const matches = Iterator.from(mappings)
 			.map((mapping) => {
 				const entityToken = mapping.entity.toLowerCase()
-				return tokens.reduce<{
+				return [mapping.entity, ...mapping.aliases].reduce<{
 					readonly mapping: EntityMapping
 					readonly position: number
 					readonly end: number
@@ -32,32 +39,28 @@ export class EntityCompiler {
 					readonly detail: 'keyword' | 'alias'
 				}>(
 					(matched, token) => {
-						const pattern = new RegExp(`(?<![a-z0-9])${escapeRegExp(token)}(?![a-z0-9])`, 'gi')
-						const position = Iterator.from(text.matchAll(pattern)).reduce(
-							(_position, found) => found.index,
-							-1,
+						const words = tokenize(token)
+						if (words.length === 0) return matched
+						if (
+							!tokens.some((_token, index) =>
+								words.every((word, offset) => tokens[index + offset] === word),
+							)
 						)
-						if (token === entityToken) {
-							return position > matched.position
-								? {
-										mapping,
-										position,
-										end: position + token.length,
-										confidence: CONFIDENCE_EXACT,
-										detail: 'keyword',
-									}
-								: matched
-						}
-						if (mapping.aliases.some((alias) => alias.toLowerCase() === token)) {
-							return position > matched.position
-								? {
-										mapping,
-										position,
-										end: position + token.length,
-										confidence: CONFIDENCE_ALIAS,
-										detail: 'alias',
-									}
-								: matched
+							return matched
+						const pattern = new RegExp(
+							`(?<![a-z0-9])${words.map((word) => escapeRegExp(word)).join("[^a-z0-9./%$'-]+")}(?![a-z0-9])`,
+							'gi',
+						)
+						const found = Array.from(text.matchAll(pattern)).at(-1)
+						if (found !== undefined && found.index > matched.position) {
+							return {
+								mapping,
+								position: found.index,
+								end: found.index + found[0].length,
+								confidence:
+									token.toLowerCase() === entityToken ? CONFIDENCE_EXACT : CONFIDENCE_ALIAS,
+								detail: token.toLowerCase() === entityToken ? 'keyword' : 'alias',
+							}
 						}
 						return matched
 					},

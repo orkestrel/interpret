@@ -301,7 +301,7 @@ await new GuideCommand({
 
 		it('Constants: every pinned default and lexicon line', () => {
 			expect(DEFAULT_INTERPRET_FLOOR).toBe(0.3)
-			expect(DEFAULT_INTERPRET_HISTORY).toBe(16)
+			expect(DEFAULT_INTERPRET_HISTORY).toBe(0)
 			expect(CONFIDENCE_EXACT).toBe(1)
 			expect(CONFIDENCE_ALIAS).toBe(0.9)
 			expect(CONFIDENCE_COLLECT).toBe(0.9)

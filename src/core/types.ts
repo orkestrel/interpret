@@ -74,7 +74,7 @@ export type InterpretErrorCode =
  *
  * @remarks
  * `aliases` are literal strings (no `RegExp` — recipes stay JSON), matched exactly,
- * case-insensitively, against tokens surrounding an extracted number. Whether the
+ * case-insensitively, as in-order token sequences surrounding an extracted number. Whether the
  * field is required is the {@link Recipe}'s `shape` to say.
  */
 export interface EntityMapping {
@@ -813,6 +813,7 @@ export interface RecordOptions {
 /** Represents the options for `createInterpretContext` and the `InterpretContext` constructor. */
 export interface InterpretContextOptions {
 	readonly session?: string
+	/** Caps retained turns; defaults to 0, disabling carry. */
 	readonly history?: number
 	readonly on?: EmitterHooks<InterpretContextEventMap>
 	readonly error?: EmitterErrorHandler
@@ -832,7 +833,8 @@ export interface InterpretContextOptions {
  * the instance. There are no per-stage option keys here: `floor` is the one
  * value threaded into a built-in stage, reaching the `Clarifier`.
  * `floor` sets the intent confidence floor (default `DEFAULT_INTERPRET_FLOOR`).
- * `history` caps the context's `previous()` ring buffer. `narrator` groups the
+ * `history` caps a newly constructed context's `previous()` ring buffer (default 0,
+ * no carry). Configure a supplied context's history on that context. `narrator` groups the
  * wording settings the orchestrator builds its own {@link NarratorInterface}
  * from, keeping them clear of the `formatter` stage slot beside them. `on` —
  * initial event listeners. `error` — the emitter's listener-error handler.
@@ -1187,7 +1189,7 @@ export interface DefinitionManagerInterface {
  *
  * @remarks
  * `previous()` returns the ring buffer newest-last, capped at the
- * configured `history` (default `DEFAULT_INTERPRET_HISTORY`). `entities()`
+ * configured `history` (default 0, no carry). `entities()`
  * flattens every entity recorded across the buffered history, most recent
  * last — the read carry-over consults. `add` pushes one completed
  * {@link Interpretation}, dropping the oldest entry after the cap is reached.

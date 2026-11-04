@@ -1,9 +1,11 @@
 import type { InterpretEventMap } from '@src/core'
+import { Interpret } from '@src/core'
 import { createOperation, createVariable } from '@orkestrel/reason'
 import { createRecorders } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import {
 	buildCorpusInterpret,
+	createCorpusExtractor,
 	buildEligibilityRecipe,
 	buildInsuranceRecipe,
 	buildInterpretRecipe,
@@ -31,7 +33,11 @@ describe('interprets integration', () => {
 	})
 
 	it('carries entities across same-domain turns when a field is missing', () => {
-		const interpret = buildCorpusInterpret()
+		const interpret = new Interpret({
+			recipes: [buildInsuranceRecipe()],
+			extractor: createCorpusExtractor(),
+			history: 16,
+		})
 		interpret.interpret('calculate insurance age 25')
 		const second = interpret.interpret('calculate insurance')
 		expect(second.subject?.age).toBe(25)

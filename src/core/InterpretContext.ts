@@ -21,10 +21,10 @@ import { SubjectManager } from './managers/SubjectManager.js'
  *
  * @remarks
  * `previous()` is a capped ring buffer (newest-last, oldest dropped after the
- * `history` cap is reached — `DEFAULT_INTERPRET_HISTORY` by default, ≥ 3
- * preserves the carry-over pin), never an unbounded array.
+ * `history` cap is reached — 0 by default, so carry requires an explicit
+ * positive cap), never an unbounded array.
  * `entities()` flattens every entity across the buffered history, most recent
- * last — the read a `Clarifier`'s same-domain carry-over consults. `add` pushes
+ * last. `Clarifier` consults `previous()` for same-domain carry-over. `add` pushes
  * one result and trims to the cap; `clear` resets the history, the subject
  * registry, and the definition registry without tearing the context down;
  * `destroy()` is idempotent and every method afterwards throws

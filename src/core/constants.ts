@@ -20,8 +20,8 @@ import type {
  */
 export const DEFAULT_INTERPRET_FLOOR = 0.3
 
-/** Names the default `history` cap for an `InterpretContext`'s `previous()` ring buffer, 16. */
-export const DEFAULT_INTERPRET_HISTORY = 16
+/** Names the default `history` cap for an `InterpretContext`'s `previous()` ring buffer, 0 (carry is opt-in). */
+export const DEFAULT_INTERPRET_HISTORY = 0
 
 /** Names the confidence assigned to an exact keyword-proximity entity match, 1. */
 export const CONFIDENCE_EXACT = 1
@@ -343,7 +343,7 @@ export const READER_WORDS = Object.freeze({
 	),
 	corrections: Object.freeze(
 		new Set(
-			'actually correction scratch rather instead mistake mistaken oops typo meant previously formerly previous prior former ago been old original originally initially earlier'.split(
+			'wait actually correction scratch rather instead mistake mistaken oops typo meant previously formerly previous prior former ago been old original originally initially earlier'.split(
 				' ',
 			),
 		),

@@ -182,6 +182,43 @@ describe('assignEntities', () => {
 		expect(entities.find((entity) => entity.name === 'age')?.value).toBe(25)
 	})
 
+	it('claims a multi-word alias only as an exact token sequence', () => {
+		const mapping = [{ entity: 'copies', aliases: ['print run'], field: 'copies' }]
+		expect(
+			assignEntities(scanNumbers('print run 5000'), mapping, 'print run 5000', OPEN_SHAPE).map(
+				(entity) => entity.value,
+			),
+		).toEqual([5000])
+		expect(assignEntities(scanNumbers('run 5000'), mapping, 'run 5000', OPEN_SHAPE)).toEqual([])
+		expect(assignEntities(scanNumbers('print 5000'), mapping, 'print 5000', OPEN_SHAPE)).toEqual([])
+		expect(
+			assignEntities(scanNumbers('run print 5000'), mapping, 'run print 5000', OPEN_SHAPE),
+		).toEqual([])
+		expect(
+			assignEntities(scanNumbers('print runs 5000'), mapping, 'print runs 5000', OPEN_SHAPE),
+		).toEqual([])
+	})
+
+	it('keeps the later overlapping anchor and the existing token boundaries', () => {
+		const text = '7 interest rate 5'
+		expect(
+			assignEntities(
+				scanNumbers(text),
+				[{ entity: 'charge', aliases: ['rate', 'interest rate'], field: 'charge' }],
+				text,
+				OPEN_SHAPE,
+			).map((entity) => entity.value),
+		).toEqual([5])
+		expect(
+			assignEntities(
+				scanNumbers('5 rate.'),
+				[{ entity: 'rate', aliases: [], field: 'rate' }],
+				'5 rate.',
+				OPEN_SHAPE,
+			).map((entity) => entity.value),
+		).toEqual([])
+	})
+
 	it('keyword-proximity: exact entity-name token wins at CONFIDENCE_EXACT', () => {
 		const mappings = [
 			{ entity: 'rate', aliases: ['value'], field: 'rate' },

@@ -28,6 +28,7 @@ import {
 } from '@orkestrel/reason'
 import {
 	createNarrator,
+	createExtractor,
 	createRecipeContract,
 	digestValue,
 	Interpret,
@@ -41,6 +42,8 @@ import { captureError, createRecorders, invokeUnchecked } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import {
 	buildInsuranceRecipe,
+	LOAN_HISTORIES,
+	WAIT_READINGS,
 	buildInterpretRecipe,
 	createCorpusExtractor,
 	asRecord,
@@ -56,6 +59,65 @@ import {
 // reverse passthroughs, emitter, and DESTROYED teardown.
 
 describe('Interpret', () => {
+	it.each(WAIT_READINGS)('reads the wait cue in $text', ({ text, entity, value }) => {
+		const interpret = new Interpret({
+			recipes: [
+				buildInterpretRecipe({
+					mappings: [{ entity, aliases: [], field: 'value' }],
+					shape: objectShape({ value: numberShape() }),
+				}),
+			],
+			extractor: createCorpusExtractor(),
+		})
+		const result = interpret.interpret(`calculate arithmetic ${text}`)
+		expect(result.subject?.value).toBe(value)
+		expect(result.entities.map((found) => found.value)).toEqual(value === undefined ? [] : [value])
+		expect(result.ambiguities.length > 0).toBe(value === undefined)
+		interpret.destroy()
+	})
+	it.each(LOAN_HISTORIES)(
+		'reuses a loan interpreter with history $history',
+		({ history, subject, questions, carried }) => {
+			const interpret = new Interpret({
+				...(history === undefined ? {} : { history }),
+				extractor: createExtractor({ actions: { apply: 'apply' }, domains: { lending: ['loan'] } }),
+				recipes: [
+					buildInterpretRecipe({
+						domain: 'lending',
+						intents: ['apply'],
+						computations: [],
+						mappings: [
+							{ entity: 'amount', aliases: [], field: 'amount' },
+							{ entity: 'income', aliases: [], field: 'income' },
+							{ entity: 'years', aliases: [], field: 'years' },
+							{ entity: 'collateral', aliases: [], field: 'collateral' },
+						],
+						shape: objectShape({
+							amount: numberShape(),
+							income: numberShape(),
+							years: numberShape(),
+							collateral: optionalShape(numberShape()),
+						}),
+					}),
+				],
+			})
+			expect(
+				interpret.interpret(
+					'apply for a loan: amount 500000, income 120000, years 5, collateral 50000',
+				).subject,
+			).toEqual({ amount: 500000, income: 120000, years: 5, collateral: 50000 })
+			const second = interpret.interpret('apply for a loan: amount 50000, income 120000')
+			expect(second.ambiguities.map((ambiguity) => ambiguity.field)).toEqual(questions)
+			expect(second.subject).toEqual(subject)
+			expect(Object.hasOwn(second, 'subject')).toBe(subject !== undefined)
+			expect(
+				second.entities
+					.filter((entity) => entity.provenance.category === 'carried')
+					.map((entity) => entity.name),
+			).toEqual(carried)
+			interpret.destroy()
+		},
+	)
 	it('asks instead of claiming pages through a fuzzy age alias', () => {
 		const interpret = new Interpret({
 			recipes: [
@@ -597,7 +659,7 @@ describe('Interpret', () => {
 		})
 
 		it('leaves a caller-supplied context alive, and a second orchestrator keeps using it', () => {
-			const context = new InterpretContext({ session: 'shared' })
+			const context = new InterpretContext({ session: 'shared', history: 16 })
 			const first = new Interpret({ context })
 			const second = new Interpret({ context })
 			first.destroy()
@@ -655,7 +717,7 @@ describe("Interpret — the recipe's shape", () => {
 	})
 
 	it('records no subject for an open turn, and the next turn carries what it read', () => {
-		const context = new InterpretContext()
+		const context = new InterpretContext({ history: 16 })
 		const interpret = new Interpret({
 			recipes: [
 				buildInsuranceRecipe({
@@ -729,6 +791,7 @@ describe("Interpret — the recipe's shape", () => {
 
 	it('a computed field is trusted no more than the least of what it read', () => {
 		const interpret = new Interpret({
+			history: 16,
 			recipes: [
 				buildInsuranceRecipe({
 					mappings: [{ entity: 'age', aliases: [], field: 'age' }],

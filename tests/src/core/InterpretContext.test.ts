@@ -19,7 +19,7 @@ describe('InterpretContext', () => {
 	})
 
 	it('accumulates history newest-last and flattens entities across turns', () => {
-		const context = new InterpretContext()
+		const context = new InterpretContext({ history: 16 })
 		context.add(buildInterpretation({ text: 'first' }))
 		context.add(
 			buildInterpretation({
@@ -87,7 +87,7 @@ describe('InterpretContext', () => {
 	})
 
 	it('clear resets history and registries without tearing the context down', () => {
-		const context = new InterpretContext({ session: 's1' })
+		const context = new InterpretContext({ session: 's1', history: 16 })
 		context.add(buildInterpretation())
 		context.subjects.add({ age: 25 })
 		context.clear()
