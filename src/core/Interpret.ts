@@ -29,7 +29,7 @@ import type {
 import { attempt, isError, isString } from '@orkestrel/contract'
 import { Emitter } from '@orkestrel/emitter'
 import { assignEntities, scanNumbers } from './compilers.js'
-import { DEFAULT_INTERPRET_FLOOR, DEFAULT_INTERPRET_SIMILARITY } from './constants.js'
+import { DEFAULT_INTERPRET_FLOOR } from './constants.js'
 import { InterpretError } from './errors.js'
 import { assertRecipe, digestValue, findUnclaimedNumbers, matchRecipe } from './helpers.js'
 import { InterpretContext } from './InterpretContext.js'
@@ -105,7 +105,6 @@ export class Interpret implements InterpretInterface {
 	readonly #clarifier: ClarifierInterface
 	readonly #formatter: FormatterInterface
 	readonly #generator: GeneratorInterface
-	readonly #similarity: number
 	readonly #floor: number
 	readonly #narrator: NarratorInterface
 	readonly #emitter: Emitter<InterpretEventMap>
@@ -113,7 +112,6 @@ export class Interpret implements InterpretInterface {
 
 	constructor(options?: InterpretOptions) {
 		for (const recipe of options?.recipes ?? []) assertRecipe(recipe)
-		this.#similarity = options?.similarity ?? DEFAULT_INTERPRET_SIMILARITY
 		this.#floor = options?.floor ?? DEFAULT_INTERPRET_FLOOR
 		this.#recipes = new RecipeManager({
 			...(options?.recipes === undefined ? {} : { recipes: options.recipes }),
@@ -207,13 +205,7 @@ export class Interpret implements InterpretInterface {
 		}
 
 		const numbers = scanNumbers(normalized.text)
-		const assigned = assignEntities(
-			numbers,
-			matched.mappings,
-			normalized.text,
-			this.#similarity,
-			matched.shape,
-		)
+		const assigned = assignEntities(numbers, matched.mappings, normalized.text, matched.shape)
 		const record = this.#recipes.recipe(matched.id)
 		const version = record?.version
 

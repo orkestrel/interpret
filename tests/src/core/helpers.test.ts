@@ -37,11 +37,9 @@ import {
 	matchesArrayField,
 	matchesFilledField,
 	isInterpretError,
-	matchAlias,
 	matchRecipe,
 	renderSubject,
 	resolveExpression,
-	scoreSimilarity,
 	scoreRecipe,
 	setField,
 	settleEntities,
@@ -114,11 +112,26 @@ describe('extractNumbers', () => {
 })
 
 describe('assignEntities', () => {
+	it.each(['a', 'an', 'the'])('links the article %s only after the anchor', (article) => {
+		const mappings = [{ entity: 'term', aliases: ['year'], field: 'term' }]
+		const before = `125000 ${article} year`
+		expect(assignEntities(scanNumbers(before), mappings, before, OPEN_SHAPE)).toEqual([])
+		const after = `year ${article} 25`
+		expect(assignEntities(scanNumbers(after), mappings, after, OPEN_SHAPE)[0]?.value).toBe(25)
+	})
+
+	it('does not assign annual income to the mortgage term', () => {
+		const text =
+			"What's the monthly payment for borrowing $225,000 over 25 years at 4.5% if I earn $125,000 a year?"
+		const mappings = [{ entity: 'term', aliases: ['year', 'years'], field: 'term' }]
+		expect(assignEntities(scanNumbers(text), mappings, text, OPEN_SHAPE)).toEqual([])
+	})
+
 	it('single mapping onto an array field collects every number, one included', () => {
 		const mappings = [{ entity: 'readings', aliases: ['value', 'values'], field: 'readings' }]
 		const shape = objectShape({ readings: arrayShape(numberShape()) })
 		expect(
-			assignEntities(scanNumbers('values 10 20 30'), mappings, 'values 10 20 30', 0.8, shape),
+			assignEntities(scanNumbers('values 10 20 30'), mappings, 'values 10 20 30', shape),
 		).toEqual([
 			{
 				name: 'readings',
@@ -127,7 +140,7 @@ describe('assignEntities', () => {
 				confidence: 0.9,
 			},
 		])
-		expect(assignEntities(scanNumbers('value 42'), mappings, 'value 42', 0.8, shape)).toEqual([
+		expect(assignEntities(scanNumbers('value 42'), mappings, 'value 42', shape)).toEqual([
 			{
 				name: 'readings',
 				value: [42],
@@ -140,11 +153,9 @@ describe('assignEntities', () => {
 	it('single mapping onto a scalar field takes an anchored number and collects none', () => {
 		const mappings = [{ entity: 'age', aliases: [], field: 'age' }]
 		const shape = objectShape({ age: numberShape() })
-		expect(assignEntities(scanNumbers('one 1 two 2'), mappings, 'one 1 two 2', 0.8, shape)).toEqual(
-			[],
-		)
+		expect(assignEntities(scanNumbers('one 1 two 2'), mappings, 'one 1 two 2', shape)).toEqual([])
 		expect(
-			assignEntities(scanNumbers('age 25 and one 1'), mappings, 'age 25 and one 1', 0.8, shape),
+			assignEntities(scanNumbers('age 25 and one 1'), mappings, 'age 25 and one 1', shape),
 		).toEqual([
 			{
 				name: 'age',
@@ -165,7 +176,6 @@ describe('assignEntities', () => {
 			scanNumbers('age 25, scores 7'),
 			mappings,
 			'age 25, scores 7',
-			0.8,
 			shape,
 		)
 		expect(entities.find((entity) => entity.name === 'scores')?.value).toEqual([7])
@@ -181,7 +191,6 @@ describe('assignEntities', () => {
 			scanNumbers('the rate is 0.85 and the score is 720'),
 			mappings,
 			'the rate is 0.85 and the score is 720',
-			0.8,
 			OPEN_SHAPE,
 		)
 		const rate = entities.find((entity) => entity.name === 'rate')
@@ -196,7 +205,6 @@ describe('assignEntities', () => {
 			scanNumbers('the score is 85'),
 			mappings,
 			'the score is 85',
-			0.8,
 			OPEN_SHAPE,
 		)
 		expect(entities).toEqual([
@@ -218,7 +226,6 @@ describe('assignEntities', () => {
 			scanNumbers('age is 25, income was $50,000'),
 			mappings,
 			'age is 25, income was $50,000',
-			0.8,
 			OPEN_SHAPE,
 		)
 		expect(entities.find((entity) => entity.name === 'age')?.value).toBe(25)
@@ -234,7 +241,6 @@ describe('assignEntities', () => {
 			scanNumbers('net.pay 100 then netxpay 200 other 5'),
 			mappings,
 			'net.pay 100 then netxpay 200 other 5',
-			0.8,
 			OPEN_SHAPE,
 		)
 		expect(entities.find((entity) => entity.name === 'net.pay')).toEqual({
@@ -251,7 +257,7 @@ describe('assignEntities', () => {
 			{ entity: 'height', aliases: [], field: 'height' },
 		]
 		expect(
-			assignEntities(scanNumbers('dimensions 4 8'), mappings, 'dimensions 4 8', 0.8, OPEN_SHAPE),
+			assignEntities(scanNumbers('dimensions 4 8'), mappings, 'dimensions 4 8', OPEN_SHAPE),
 		).toEqual([])
 	})
 
@@ -265,15 +271,12 @@ describe('assignEntities', () => {
 				scanNumbers('the rate, then term 7'),
 				mappings,
 				'the rate, then term 7',
-				0.8,
 				OPEN_SHAPE,
 			).map((entity) => entity.name),
 		).toEqual(['term'])
-		expect(assignEntities(scanNumbers('5 rate 7'), mappings, '5 rate 7', 0.8, OPEN_SHAPE)).toEqual(
-			[],
-		)
+		expect(assignEntities(scanNumbers('5 rate 7'), mappings, '5 rate 7', OPEN_SHAPE)).toEqual([])
 		expect(
-			assignEntities(scanNumbers('5  rate 7'), mappings, '5  rate 7', 0.8, OPEN_SHAPE).map(
+			assignEntities(scanNumbers('5  rate 7'), mappings, '5  rate 7', OPEN_SHAPE).map(
 				(entity) => entity.value,
 			),
 		).toEqual([7])
@@ -288,7 +291,6 @@ describe('assignEntities', () => {
 			scanNumbers('rate term 7 and more 900'),
 			mappings,
 			'rate term 7 and more 900',
-			0.8,
 			OPEN_SHAPE,
 		)
 		expect(entities.map((entity) => entity.name)).toEqual(['term'])
@@ -300,15 +302,15 @@ describe('assignEntities', () => {
 			{ entity: 'rate', aliases: [], field: 'rate' },
 			{ entity: 'term', aliases: [], field: 'term' },
 		]
-		expect(
-			assignEntities(scanNumbers('rate 7 term'), mappings, 'rate 7 term', 0.8, OPEN_SHAPE),
-		).toEqual([])
+		expect(assignEntities(scanNumbers('rate 7 term'), mappings, 'rate 7 term', OPEN_SHAPE)).toEqual(
+			[],
+		)
 	})
 
 	it('an anchor never claims the digits inside its own word', () => {
 		const mappings = [{ entity: '401k', aliases: [], field: 'plan' }]
 		expect(
-			assignEntities(scanNumbers('401k balance'), mappings, '401k balance', 0.8, OPEN_SHAPE),
+			assignEntities(scanNumbers('401k balance'), mappings, '401k balance', OPEN_SHAPE),
 		).toEqual([])
 	})
 
@@ -322,7 +324,6 @@ describe('assignEntities', () => {
 			scanNumbers(`age ${huge}, rate 5`),
 			mappings,
 			`age ${huge}, rate 5`,
-			0.8,
 			OPEN_SHAPE,
 		)
 		expect(entities.map((entity) => [entity.name, entity.value])).toEqual([['rate', 5]])
@@ -330,7 +331,6 @@ describe('assignEntities', () => {
 			scanNumbers('age 25, rate 5').slice(0, 1),
 			mappings,
 			'age 25, rate 5',
-			0.8,
 			OPEN_SHAPE,
 		)
 		expect(injected.map((entity) => [entity.name, entity.value])).toEqual([['age', 25]])
@@ -342,27 +342,21 @@ describe('assignEntities', () => {
 			scanNumbers('\u0130\u0130 age 30'),
 			mappings,
 			'\u0130\u0130 age 30',
-			0.8,
 			OPEN_SHAPE,
 		)
 		expect(entities[0]?.value).toBe(30)
 	})
 
-	it('alias fuzzy match uses the dynamic matchAlias score as confidence', () => {
+	it('a fuzzy alias claims no entity value', () => {
 		const mappings = [{ entity: 'amount', aliases: ['dollars'], field: 'amount' }]
 		const secondMapping = [{ entity: 'other', aliases: ['euros'], field: 'other' }]
 		const entities = assignEntities(
 			scanNumbers('dollar 10, euro 20'),
 			[...mappings, ...secondMapping],
 			'dollar 10, euro 20',
-			0.5,
 			OPEN_SHAPE,
 		)
-		expect(entities.length).toBeGreaterThan(0)
-		for (const entity of entities) {
-			expect(entity.confidence).toBeGreaterThan(0)
-			expect(entity.confidence).toBeLessThanOrEqual(1)
-		}
+		expect(entities).toEqual([])
 	})
 
 	it('fills only the mapping an anchor names, and leaves the other to ask', () => {
@@ -374,7 +368,6 @@ describe('assignEntities', () => {
 			scanNumbers('25 year old with score 720'),
 			mappings,
 			'25 year old with score 720',
-			0.8,
 			OPEN_SHAPE,
 		)
 		expect(entities.map((entity) => entity.name)).toEqual(['score'])
@@ -387,8 +380,8 @@ describe('assignEntities', () => {
 			{ entity: 'income', aliases: [], field: 'income' },
 		]
 		const text = 'age is 25, income was $50,000'
-		expect(assignEntities(scanNumbers(text), mappings, text, 0.8, OPEN_SHAPE)).toEqual(
-			assignEntities(scanNumbers(text), mappings, text, 0.8, OPEN_SHAPE),
+		expect(assignEntities(scanNumbers(text), mappings, text, OPEN_SHAPE)).toEqual(
+			assignEntities(scanNumbers(text), mappings, text, OPEN_SHAPE),
 		)
 	})
 })
@@ -433,19 +426,6 @@ describe('classifyIntent', () => {
 		const domains = { rating: ['rate'] }
 		const text = 'calculate my rate'
 		expect(classifyIntent(text, actions, domains)).toEqual(classifyIntent(text, actions, domains))
-	})
-})
-
-describe('scoreSimilarity / matchAlias', () => {
-	it('scores 1 for exact case-insensitive match, 0 for short/disjoint strings', () => {
-		expect(scoreSimilarity('Rate', 'rate')).toBe(1)
-		expect(scoreSimilarity('a', 'ab')).toBe(0)
-		expect(scoreSimilarity('rate', 'value')).toBe(0)
-	})
-
-	it('matchAlias returns the best score at or above threshold, else 0 (explicit no-match)', () => {
-		expect(matchAlias('value', ['value'], 0.8)).toBe(1)
-		expect(matchAlias('xyz', ['value', 'amount'], 0.8)).toBe(0)
 	})
 })
 

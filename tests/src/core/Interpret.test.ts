@@ -56,6 +56,107 @@ import {
 // reverse passthroughs, emitter, and DESTROYED teardown.
 
 describe('Interpret', () => {
+	it('asks instead of claiming pages through a fuzzy age alias', () => {
+		const interpret = new Interpret({
+			recipes: [
+				buildInterpretRecipe({
+					mappings: [{ entity: 'pages', aliases: ['page'], field: 'value' }],
+					shape: objectShape({ value: numberShape() }),
+				}),
+			],
+			extractor: createCorpusExtractor(),
+		})
+		const result = interpret.interpret('calculate arithmetic at age 6')
+		expect(result.recipe).toBe('recipe-1')
+		expect(result.subject).toBeUndefined()
+		expect(result.entities).toEqual([])
+		expect(result.ambiguities).not.toEqual([])
+		const exact = interpret.interpret('calculate arithmetic at page 6')
+		expect(exact.subject).toEqual({ value: 6 })
+		expect(exact.ambiguities).toEqual([])
+		interpret.destroy()
+	})
+
+	it('requires an exact alias before collecting an array', () => {
+		const interpret = new Interpret({
+			recipes: [
+				buildInterpretRecipe({
+					mappings: [{ entity: 'reading', aliases: ['value'], field: 'value' }],
+					shape: objectShape({ value: arrayShape(numberShape()) }),
+				}),
+			],
+			extractor: createCorpusExtractor(),
+		})
+		const result = interpret.interpret('calculate arithmetic valu 42')
+		expect(result.subject).toBeUndefined()
+		expect(result.entities).toEqual([])
+		expect(result.ambiguities).not.toEqual([])
+		interpret.destroy()
+	})
+
+	it.each(['value 25 now', 'Sorry to ask, value 25 now'])(
+		'keeps an ordinary current statement: %s',
+		(text) => {
+			const interpret = new Interpret({
+				recipes: [buildInterpretRecipe({ shape: objectShape({ value: numberShape() }) })],
+				extractor: createCorpusExtractor(),
+			})
+			const result = interpret.interpret(`calculate arithmetic ${text}`)
+			expect(result.subject).toEqual({ value: 25 })
+			expect(result.ambiguities).toEqual([])
+			interpret.destroy()
+		},
+	)
+
+	it.each(['value 73, hang on, 71', 'value 73, used to be 71'])(
+		'asks on the explicit correction: %s',
+		(text) => {
+			const interpret = new Interpret({
+				recipes: [buildInterpretRecipe({ shape: objectShape({ value: numberShape() }) })],
+				extractor: createCorpusExtractor(),
+			})
+			const result = interpret.interpret(`calculate arithmetic ${text}`)
+			expect(result.subject).toBeUndefined()
+			expect(result.entities).toEqual([])
+			expect(result.ambiguities).not.toEqual([])
+			interpret.destroy()
+		},
+	)
+
+	it.each([
+		{ text: 'There are 73 panels — sorry, 71.', entity: 'panels' },
+		{ text: "The panels were going to be 460 watts, and now they're 590.", entity: 'watts' },
+	])('asks about the superseded $entity without substituting its rival', ({ text, entity }) => {
+		const interpret = new Interpret({
+			recipes: [
+				buildInterpretRecipe({
+					mappings: [{ entity, aliases: [], field: 'value' }],
+					shape: objectShape({ value: numberShape() }),
+				}),
+			],
+			extractor: createCorpusExtractor(),
+		})
+		const result = interpret.interpret(`calculate arithmetic ${text}`)
+		expect(result.recipe).toBe('recipe-1')
+		expect(result.subject).toBeUndefined()
+		expect(result.entities).toEqual([])
+		expect(result.ambiguities).not.toEqual([])
+		expect(result.failures).toEqual([])
+		interpret.destroy()
+	})
+
+	it('asks instead of collecting superseded array values', () => {
+		const interpret = new Interpret({
+			recipes: [buildInterpretRecipe({ shape: objectShape({ value: arrayShape(numberShape()) }) })],
+			extractor: createCorpusExtractor(),
+		})
+		const result = interpret.interpret('calculate arithmetic value 73, sorry, 71')
+		expect(result.subject).toBeUndefined()
+		expect(result.entities).toEqual([])
+		expect(result.ambiguities).not.toEqual([])
+		interpret.destroy()
+	})
+
 	it('asks rather than collecting an empty array from unreadable input', () => {
 		const interpret = new Interpret({
 			recipes: [buildInterpretRecipe({ shape: objectShape({ value: arrayShape(numberShape()) }) })],

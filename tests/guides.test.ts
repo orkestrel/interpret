@@ -28,7 +28,6 @@ const MODULES = Object.freeze({ [PACKAGE_NAME]: 'src/core', '@src/core': 'src/co
 const INTERNAL: readonly string[] = Object.freeze([
 	'class NumberReader',
 	'class ReaderToken',
-	'class BigramCounter',
 	'class EntityCompiler',
 ])
 
@@ -81,7 +80,6 @@ await new GuideCommand({
 		DEFAULT_CONTRACTIONS,
 		DEFAULT_INTERPRET_FLOOR,
 		DEFAULT_INTERPRET_HISTORY,
-		DEFAULT_INTERPRET_SIMILARITY,
 		DEFAULT_LEXICON,
 		digestValue,
 		extractNumbers,
@@ -98,14 +96,12 @@ await new GuideCommand({
 		isStageFailure,
 		isStageRecord,
 		isRecipe,
-		matchAlias,
 		matchRecipe,
 		NUMBER_PATTERN,
 		parseRecipe,
 		RecordManager,
 		renderSubject,
 		resolveExpression,
-		scoreSimilarity,
 		scoreRecipe,
 		setField,
 		tokenize,
@@ -304,7 +300,6 @@ await new GuideCommand({
 		})
 
 		it('Constants: every pinned default and lexicon line', () => {
-			expect(DEFAULT_INTERPRET_SIMILARITY).toBe(0.8)
 			expect(DEFAULT_INTERPRET_FLOOR).toBe(0.3)
 			expect(DEFAULT_INTERPRET_HISTORY).toBe(16)
 			expect(CONFIDENCE_EXACT).toBe(1)
@@ -399,8 +394,7 @@ await new GuideCommand({
 
 		it('Helpers: the extraction and matching leaves return the fence values', () => {
 			expect(extractNumbers('income was $50,000, age 25')).toEqual([50000, 25])
-			expect(scoreSimilarity('rate', 'rate')).toBe(1)
-			expect(matchAlias('valu', ['value', 'amount'], 0.6)).toBeCloseTo(0.86, 2)
+
 			const assigned = assignEntities(
 				scanNumbers('age 25 with score 720'),
 				[
@@ -408,7 +402,6 @@ await new GuideCommand({
 					{ entity: 'score', aliases: ['credit score'], field: 'score' },
 				],
 				'age 25 with score 720',
-				0.8,
 				objectShape({ age: numberShape(), score: numberShape() }),
 			)
 			expect(assigned.find((entity) => entity.name === 'age')?.value).toBe(25)

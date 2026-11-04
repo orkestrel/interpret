@@ -14,17 +14,6 @@ import type {
 // options rather than baked in here.
 
 /**
- * Names the default `similarity` for `createInterpret` and `matchAlias`, 0.8 — the
- * fuzzy alias-match score threshold, between 0 and 1.
- *
- * @remarks
- * Domain-qualified (not a bare `DEFAULT_SIMILARITY`) so the name stays free
- * of collision on the shared `@src/core` barrel, mirroring the
- * `DEFAULT_REASON_BAIL` precedent.
- */
-export const DEFAULT_INTERPRET_SIMILARITY = 0.8
-
-/**
  * Names the default `floor` for `createInterpret` and `matchRecipe`, 0.3 — the
  * minimum intent confidence a recipe match, or the classified intent itself, must
  * clear.
@@ -359,7 +348,7 @@ export const READER_WORDS = Object.freeze({
 			),
 		),
 	),
-	correctionPairs: Object.freeze(new Set('used_to make_that i_mean'.split(' '))),
+	correctionPairs: Object.freeze(new Set('used_to make_that i_mean hang_on'.split(' '))),
 	suspectBefore: Object.freeze(new Set('last past not'.split(' '))),
 	offsetBefore: Object.freeze(new Set('in within after'.split(' '))),
 	verbLastBefore: Object.freeze(

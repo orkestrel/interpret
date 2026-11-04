@@ -18,7 +18,6 @@ import {
 	createRecipeManager,
 	DEFAULT_INTERPRET_FLOOR,
 	DEFAULT_INTERPRET_HISTORY,
-	DEFAULT_INTERPRET_SIMILARITY,
 	DefinitionManager,
 	Extractor,
 	Formatter,
@@ -60,7 +59,7 @@ describe('interprets barrel — value-space sample resolves', () => {
 		expect(isInterpretError).toBeDefined()
 		expect(InterpretError).toBeDefined()
 		expect(DEFAULT_INTERPRET_FLOOR).toBeDefined()
-		expect(DEFAULT_INTERPRET_SIMILARITY).toBeDefined()
+
 		expect(DEFAULT_INTERPRET_HISTORY).toBeDefined()
 		expect(Interpret).toBeDefined()
 		expect(Normalizer).toBeDefined()

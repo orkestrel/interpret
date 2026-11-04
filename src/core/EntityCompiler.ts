@@ -2,7 +2,7 @@ import type { ContractShape } from '@orkestrel/contract'
 import type { Entity, EntityMapping, ReadNumber } from './types.js'
 import { escapeRegExp } from '@orkestrel/contract'
 import { CONFIDENCE_ALIAS, CONFIDENCE_COLLECT, CONFIDENCE_EXACT } from './constants.js'
-import { findAnchoredNumber, matchesArrayField, matchAlias, tokenize } from './helpers.js'
+import { findAnchoredNumber, matchesArrayField, tokenize } from './helpers.js'
 
 /** Compiles one text's numeric occurrences into recipe entity assignments. */
 export class EntityCompiler {
@@ -12,12 +12,15 @@ export class EntityCompiler {
 		numbers: readonly ReadNumber[],
 		mappings: readonly EntityMapping[],
 		text: string,
-		similarity: number,
 		shape: ContractShape,
 	): readonly Entity[] {
 		if (mappings.length === 0 || numbers.length === 0) return []
 		const tokens = tokenize(text)
 		const spans = numbers
+		const correction =
+			/\b(?:sorry(?!\s+(?:to|for)\b)|hang\s+on|used\s+to\s+be|(?:was|were)\s+going\s+to\s+be)\b/i.test(
+				text,
+			)
 		const matches = Iterator.from(mappings)
 			.map((mapping) => {
 				const entityToken = mapping.entity.toLowerCase()
@@ -56,10 +59,7 @@ export class EntityCompiler {
 									}
 								: matched
 						}
-						const confidence = matchAlias(token, mapping.aliases, similarity)
-						return confidence > 0 && position > matched.position
-							? { mapping, position, end: position + token.length, confidence, detail: 'alias' }
-							: matched
+						return matched
 					},
 					{ mapping, position: -1, end: -1, confidence: 0, detail: 'keyword' },
 				)
@@ -73,7 +73,14 @@ export class EntityCompiler {
 		})
 		const lone = mappings.length === 1 ? mappings[0] : undefined
 		if (lone !== undefined && matchesArrayField(shape, lone.field) && claims.length > 0) {
-			if (numbers.some((number) => number.unreadable !== undefined)) return []
+			if (
+				numbers.some(
+					(number) =>
+						number.unreadable !== undefined ||
+						(correction && (number.suspect === true || number.changed === true)),
+				)
+			)
+				return []
 			return [
 				{
 					name: lone.entity,
@@ -92,7 +99,12 @@ export class EntityCompiler {
 			const held = rivals.filter((other) => other.gap === nearest)
 			if (held.length !== 1 || held[0] !== claim) continue
 			const number = spans[claim.index]
-			if (number?.value === undefined || number.unreadable !== undefined) continue
+			if (
+				number?.value === undefined ||
+				number.unreadable !== undefined ||
+				(correction && (number.suspect === true || number.changed === true))
+			)
+				continue
 			const value = number.value
 			this.#entities.push({
 				name: claim.match.mapping.entity,

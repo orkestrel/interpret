@@ -30,7 +30,6 @@ import {
 	scanSymbolicExpression,
 } from '@orkestrel/reason'
 import { UNSAFE_FIELD_SEGMENTS } from '@orkestrel/template'
-import { BigramCounter } from './BigramCounter.js'
 import {
 	CLAUSE_BREAK_PATTERN,
 	CONFIDENCE_DEFAULT,
@@ -203,8 +202,9 @@ export function extractNumbers(text: string): readonly number[] {
  *
  * @remarks
  * Closeness is the gap between the two spans, so a number before an anchor and one after it are
- * measured alike. Only whitespace, `is`, `of`, `at`, `to`, `=`, `:`, and articles may link
- * the spans. Negation in the clause, other intervening text, and ties leave the field to ask.
+ * measured alike. Only whitespace, `is`, `of`, `at`, `to`, `=`, and `:` may link the spans.
+ * Articles also link when the number follows the anchor. Negation in the clause, other
+ * intervening text, and ties leave the field to ask.
  *
  * @param text - The text
  * @param anchor - Where the anchor sits
@@ -241,6 +241,11 @@ export function findAnchoredNumber(
 		.filter(([, number]) => number.start >= start && number.start < end)
 		// A digit inside the anchor's own word, the 401 of `401k`, is no number beside it.
 		.filter(([, number]) => number.end <= anchor.start || number.start >= anchor.end)
+		.filter(
+			([, number]) =>
+				number.start >= anchor.end ||
+				!/\b(?:a|an|the)\b/i.test(text.slice(number.end, anchor.start)),
+		)
 		.filter(([, number]) =>
 			/^(?:\s|=|:|\b(?:is|of|at|to|a|an|the)\b)*$/i.test(
 				text.slice(Math.min(anchor.end, number.end), Math.max(anchor.start, number.start)),
@@ -320,59 +325,6 @@ export function classifyIntent(
 		...(domain === undefined ? {} : { domain }),
 		confidence,
 	}
-}
-
-// === Fuzzy matching
-
-/**
- * Measures bigram (Dice coefficient) string similarity, case-insensitive.
- *
- * @param a - The first string
- * @param b - The second string
- * @returns A score in `[0, 1]` — `1` for an exact (case-insensitive) match,
- * `0` when either string is shorter than 2 characters and they are not equal
- *
- * @example
- * ```ts
- * import { scoreSimilarity } from '@orkestrel/interpret'
- *
- * scoreSimilarity('rate', 'rate')  // 1
- * scoreSimilarity('rate', 'value') // 0 — no shared bigrams
- * ```
- */
-export function scoreSimilarity(a: string, b: string): number {
-	const left = a.toLowerCase()
-	const right = b.toLowerCase()
-	if (left === right) return 1
-	if (left.length < 2 || right.length < 2) return 0
-
-	const matches = new BigramCounter(left).match(right)
-	return (2 * matches) / (left.length - 1 + (right.length - 1))
-}
-
-/**
- * Returns the best `scoreSimilarity` a token achieves against a list of aliases,
- * gated by a threshold.
- *
- * @param token - The token to score
- * @param aliases - The alias phrases to score against
- * @param threshold - The minimum score to report (an explicit no-match below it)
- * @returns The best score when it meets `threshold`, else `0`
- *
- * @example
- * ```ts
- * import { matchAlias } from '@orkestrel/interpret'
- *
- * matchAlias('valu', ['value', 'amount'], 0.6) // ~0.86 — fuzzy hit on 'value'
- * matchAlias('xyz', ['value', 'amount'], 0.6)  // 0 — no alias clears the threshold
- * ```
- */
-export function matchAlias(token: string, aliases: readonly string[], threshold: number): number {
-	const best = Iterator.from(aliases).reduce(
-		(score, alias) => Math.max(score, scoreSimilarity(token, alias)),
-		0,
-	)
-	return best >= threshold ? best : 0
 }
 
 // === Digest

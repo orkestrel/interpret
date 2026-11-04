@@ -69,12 +69,12 @@ export type InterpretErrorCode =
 // === Recipe data model — pure JSON-serializable, versionable, diffable, hashable
 
 /**
- * Represents one entity-extraction rule inside a {@link Recipe}: which literal alias
- * phrases identify a value, and which subject field it lands on.
+ * Represents one entity-extraction rule inside a {@link Recipe}: which literal aliases
+ * identify a value, and which subject field it lands on.
  *
  * @remarks
- * `aliases` are literal phrases (no `RegExp` — recipes stay JSON), matched
- * exact-then-fuzzy against tokens surrounding an extracted number. Whether the
+ * `aliases` are literal strings (no `RegExp` — recipes stay JSON), matched exactly,
+ * case-insensitively, against tokens surrounding an extracted number. Whether the
  * field is required is the {@link Recipe}'s `shape` to say.
  */
 export interface EntityMapping {
@@ -627,8 +627,7 @@ export interface NormalizerOptions {
  *
  * @remarks
  * `actions` / `domains` are the caller's intent vocabulary — there is no
- * built-in worldview. Neither `floor` nor
- * `similarity` lives here: the confidence floor gate is the orchestrator's
+ * built-in worldview. The confidence floor gate is the orchestrator's
  * `matchRecipe` step, never the classifier itself.
  */
 export interface ExtractorOptions {
@@ -832,10 +831,7 @@ export interface InterpretContextOptions {
  * so a caller who wants a configured stage constructs that stage and supplies
  * the instance. There are no per-stage option keys here: `floor` is the one
  * value threaded into a built-in stage, reaching the `Clarifier`.
- * `similarity` (fuzzy alias-match threshold, default
- * `DEFAULT_INTERPRET_SIMILARITY`) and `floor` (intent confidence floor,
- * default `DEFAULT_INTERPRET_FLOOR`) are two distinct, clearly named axes —
- * each honored wherever it applies, never a single overloaded `threshold`.
+ * `floor` sets the intent confidence floor (default `DEFAULT_INTERPRET_FLOOR`).
  * `history` caps the context's `previous()` ring buffer. `narrator` groups the
  * wording settings the orchestrator builds its own {@link NarratorInterface}
  * from, keeping them clear of the `formatter` stage slot beside them. `on` —
@@ -849,7 +845,6 @@ export interface InterpretOptions {
 	readonly clarifier?: ClarifierInterface
 	readonly formatter?: FormatterInterface
 	readonly generator?: GeneratorInterface
-	readonly similarity?: number
 	readonly floor?: number
 	readonly history?: number
 	readonly narrator?: NarratorOptions

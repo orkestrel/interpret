@@ -51,7 +51,7 @@ import { createRecipeShape } from './shapers.js'
  * value threaded into a built-in stage, reaching the `Clarifier`.
  *
  * @param options - Optional recipes, context, stage implementations, the
- *   `similarity` / `floor` axes, and emitter hooks
+ *   confidence floor, and emitter hooks
  * @returns A working {@link InterpretInterface}
  *
  * @example Interpret text against an added recipe
