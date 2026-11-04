@@ -1,4 +1,4 @@
-import { isRecord } from '@orkestrel/contract'
+import { createContract, isRecord } from '@orkestrel/contract'
 import {
 	createConstant,
 	createFactorGroup,
@@ -22,6 +22,8 @@ import {
 	isStageFailure,
 	isStageRecord,
 	isRecipe,
+	entityShape,
+	provenanceShape,
 } from '@src/core'
 import { describe, expect, it } from 'vitest'
 import {
@@ -31,6 +33,20 @@ import {
 	TRICKY_KEYS,
 	REFUSAL_RECORDS,
 } from '../../setup.js'
+
+describe('proposed provenance boundary', () => {
+	it.each([
+		['proposed', true],
+		['unknown', false],
+	])('reads category %s consistently', (category, accepted) => {
+		const provenance = { category }
+		const entity = { name: 'value', value: 42, provenance, confidence: 1 }
+		expect(isProvenance(provenance)).toBe(accepted)
+		expect(createContract(provenanceShape).is(provenance)).toBe(accepted)
+		expect(isEntity(entity)).toBe(accepted)
+		expect(createContract(entityShape).is(entity)).toBe(accepted)
+	})
+})
 
 describe('refusal result boundary', () => {
 	it.each(REFUSAL_RECORDS)('agrees on $label', ({ record, valid }) => {

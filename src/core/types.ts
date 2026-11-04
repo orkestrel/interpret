@@ -23,13 +23,20 @@ import type { Definition, ReasonResult, Subject, SymbolicExpression } from '@ork
  *
  * @remarks
  * `extracted` — mined from the raw text through keyword / alias
- * matching. `carried` — reused from a same-domain prior turn in an
+ * matching. `proposed` — supplied by a reader after the host's checks; this package
+ * does not produce it. `carried` — reused from a same-domain prior turn in an
  * {@link InterpretContextInterface}. `default` — filled from a
  * default in a {@link Recipe}'s `shape`. `computed` — derived by evaluating
  * a {@link ComputedField}'s expression. `subject` — already present on an
  * injected base subject, untouched by this interpretation.
  */
-export type ProvenanceCategory = 'extracted' | 'carried' | 'default' | 'computed' | 'subject'
+export type ProvenanceCategory =
+	| 'extracted'
+	| 'proposed'
+	| 'carried'
+	| 'default'
+	| 'computed'
+	| 'subject'
 
 /**
  * Names the fixed pipeline phases an {@link InterpretInterface#interpret} run

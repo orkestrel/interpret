@@ -126,6 +126,7 @@ export const DEFAULT_LEXICON: Lexicon = Object.freeze({
  */
 export const PROVENANCE_CATEGORIES: readonly ProvenanceCategory[] = Object.freeze([
 	'extracted',
+	'proposed',
 	'carried',
 	'default',
 	'computed',

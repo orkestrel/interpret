@@ -59,7 +59,8 @@ import { Narrator } from '../Narrator.js'
  * `floor` raises its ambiguity whether or not the shape requires the field, because it
  * is evidence a value was stated, so neither it nor a default stands. A mapped field left
  * to a default or a prior turn raises one too while a number nobody claimed could be its
- * value. Every ambiguity here blocks the subject. A question reads the
+ * value. An `extracted`, `proposed`, or `computed` entity counts as stated for this check;
+ * a proposed entity has already passed the host's checks. Every ambiguity here blocks the subject. A question reads the
  * shape's `description` for the field, and otherwise renders through the injected
  * {@link NarratorInterface}'s `ambiguity.entity` line rather than minted from a literal
  * here, so wording stays caller data.
@@ -278,7 +279,7 @@ export class Clarifier implements ClarifierInterface {
 
 	// One ambiguity per fault the door refused, one per mapped value read below the floor, and one
 	// per mapped field this text left to a default or a prior turn while a number nobody claimed
-	// could be its value. A value this text stated or a computation derived has no such doubt.
+	// could be its value. Extracted, host-checked proposed, and computed values have no such doubt.
 	#collectAmbiguities(
 		recipe: Recipe,
 		resolved: readonly Entity[],
@@ -294,7 +295,9 @@ export class Clarifier implements ClarifierInterface {
 				return [this.#ask(recipe, mapping.field, [])]
 			}
 			const stated =
-				entity?.provenance.category === 'extracted' || entity?.provenance.category === 'computed'
+				entity?.provenance.category === 'extracted' ||
+				entity?.provenance.category === 'proposed' ||
+				entity?.provenance.category === 'computed'
 			return stated || unclaimed.length === 0 ? [] : [this.#ask(recipe, mapping.field, candidates)]
 		})
 		return [

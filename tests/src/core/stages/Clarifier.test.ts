@@ -1,4 +1,4 @@
-import type { Entity, Intent } from '@src/core'
+import type { Entity, Intent, ProvenanceCategory } from '@src/core'
 import {
 	arrayShape,
 	numberShape,
@@ -19,6 +19,25 @@ import { buildInterpretation, buildInterpretRecipe, seedInterpretContext } from 
 const intent: Intent = { action: 'calculate', domain: 'arithmetic', confidence: 1 }
 
 describe('Clarifier', () => {
+	it.each<[ProvenanceCategory, boolean]>([
+		['proposed', false],
+		['default', true],
+	])('treats %s as stated only when appropriate', (category, asks) => {
+		const recipe = buildInterpretRecipe({
+			mappings: [{ entity: 'value', aliases: [], field: 'value' }],
+			shape: objectShape({ value: numberShape() }),
+			computations: [],
+		})
+		const entities: readonly Entity[] = [
+			{ name: 'value', value: 42, provenance: { category }, confidence: 1 },
+		]
+		const result = new Clarifier().clarify(entities, recipe, undefined, intent, [99])
+		expect(result.entities).toEqual(entities)
+		expect(result.ambiguities.map((ambiguity) => ambiguity.field)).toEqual(asks ? ['value'] : [])
+		expect(result.ambiguities.flatMap((ambiguity) => ambiguity.candidates)).toEqual(
+			asks ? ['99'] : [],
+		)
+	})
 	it('passes through fresh entities untouched when nothing else applies', () => {
 		const clarifier = new Clarifier()
 		const recipe = buildInterpretRecipe()
