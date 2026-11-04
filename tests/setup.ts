@@ -43,6 +43,127 @@ import {
 	createVariable,
 } from '@orkestrel/reason'
 import { Extractor, Interpret, InterpretContext, RecordManager } from '@src/core'
+import { createContract } from '@orkestrel/contract'
+import { projectValue } from '@orkestrel/reason'
+import * as surface from '@src/core'
+
+/** Builds the standing shape/guard table from real interpretation outcomes. */
+export function buildInterpretContractCases() {
+	const interpret = buildCorpusInterpret()
+	const positive = interpret.interpret('calculate insurance age 25')
+	interpret.destroy()
+	return {
+		definitions: [
+			{
+				name: 'recipe',
+				wire: surface.createRecipeContract(),
+				guard: surface.isRecipe,
+				positive: buildInsuranceRecipe(),
+			},
+			{
+				name: 'entity mapping',
+				wire: createContract(surface.entityMappingShape),
+				guard: surface.isEntityMapping,
+				positive: { entity: 'age', aliases: [], field: 'age' },
+			},
+			{
+				name: 'number refusal',
+				wire: createContract(surface.numberRefusalShape),
+				guard: surface.isNumberRefusal,
+				positive: { text: '3', start: 0, end: 1, reason: 'unanchored' },
+			},
+			{
+				name: 'number refusals',
+				wire: createContract(surface.numberRefusalsShape),
+				guard: surface.isNumberRefusals,
+				positive: { items: [], omitted: 0 },
+			},
+		].map((row) => ({ ...row, direction: 'is implies guard', project: undefined, negative: {} })),
+		results: [
+			{
+				name: 'interpretation',
+				wire: surface.interpretationContract,
+				guard: surface.isInterpretation,
+				positive,
+				project: surface.projectInterpretation,
+				direction: 'producer implies wire after projection',
+				negative: {},
+			},
+		],
+		numbers: [
+			{
+				name: 'read number',
+				wire: createContract(surface.readNumberShape),
+				positive: surface.scanNumbers('25')[0],
+			},
+			{
+				name: 'read numbers',
+				wire: surface.readNumbersContract,
+				positive: surface.scanNumbers('25'),
+			},
+		].map((row) => ({
+			...row,
+			direction: 'producer implies wire after projection',
+			project: projectValue,
+			guard: undefined,
+			negative: {},
+		})),
+		members: [
+			{
+				name: 'provenance',
+				wire: createContract(surface.provenanceShape),
+				guard: surface.isProvenance,
+				positive: { category: 'extracted' },
+			},
+			{
+				name: 'intent',
+				wire: createContract(surface.intentShape),
+				guard: surface.isIntent,
+				positive: { confidence: 0 },
+			},
+			{
+				name: 'entity',
+				wire: createContract(surface.entityShape),
+				guard: surface.isEntity,
+				positive: { name: 'age', value: NaN, provenance: { category: 'extracted' }, confidence: 1 },
+			},
+			{
+				name: 'field mapping',
+				wire: createContract(surface.fieldMappingShape),
+				guard: surface.isFieldMapping,
+				positive: {
+					field: 'age',
+					value: NaN,
+					provenance: { category: 'extracted' },
+					confidence: 1,
+				},
+			},
+			{
+				name: 'ambiguity',
+				wire: createContract(surface.ambiguityShape),
+				guard: surface.isAmbiguity,
+				positive: { field: 'age', question: 'Age?', candidates: [], required: true },
+			},
+			{
+				name: 'stage record',
+				wire: createContract(surface.stageRecordShape),
+				guard: surface.isStageRecord,
+				positive: { stage: 'normalize', failed: false },
+			},
+			{
+				name: 'stage failure',
+				wire: createContract(surface.stageFailureShape),
+				guard: surface.isStageFailure,
+				positive: { stage: 'format', code: 'FORMAT_FAILED', message: 'failed' },
+			},
+		].map((row) => ({
+			...row,
+			direction: 'producer implies wire after projection',
+			project: projectValue,
+			negative: { confidence: 'invalid' },
+		})),
+	}
+}
 
 /** Covers the JSON kinds a shape default can hold, including nested cloned objects. */
 export const DEFAULT_RENDERINGS = [

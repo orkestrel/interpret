@@ -1,18 +1,20 @@
 import type { ContractShape } from '@orkestrel/contract'
 import {
 	arrayShape,
+	auditFaultShape,
 	booleanShape,
 	jsonShape,
 	literalShape,
 	numberShape,
 	objectShape,
 	optionalShape,
+	recordShape,
+	shapeShape,
 	stringShape,
 } from '@orkestrel/contract'
 import {
 	createDefinitionShape,
 	createSymbolicExpressionShape,
-	faultShape,
 	fieldPathShape,
 } from '@orkestrel/reason'
 import {
@@ -84,8 +86,7 @@ export const entityMappingShape: ContractShape = objectShape({
  * Creates the shape of a `Recipe`.
  *
  * @remarks
- * A function because a definition's shape is recursive and costs at import. `shape` is any
- * JSON value here. A `ContractShape` is recursive too, so the guard reads it.
+ * A function because a definition's shape is recursive and costs at import.
  *
  * @returns The recipe's shape
  *
@@ -108,7 +109,7 @@ export function createRecipeShape(): ContractShape {
 			objectShape({ field: fieldPathShape, expression: createSymbolicExpressionShape() }),
 		),
 		definition: createDefinitionShape(),
-		shape: jsonShape(),
+		shape: shapeShape(),
 	})
 }
 
@@ -140,7 +141,7 @@ export const ambiguityShape: ContractShape = objectShape({
 	question: stringShape(),
 	candidates: arrayShape(stringShape()),
 	required: booleanShape(),
-	fault: optionalShape(faultShape),
+	fault: optionalShape(auditFaultShape()),
 })
 
 /** Describes a `FieldMapping` in its JSON projection. */
@@ -177,11 +178,11 @@ export const interpretationShape: ContractShape = objectShape({
 	recipe: optionalShape(stringShape()),
 	version: optionalShape(numberShape()),
 	entities: arrayShape(entityShape),
-	subject: optionalShape(jsonShape()),
-	definition: optionalShape(jsonShape()),
+	subject: optionalShape(recordShape(jsonShape())),
+	definition: optionalShape(recordShape(jsonShape())),
 	mappings: arrayShape(fieldMappingShape),
 	ambiguities: arrayShape(ambiguityShape),
-	repairs: arrayShape(faultShape),
+	repairs: arrayShape(auditFaultShape()),
 	defaulted: arrayShape(fieldPathShape),
 	prompt: stringShape(),
 	stages: arrayShape(stageRecordShape),

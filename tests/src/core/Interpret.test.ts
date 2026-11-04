@@ -1276,11 +1276,11 @@ describe('Interpret — boundaries of what crosses', () => {
 		}
 	})
 
-	it('names the gap: is admits a malformed nested shape, and the guard refuses it', () => {
+	it('refuses a malformed nested shape in both contract and guard', () => {
 		const contract = createRecipeContract()
 		const recipe = asRecord(dropRecipeShapes(contract.generate(seededRandom(1))))
 		for (const shape of [42, null, {}, { type: 'nonsense' }]) {
-			expect(contract.is({ ...recipe, shape })).toBe(true)
+			expect(contract.is({ ...recipe, shape })).toBe(false)
 			expect(isRecipe({ ...recipe, shape })).toBe(false)
 		}
 	})
