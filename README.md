@@ -18,6 +18,12 @@ of the public stages obtain the same evidence through `compileEntities`. The rec
 holds at most 32 items and counts the rest in `omitted`; it does not change the decision
 or digest. See the guide's [refusal evidence](guides/interpret.md#refusal-evidence).
 
+A digit-holding token must match a declared numeric form whole. For example,
+`amount 3_000_000` asks with `unreadable: 'undeclared'` and holds no partial amount.
+After a number, only a text or sentence end, an anchor, or a link with its required
+continuation admits assignment. Other neighbors ask, in any script. The guide
+states the declared forms and the retained comma exception.
+
 ## Install
 
 ```sh

@@ -102,7 +102,9 @@ describe('interprets integration', () => {
 	it('numeric corpus: a statistics turn keeps its collected array and derives no field of its own', () => {
 		const interpret = buildCorpusInterpret([buildStatisticsRecipe()])
 		expect(interpret.interpret('compute statistics value 42').subject?.value).toEqual([42])
-		const many = interpret.interpret('compute statistics value 10 20 30')
+		expect(interpret.interpret('compute statistics value 10 20 30').subject).toBeUndefined()
+		expect(interpret.interpret('compute statistics value 10 and 20 and 30').subject).toBeUndefined()
+		const many = interpret.interpret('compute statistics value 10 and value 20 and value 30')
 		expect(many.subject).toEqual({ value: [10, 20, 30] })
 		interpret.destroy()
 	})
@@ -122,7 +124,9 @@ describe('interprets integration', () => {
 				],
 			}),
 		])
-		const result = interpret.interpret('compute statistics value 10 20 30')
+		expect(interpret.interpret('compute statistics value 10 20 30').subject).toBeUndefined()
+		expect(interpret.interpret('compute statistics value 10 and 20 and 30').subject).toBeUndefined()
+		const result = interpret.interpret('compute statistics value 10 and value 20 and value 30')
 		expect(result.subject).toEqual({ value: [10, 20, 30], total: 60 })
 		const computed = result.mappings.find((mapping) => mapping.field === 'total')
 		expect(computed?.provenance.category).toBe('computed')

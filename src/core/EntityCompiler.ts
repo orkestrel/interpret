@@ -22,10 +22,13 @@ import { findAnchoredNumber, matchesArrayField, tokenize } from './helpers.js'
  *
  * @remarks
  * Aliases match exact token sequences; overlapping anchors keep the later start.
- * Tied anchors still contest their adjacent numbers. A directly following word that
- * starts no declared anchor and is no link refuses scalar claims and array collection.
- * Following-word links `and` and `with` require an anchor head or numeric occurrence next,
- * allowing one intervening article (`a`, `an`, or `the`). `or`, `but`, `plus`, `then`, and `now` stay out.
+ * Tied anchors still contest their adjacent numbers. A number's neighbor must be the text's
+ * end, a sentence end, an anchor head, or a conditional link. The links `is`, `of`, `at`, `to`,
+ * `a`, `an`, `the`, `and`, and `with` require an anchor head next, allowing one intervening
+ * article. A numeric target refuses. Sentence punctuation must touch the number and be
+ * followed by whitespace or the text's end; detached punctuation refuses.
+ * A comma admits unless a number follows it.
+ * Every other neighbor refuses scalar claims and array collection, with its text in `word`.
  * Explicit corrections, including `wait` except `wait to`, refuse occurrences
  * marked suspect or changed without substituting a rival value.
  * Decisions are captured where they occur, retained once per occurrence, and discarded for
@@ -47,30 +50,32 @@ export class EntityCompiler {
 		const spans = numbers
 		const numberStarts = new Set(numbers.map((number) => number.start))
 		const followingWords = new Map<ReadNumber, string>()
+		const heads = new Set(
+			mappings.flatMap((mapping) =>
+				[mapping.entity, ...mapping.aliases].flatMap((anchor) => tokenize(anchor).slice(0, 1)),
+			),
+		)
 		const unbound = new Set(
 			numbers.filter((number) => {
-				const following = /^\s+([a-z]+)\b/i.exec(text.slice(number.end))
-				const word = following?.[1]?.toLowerCase()
-				if (word === undefined || ['is', 'of', 'at', 'to', 'a', 'an', 'the'].includes(word))
+				const tail = text.slice(number.end)
+				const adjacent = numberStarts.has(number.end + (/^\s*/.exec(tail)?.[0].length ?? 0))
+				const following = (adjacent ? /^\s*(\S+)/ : /^\s*([.,!?;]|\S+)/).exec(tail)
+				const word = following?.[1]
+				if (word === undefined || (!adjacent && /^[.!?;]+(?=\s|$)/.test(tail))) return false
+				const comma = /^\s*,\s*/.exec(tail)
+				if (!adjacent && comma !== null && !numberStarts.has(number.end + comma[0].length))
 					return false
-				const link = word === 'and' || word === 'with'
-				const gap = link
-					? /^\s+(?:and|with)\s+(?:(?:a|an|the)\s+)?/i.exec(text.slice(number.end))
-					: null
-				if (link && gap === null) {
-					followingWords.set(number, word)
-					return true
-				}
-				const start = number.end + (gap?.[0].length ?? 0)
-				if (link && numberStarts.has(start)) return false
-				const head = link ? /^([a-z]+)\b/i.exec(text.slice(start))?.[1]?.toLowerCase() : word
-				const refused =
-					head === undefined ||
-					!mappings.some((mapping) =>
-						[mapping.entity, ...mapping.aliases].some((anchor) => tokenize(anchor)[0] === head),
-					)
-				if (refused) followingWords.set(number, head ?? word)
-				return refused
+				const head = word.replace(/[.,!?;]+$/, '').toLowerCase()
+				if (heads.has(head)) return false
+				const link = /^\s*(?:is|of|at|to|a|an|the|and|with)\s+(?:(?:a|an|the)\s+)?/i.exec(tail)
+				const start = number.end + (link?.[0].length ?? 0)
+				const target = /^\S+/
+					.exec(text.slice(start))?.[0]
+					?.replace(/[.,!?;]+$/, '')
+					.toLowerCase()
+				if (link !== null && target !== undefined && heads.has(target)) return false
+				followingWords.set(number, word)
+				return true
 			}),
 		)
 		const correction =

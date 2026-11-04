@@ -12,11 +12,13 @@ import { NumberReader } from './NumberReader.js'
  * or `:` between them. An article also links when the number follows the anchor.
  * Negation in the clause refuses every claim there. Equal-distance numbers or competing
  * anchors tied for a number leave it unclaimed. An unreadable occurrence never fills a field.
- * An anchor tied between numbers still contests both. A number directly followed by a word
- * that starts no declared anchor and is not a following-word link asks, both in scalar
- * assignment and array collection; punctuation or the text's end does not refuse it.
- * `is`, `of`, `at`, `to`, `a`, `an`, and `the` link unconditionally. `and` and `with` require
- * a declared anchor head or a numeric occurrence next, allowing one article (`a`, `an`, or `the`).
+ * An anchor tied between numbers still contests both. A number's neighbor must be the text's
+ * end, a sentence end, an anchor head, or a conditional link; otherwise scalar assignment and
+ * array collection ask. A comma admits unless followed by a number. The links `is`, `of`, `at`,
+ * `to`, `a`, `an`, `the`, `and`, and `with` require a declared anchor head next, allowing one
+ * article (`a`, `an`, or `the`); a numeric target refuses. Sentence punctuation must touch the
+ * number and precede whitespace or the text's end. Other words, scripts, punctuation, and
+ * adjacent numbers refuse with `following-word` and the immediate neighbor's preview in `word`.
  * When the text contains `sorry` (except `sorry to/for`), `hang on`, `used to be`, or
  * `was/were going to be`, suspect or changed occurrences ask without substituting a rival.
  * A sole array mapping collects values only after an anchor claims a number, and refuses
@@ -97,7 +99,9 @@ export function compileEntities(
  * Reads every number in a text exactly, or says why it cannot.
  *
  * @remarks
- * Digits, shorthand, and word forms read to a value, and each number carries its span and what
+ * A digit-holding nonspace token must match a declared numeric form whole, less trailing
+ * sentence punctuation; otherwise it carries `unreadable: 'undeclared'` and no value.
+ * Declared digits, shorthand, and word forms read to a value, and each number carries its span and what
  * the words around it say. It never assigns a number to a field: read this beside a recipe, and a
  * check that a proposed value appears here is exact where `extractNumbers` reads digits only.
  *
@@ -110,7 +114,7 @@ export function compileEntities(
  *
  * scanNumbers('$75k at 6%').map((number) => number.value) // [75000, 6]
  * scanNumbers('twelve fifty')[0]?.unreadable               // 'spoken'
- * scanNumbers('call 555-0142')[0]?.foreign                 // 'phone'
+ * scanNumbers('call 555-0142')[0]?.unreadable              // 'undeclared'
  * ```
  */
 export function scanNumbers(text: string): readonly ReadNumber[] {

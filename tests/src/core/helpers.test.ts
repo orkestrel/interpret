@@ -121,7 +121,7 @@ describe('assignEntities', () => {
 		).toEqual([])
 	})
 	it.each(NUMBER_LINK_READINGS)(
-		'claims before a numeric target and exposes its value in $text',
+		'refuses before a numeric target and exposes both values in $text',
 		({ entity, text, value, unclaimed }) => {
 			const numbers = scanNumbers(text)
 			const entities = assignEntities(
@@ -130,8 +130,8 @@ describe('assignEntities', () => {
 				text,
 				OPEN_SHAPE,
 			)
-			expect(entities.map((found) => found.value)).toEqual([value])
-			expect(findUnclaimedNumbers(numbers, entities)).toEqual([unclaimed])
+			expect(entities).toEqual([])
+			expect(findUnclaimedNumbers(numbers, entities)).toEqual([value, unclaimed])
 		},
 	)
 	it.each(['a', 'an', 'the'])('allows one %s article before an anchor head', (article) => {
@@ -194,25 +194,24 @@ describe('assignEntities', () => {
 			assignEntities(scanNumbers(text), [{ entity, aliases: [], field: entity }], text, OPEN_SHAPE),
 		).toEqual([])
 	})
-	it('keeps declared anchor heads, links, punctuation and the end eligible', () => {
+	it('keeps declared anchor heads, a comma and the end eligible', () => {
 		const mappings = [{ entity: 'years', aliases: ['year term'], field: 'years' }]
-		for (const text of [
-			'3 years',
-			'3 year term',
-			'years 3 is',
-			'years 3 of',
-			'years 3 at',
-			'years 3 to',
-			'years 3 a',
-			'years 3 an',
-			'years 3 the',
-			'years 3, months',
-			'years 3',
-		]) {
+		for (const text of ['3 years', '3 year term', 'years 3, months', 'years 3']) {
 			expect(
 				assignEntities(scanNumbers(text), mappings, text, OPEN_SHAPE).map((entity) => entity.value),
 			).toEqual([3])
 		}
+	})
+	it.each(['is', 'of', 'at', 'to', 'a', 'an', 'the'])('refuses a terminal %s link', (link) => {
+		const text = `years 3 ${link}`
+		expect(
+			assignEntities(
+				scanNumbers(text),
+				[{ entity: 'years', aliases: [], field: 'years' }],
+				text,
+				OPEN_SHAPE,
+			),
+		).toEqual([])
 	})
 	it('refuses array collection when any number carries an undeclared unit', () => {
 		const mappings = [{ entity: 'values', aliases: [], field: 'values' }]
@@ -245,7 +244,12 @@ describe('assignEntities', () => {
 		const mappings = [{ entity: 'readings', aliases: ['value', 'values'], field: 'readings' }]
 		const shape = objectShape({ readings: arrayShape(numberShape()) })
 		expect(
-			assignEntities(scanNumbers('values 10 20 30'), mappings, 'values 10 20 30', shape),
+			assignEntities(
+				scanNumbers('values 10 and values 20 and values 30'),
+				mappings,
+				'values 10 and values 20 and values 30',
+				shape,
+			),
 		).toEqual([
 			{
 				name: 'readings',
@@ -264,13 +268,13 @@ describe('assignEntities', () => {
 		])
 	})
 
-	it('single scalar mapping claims its number before the and link', () => {
+	it('single scalar mapping refuses a link followed by a number word', () => {
 		const mappings = [{ entity: 'age', aliases: [], field: 'age' }]
 		const shape = objectShape({ age: numberShape() })
 		expect(assignEntities(scanNumbers('one 1 two 2'), mappings, 'one 1 two 2', shape)).toEqual([])
 		expect(
 			assignEntities(scanNumbers('age 25 and one 1'), mappings, 'age 25 and one 1', shape),
-		).toMatchObject([{ name: 'age', value: 25 }])
+		).toEqual([])
 	})
 
 	it('a number on an array field among many mappings lands as an array of one', () => {
@@ -1233,6 +1237,10 @@ describe('reading what a text holds beside a recipe', () => {
 
 	it('findUnclaimedNumbers sets aside what belongs to no quantity', () => {
 		expect(findUnclaimedNumbers(scanNumbers('in 2019, 40 hours'), [])).toEqual([40])
-		expect(findUnclaimedNumbers(scanNumbers('call 555-0142 about 40 hours'), [])).toEqual([40])
+		expect(findUnclaimedNumbers(scanNumbers('call me at 5551234 about 40 hours'), [])).toEqual([40])
+		expect(findUnclaimedNumbers(scanNumbers('call 555-0142 about 40 hours'), [])).toEqual([
+			'555-0142',
+			40,
+		])
 	})
 })

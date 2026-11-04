@@ -119,6 +119,17 @@ await new GuideCommand({
 	if (!isRecord(manifest)) throw new Error('Invalid package manifest: package.json')
 	const sources = createSourceManager({ files, modules: MODULES })
 
+	it('executes the number reading fence', () => {
+		expect(scanNumbers('$75k at 6%').map((number) => number.value)).toEqual([75000, 6])
+		expect(scanNumbers('three hundred thousand dollars')[0]?.money).toBe(true)
+		expect(scanNumbers('twelve fifty')[0]?.unreadable).toBe('spoken')
+		expect(scanNumbers('12 to 18')[0]?.unreadable).toBe('range')
+		expect(scanNumbers('call 555-0142')[0]?.unreadable).toBe('undeclared')
+		expect(scanNumbers('in 2019')[0]?.foreign).toBe('year')
+		expect(scanNumbers('about 40 hours')[0]?.hedged).toBe(true)
+		expect(scanNumbers('about 40 hours')[0]?.unit).toBe('hour')
+	})
+
 	it('executes the normalized refusal example', () => {
 		const text = createNormalizer().normalize('years 3 months').text
 		const result = compileEntities(

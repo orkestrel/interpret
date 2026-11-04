@@ -1,7 +1,83 @@
 import { preview } from '@orkestrel/contract'
 import { assignEntities, compileEntities, scanNumbers, NUMBER_REFUSAL_LIMIT } from '@src/core'
 import { describe, expect, it } from 'vitest'
-import { OPEN_SHAPE, REVIEWER_LOAN_READINGS, WHOLE_NUMBER_FORMS } from '../../setup.js'
+import {
+	ADMITTED_CLAIMS,
+	OPEN_SHAPE,
+	REVIEWER_LOAN_READINGS,
+	UNDECLARED_NEIGHBORS,
+	WHOLE_NUMBER_FORMS,
+} from '../../setup.js'
+
+describe('compileEntities — admitted neighbors', () => {
+	it.each(['.', '!', '?', ';'])('admits the attached sentence end %s', (mark) => {
+		const text = `value 3${mark} unknown`
+		expect(
+			compileEntities(
+				scanNumbers(text),
+				[{ entity: 'value', aliases: [], field: 'value' }],
+				text,
+				OPEN_SHAPE,
+			).entities.map((entity) => entity.value),
+		).toEqual([3])
+	})
+	it.each(['three.Next', '3\n Next'])('refuses a missing sentence boundary in %s', (form) => {
+		const text = `value ${form}`
+		expect(
+			compileEntities(
+				scanNumbers(text),
+				[{ entity: 'value', aliases: [], field: 'value' }],
+				text,
+				OPEN_SHAPE,
+			).entities,
+		).toEqual([])
+	})
+	it('keeps the unseparated control tied with no entity', () => {
+		const text = 'amount 50000 income 120000'
+		const mappings = ['amount', 'income'].map((entity) => ({ entity, aliases: [], field: entity }))
+		const result = compileEntities(scanNumbers(text), mappings, text, OPEN_SHAPE)
+		expect(result.entities).toEqual([])
+		expect(result.refusals?.items).toEqual([
+			{ text: '"50000"', start: 7, end: 12, reason: 'anchor-tie', field: 'income' },
+			{ text: '"120000"', start: 20, end: 26, reason: 'anchor-tie', field: 'income' },
+		])
+	})
+	it.each(UNDECLARED_NEIGHBORS)('refuses the undeclared neighbor %s', (neighbor) => {
+		const text = `value 3 ${neighbor}`
+		const result = compileEntities(
+			scanNumbers(text),
+			[{ entity: 'value', aliases: [], field: 'value' }],
+			text,
+			OPEN_SHAPE,
+		)
+		expect(result.entities).toEqual([])
+		expect(result.refusals?.items[0]).toMatchObject({
+			reason: 'following-word',
+			word: preview(neighbor.split(' ')[0]),
+		})
+		const spoken = `value three ${neighbor}`
+		expect(
+			compileEntities(
+				scanNumbers(spoken),
+				[{ entity: 'value', aliases: [], field: 'value' }],
+				spoken,
+				OPEN_SHAPE,
+			).entities,
+		).toEqual([])
+	})
+	it.each(ADMITTED_CLAIMS)('retains the assignment control %s', (text, values) => {
+		const mappings = ['amount', 'income', 'value'].map((entity) => ({
+			entity,
+			aliases: [],
+			field: entity,
+		}))
+		expect(
+			compileEntities(scanNumbers(text), mappings, text, OPEN_SHAPE).entities.map(
+				(entity) => entity.value,
+			),
+		).toEqual(values)
+	})
+})
 
 describe('compileEntities', () => {
 	it.each(WHOLE_NUMBER_FORMS)('preserves assignments for %s', (form) => {

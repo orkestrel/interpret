@@ -1,6 +1,41 @@
 import { scanNumbers, readNumbersContract } from '@src/core'
 import { describe, expect, it } from 'vitest'
-import { WHOLE_NUMBER_FORMS } from '../../setup.js'
+import { ADMITTED_NUMBERS, UNDECLARED_TOKENS, WHOLE_NUMBER_FORMS } from '../../setup.js'
+
+describe('scanNumbers — declared digit tokens', () => {
+	it('checks a long run whole, including a digit after another script', () => {
+		const word = 'ж'.repeat(65535)
+		expect(scanNumbers(word)).toEqual([])
+		expect(scanNumbers(`${word}3`)).toMatchObject([
+			{ raw: `${word}3`, start: 0, end: 65536, unreadable: 'undeclared' },
+		])
+	})
+	it('keeps undeclared tokens whole after a separate digit token', () => {
+		const text = '555 123-4567'
+		expect(scanNumbers(text)).toMatchObject([
+			{ raw: '555', value: 555, start: 0, end: 3 },
+			{ raw: '123-4567', unreadable: 'undeclared', start: 4, end: 12 },
+		])
+	})
+	it.each(['.', '!', '?', ';', ','])('admits trailing sentence punctuation %s', (mark) => {
+		expect(scanNumbers(`3${mark}`)[0]).toMatchObject({ raw: '3', value: 3, start: 0, end: 1 })
+	})
+	it.each(UNDECLARED_TOKENS)('refuses the whole undeclared token %s', (text) => {
+		const numbers = scanNumbers(text)
+		expect(numbers).toHaveLength(1)
+		expect(numbers[0]).toMatchObject({
+			raw: text,
+			start: 0,
+			end: text.length,
+			unreadable: 'undeclared',
+		})
+		expect(numbers[0]?.value).toBeUndefined()
+	})
+	it.each(ADMITTED_NUMBERS)('retains the declared control %s', (text, value) => {
+		expect(scanNumbers(text).map((number) => number.value)).toEqual([value])
+		expect(scanNumbers(text)[0]?.unreadable).toBeUndefined()
+	})
+})
 
 describe('scanNumbers — whole numeric forms', () => {
 	it.each(WHOLE_NUMBER_FORMS)('%s reads whole or unreadable', (text, value) => {
@@ -21,6 +56,7 @@ describe('scanNumbers — what reads to a value', () => {
 		['6.25%', 6.25],
 		['.5', 0.5],
 		['75k', 75000],
+		['401k', 401000],
 		['$1.2M', 1200000],
 		['$2b', 2000000000],
 		['250 grand', 250000],
@@ -56,14 +92,14 @@ describe('scanNumbers — what reads to a value', () => {
 		expect(scanNumbers('5')[0]?.word).toBeUndefined()
 	})
 
-	it.each<[string, string]>([
+	it.each<[string, string | undefined]>([
 		['40 hours', 'hour'],
-		['40hrs', 'hour'],
-		['40kg', 'kg'],
+		['40hrs', undefined],
+		['40kg', undefined],
 		['5 kilograms', 'kg'],
 		['950 sqft', 'sqft'],
-		['500km', 'km'],
-	])('%s binds the unit %s', (text, unit) => {
+		['500km', undefined],
+	])('%s reports its admitted unit as %s', (text, unit) => {
 		expect(scanNumbers(text)[0]?.unit).toBe(unit)
 	})
 
@@ -92,31 +128,31 @@ describe('scanNumbers — what cannot be read exactly', () => {
 	})
 
 	it.each<[string, string]>([
-		['1.2m', 'shorthand'],
-		['20s', 'shorthand'],
+		['1.2m', 'undeclared'],
+		['20s', 'undeclared'],
 		['six figures', 'shorthand'],
 		['twelve fifty', 'spoken'],
 		['two fifty', 'spoken'],
-		['€200,000', 'foreign currency'],
-		['£50', 'foreign currency'],
+		['€200,000', 'undeclared'],
+		['£50', 'undeclared'],
 		['200 euros', 'foreign currency'],
 		['200.000', 'grouping'],
-		['1,20,000', 'grouping'],
+		['1,20,000', 'undeclared'],
 		['a few thousand', 'loose'],
 		['a couple hundred', 'loose'],
 		['a couple', 'loose'],
 		['several', 'loose'],
 		['12 to 18', 'range'],
-		['12-18', 'range'],
+		['12-18', 'undeclared'],
 		['5 or 6', 'range'],
 		['between 5 and 6', 'range'],
 		['20 x 30', 'dimensions'],
 		['50 by 60', 'dimensions'],
-		['1/2', 'fraction'],
-		['2½', 'fraction'],
+		['1/2', 'undeclared'],
+		['2½', 'undeclared'],
 		['half a cup', 'fraction'],
 		['twice a week', 'frequency'],
-		['-5', 'signed'],
+		['-5', 'undeclared'],
 		['9007199254740993', 'overflow'],
 		['1'.repeat(400), 'overflow'],
 	])('%s is unreadable as %s', (text, reason) => {
@@ -137,23 +173,22 @@ describe('scanNumbers — what cannot be read exactly', () => {
 })
 
 describe('scanNumbers — what belongs to no quantity', () => {
-	it.each<[string, string]>([
+	it.each<[string, string | undefined]>([
 		['in 2019', 'year'],
 		['June 14', 'date'],
 		['14 June', 'date'],
-		['2024-01-02', 'date'],
-		['3/14/2024', 'date'],
-		['5pm', 'time'],
+		['2024-01-02', undefined],
+		['3/14/2024', undefined],
+		['5pm', undefined],
 		['5 pm', 'time'],
-		['5:30', 'time'],
-		['555-0142', 'phone'],
-		['555-123-4567', 'phone'],
+		['5:30', undefined],
+		['555-0142', undefined],
+		['555-123-4567', undefined],
 		['call me at 5551234', 'phone'],
-		['401k', 'plan'],
-		['a 403(b)', 'plan'],
-		['14th', 'ordinal'],
-		['#12', 'reference'],
-		['v2', 'identifier'],
+		['a 403(b)', undefined],
+		['14th', undefined],
+		['#12', undefined],
+		['v2', undefined],
 		['age 34', 'age'],
 		["I'm 34", 'age'],
 		['34 years old', 'age'],
@@ -161,9 +196,10 @@ describe('scanNumbers — what belongs to no quantity', () => {
 		['every 2 weeks', 'period'],
 		['NY 10001', 'zip'],
 		['145 Main Street', 'address'],
-	])('%s is foreign as %s', (text, foreign) => {
+	])('%s reports foreign classification %s', (text, foreign) => {
 		const number = scanNumbers(text).at(-1)
 		expect(number?.foreign).toBe(foreign)
+		expect(foreign !== undefined || number?.unreadable === 'undeclared').toBe(true)
 	})
 
 	it('reads a value a word introduces as a reference, and names the word', () => {
@@ -191,7 +227,6 @@ describe('scanNumbers — what the words around it say', () => {
 		'at least 40',
 		'40 or so',
 		'40ish',
-		'100+',
 		'maybe 40',
 		'I think 40',
 	])('%s is hedged', (text) => {
@@ -265,7 +300,7 @@ describe('scanNumbers — spans', () => {
 	it('indexes the text as given, across what it normalizes', () => {
 		const text = 'it’s 5–ish — $7'
 		const numbers = scanNumbers(text)
-		expect(numbers.map((number) => text.slice(number.start, number.end))).toEqual(['5', '$7'])
+		expect(numbers.map((number) => text.slice(number.start, number.end))).toEqual(['5–ish', '$7'])
 	})
 })
 

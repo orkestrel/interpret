@@ -1,6 +1,5 @@
 import type {
 	CardinalResult,
-	NumberForeign,
 	ReaderMarks,
 	ReaderTokenInterface,
 	ReadNumber,
@@ -13,19 +12,20 @@ import { ReaderToken } from './ReaderToken.js'
  * Reads every number in one text, exactly or not at all.
  *
  * @remarks
- * Digits, shorthand, and word forms each read to a value, and what cannot be read exactly reads
- * as `unreadable` with no guess: a range, spoken "twelve fifty", foreign currency, European
- * grouping. A number that belongs to no quantity is marked `foreign`: a year, a date, a time, a
- * phone number, a reference. Space- and apostrophe-grouped digits and unsupported scale words
- * are consumed as unreadable, with no partial value. Numeric dates also carry an unreadable mark.
+ * Every digit-holding nonspace run, less trailing sentence punctuation, must match a declared
+ * numeric form whole: digits, comma groups, decimals, dollars, percent, or a declared suffix.
+ * Other forms read as `unreadable: 'undeclared'`, with no value. Word numbers retain their exact
+ * grammar; ranges, ambiguous grouping, and inexact arithmetic also read as unreadable.
+ * Context can mark an admitted number `foreign`, such as a year or a phone number.
+ * Unsupported words after a number are left for the compiler's neighbor admission check.
  * The words around a number add `hedged`, `suspect`, `changed`, and
  * `composite`. It never assigns a number to a field, because that is a recipe's question.
  * Spans index the text as given: every normalization replaces one character with one.
  */
 export class NumberReader {
-	#pending: ReaderTokenInterface | undefined
-	// A scanner's cursors: the pass's place, the place absorbing units, and the cardinal being read.
+	// A scanner's cursors: pass, checked nonspace boundary, unit absorption, and cardinal.
 	#at = 0
+	#boundary = 0
 	#cursor = 0
 	#cardinal: CardinalResult = { value: 0, part: 0, next: 0, last: '', money: false }
 
@@ -45,6 +45,7 @@ export class NumberReader {
 			.replace(/ /g, ' ')
 		const tokens: ReaderTokenInterface[] = []
 		this.#at = 0
+		this.#boundary = 0
 		while (this.#at < source.length) this.#at = this.#scanAt(source, this.#at, tokens)
 		return tokens
 	}
@@ -52,32 +53,28 @@ export class NumberReader {
 	// Scans the token at one place, and answers where the next one starts.
 	#scanAt(source: string, index: number, tokens: ReaderTokenInterface[]): number {
 		const char = source.charAt(index)
+		if (index >= this.#boundary) {
+			const currency = this.#shapeAt(READER_SHAPES.currency, source, index)
+			const start = index + (currency?.length ?? 0)
+			const run = /^\S+/.exec(source.slice(start))?.[0] ?? ''
+			this.#boundary = Math.max(index + 1, start + run.length)
+			const whole = source.slice(index, start + run.replace(/[.,!?;]+$/, '').length)
+			if (/\d/.test(whole) && !READER_SHAPES.admitted.test(whole)) {
+				const token = this.#numberToken(whole, index, index + whole.length)
+				token.mark({ unreadable: 'undeclared' })
+				tokens.push(token)
+				return token.marks.end
+			}
+		}
 		if (char === '\n') {
 			tokens.push(new ReaderToken('mark', char, '\n', '\n', index, index + 1))
 			return index + 1
 		}
 		if (/\s/.test(char) || char === "'" || char === '"') return index + 1
-		const opensNumber =
-			this.#isDigit(char) ||
-			char === '(' ||
-			char === '+' ||
-			(char === '.' && this.#isDigit(source[index + 1]))
-		const shaped =
-			opensNumber && !this.#isLetter(source[index - 1])
-				? this.#foreignShape(source, index)
-				: undefined
-		if (shaped !== undefined) {
-			tokens.push(shaped)
-			return shaped.marks.end
-		}
 		const literal = this.#readLiteral(source, index)
 		if (literal !== undefined) {
 			this.#readSuffix(source, literal)
 			tokens.push(literal)
-			if (this.#pending !== undefined) {
-				tokens.push(this.#pending)
-				this.#pending = undefined
-			}
 			return literal.marks.end
 		}
 		const word = this.#shapeAt(READER_SHAPES.word, source, index)
@@ -103,10 +100,9 @@ export class NumberReader {
 		return dotted ? end + 1 : end
 	}
 
-	// A hyphen between words or after a number is dropped; between digits it reads as a range.
+	// A hyphen joins words; digit-holding runs have already passed whole-token admission.
 	#scanHyphen(source: string, at: number, tokens: ReaderTokenInterface[]): number {
 		const glued = !/\s/.test(source[at - 1] ?? ' ') && !/\s/.test(source[at + 1] ?? ' ')
-		const last = tokens.at(-1)
 		if (glued && this.#isLetter(source[at + 1])) {
 			const next = this.#shapeAt(READER_SHAPES.word, source, at + 1)
 			if (next === undefined) return at + 1
@@ -115,42 +111,9 @@ export class NumberReader {
 			tokens.push(word)
 			return at + 1 + next.length
 		}
-		if (glued && this.#isDigit(source[at + 1]) && last?.form === 'word') {
-			const mark = new ReaderToken('mark', '-', 'glue', 'glue', at, at + 1)
-			mark.mark({ abbreviated: last.lower.length <= 2 })
-			tokens.push(mark)
-			return at + 1
-		}
 		const lower = glued ? 'range' : '-'
 		tokens.push(new ReaderToken('mark', '-', lower, lower, at, at + 1))
 		return at + 1
-	}
-
-	// A digit run that is not a quantity at all, recognized by its whole shape.
-	#foreignShape(source: string, index: number): ReaderTokenInterface | undefined {
-		const plan = this.#shapeAt(READER_SHAPES.plan, source, index)
-		if (plan !== undefined) return this.#foreignToken(plan, index, 'plan')
-		const phone =
-			this.#shapeAt(READER_SHAPES.phone, source, index) ??
-			this.#shapeAt(READER_SHAPES.shortPhone, source, index)
-		if (phone !== undefined) return this.#foreignToken(phone, index, 'phone')
-		const iso = this.#shapeAt(READER_SHAPES.iso, source, index)
-		if (iso !== undefined) return this.#foreignToken(iso, index, 'date')
-		const time = this.#shapeAt(READER_SHAPES.time, source, index)
-		if (time !== undefined) return this.#foreignToken(time, index, 'time')
-		const slash = this.#shapeAt(READER_SHAPES.slash, source, index)
-		if (slash === undefined) return undefined
-		const [top, bottom, third] = slash.split('/').map(Number)
-		const fraction =
-			third === undefined &&
-			top !== undefined &&
-			bottom !== undefined &&
-			top < bottom &&
-			[2, 3, 4, 8].includes(bottom)
-		if (!fraction) return this.#foreignToken(slash, index, 'date')
-		const token = this.#numberToken(slash, index, index + slash.length)
-		token.mark({ unreadable: 'fraction' })
-		return token
 	}
 
 	// One digit literal with its currency prefix, percent sign, and attached letters.
@@ -161,67 +124,32 @@ export class NumberReader {
 		if (digits === undefined) return undefined
 		const token = this.#numberToken(digits, index, start + digits.length)
 		token.mark({ value: Number(digits.replace(/,/g, '')) })
-		const grouped = /^(?:[ '\u202f]+\d{3})+(?!\d)/.exec(source.slice(token.marks.end))
+		const grouped = /^(?:[ \u202f]+\d{3})+(?=\s|[.,!?;]*(?:\s|$))/.exec(
+			source.slice(token.marks.end),
+		)
 		if (grouped !== null)
 			token.mark({ unreadable: 'grouping', end: token.marks.end + grouped[0].length })
-		if (currency !== undefined) {
-			if (/^(?:us\$|usd|\$)/i.test(currency)) token.mark({ money: true })
-			else token.mark({ unreadable: 'foreign currency' })
-		}
-		if (digits.includes(',') && !/^\d{1,3}(?:,\d{3})+(?:\.\d+)?$/.test(digits)) {
-			token.mark({ unreadable: 'grouping' })
-		}
+		if (currency !== undefined) token.mark({ money: true })
 		if (/^\d{1,3}\.\d{3}$/.test(digits)) token.mark({ unreadable: 'grouping' })
-		const follow = /^[,.]\d[\d,.]*/.exec(source.slice(token.marks.end))
-		if (follow !== null) {
-			token.mark({ unreadable: 'grouping', end: token.marks.end + follow[0].length })
-		}
-		if (READER_SHAPES.spokenFraction.test(source[token.marks.end] ?? '')) {
-			token.mark({ unreadable: 'fraction', end: token.marks.end + 1 })
-		}
-		if (source[token.marks.end] === '+') token.mark({ hedged: true, end: token.marks.end + 1 })
-		const before = source[index - 1]
-		if (this.#isLetter(before)) token.mark({ foreign: 'identifier' })
-		if (
-			(before === '-' || before === '+') &&
-			currency === undefined &&
-			!this.#isDigit(source[index - 2]) &&
-			!this.#isLetter(source[index - 2])
-		) {
-			token.mark({ unreadable: 'signed' })
-		}
-		const percent = /^\s?%/.exec(source.slice(token.marks.end))
+		const percent = /^\s?%(?=\s|[.,!?;]*(?:\s|$))/.exec(source.slice(token.marks.end))
 		if (percent !== null) token.mark({ percent: true, end: token.marks.end + percent[0].length })
 		return token
 	}
 
-	// Letters glued to a literal: an ordinal, a clock suffix, shorthand, or a word for the walkers.
+	// Declared suffixes on a literal that has passed whole-token admission.
 	#readSuffix(source: string, token: ReaderTokenInterface): void {
-		const exponent = /^[eE][+-]?\d+/.exec(source.slice(token.marks.end))?.[0]
-		if (exponent !== undefined) {
-			token.mark({ unreadable: 'shorthand', end: token.marks.end + exponent.length })
-			return
-		}
 		const letters = /^[a-z]+/i.exec(source.slice(token.marks.end))?.[0]
 		if (letters === undefined) return
 		const suffix = letters.toLowerCase()
 		const start = token.marks.end
 		token.mark({ end: start + letters.length })
-		if (READER_WORDS.unscaled.has(this.#canon(suffix))) token.mark({ unreadable: 'shorthand' })
-		else if (['st', 'nd', 'rd', 'th'].includes(suffix)) token.mark({ foreign: 'ordinal' })
-		else if (suffix === 'am' || suffix === 'pm') token.mark({ foreign: 'time' })
-		else if (suffix === 'ish') token.mark({ hedged: true })
+		if (suffix === 'ish') token.mark({ hedged: true })
 		else if (READER_WORDS.gluedScales.has(suffix)) {
 			this.#scale(token, this.#own(READER_SCALES.digit, suffix) ?? 1)
 		} else if (suffix === 'm' || suffix === 'mm' || suffix === 'b' || suffix === 'bn') {
 			if (token.marks.money === true) {
 				this.#scale(token, suffix === 'b' || suffix === 'bn' ? 1e9 : 1e6)
 			} else token.mark({ unreadable: 'shorthand' })
-		} else if (suffix === 's' || suffix === 'x') token.mark({ unreadable: 'shorthand' })
-		else {
-			const word = this.#wordToken(letters, start, start + letters.length)
-			word.mark({ attached: true })
-			this.#pending = word
 		}
 	}
 
@@ -471,14 +399,12 @@ export class NumberReader {
 	// Absorbs the word at the cursor into the number, and answers whether to go on.
 	#absorbWord(raw: readonly ReaderTokenInterface[], token: ReaderTokenInterface): boolean {
 		const next = raw[this.#cursor]
-		if (next?.form !== 'word' || next.marks.attached === true) return false
+		if (next?.form !== 'word') return false
 		const word = next.lower
 		const written = token.marks.word === true
 		const scale = this.#own(READER_SCALES.digit, word)
 		const follow = raw[this.#cursor + 2]?.lower
-		if (READER_WORDS.unscaled.has(next.canon)) {
-			token.mark({ unreadable: 'shorthand' })
-		} else if (!written && scale !== undefined) {
+		if (!written && scale !== undefined) {
 			this.#scale(token, scale)
 			if (word === 'grand') token.mark({ money: true })
 		} else if (written && (word === 'k' || word === 'grand')) {
@@ -530,7 +456,7 @@ export class NumberReader {
 	): number {
 		const token = raw[index]
 		if (token === undefined) return raw.length
-		if (token.form === 'word' && token.marks.attached !== true) {
+		if (token.form === 'word') {
 			const parsed = this.#readWordNumber(raw, index)
 			if (parsed !== undefined) {
 				merged.push(parsed.token)
@@ -540,13 +466,6 @@ export class NumberReader {
 		if (token.form === 'number' && token.marks.foreign === undefined) {
 			merged.push(token)
 			return this.#absorbUnits(raw, index, token)
-		}
-		if (token.lower === 'glue') {
-			const next = raw[index + 1]
-			if (token.marks.abbreviated === true && next?.form === 'number') {
-				next.mark({ foreign: 'identifier' })
-			}
-			return index + 1
 		}
 		merged.push(token)
 		return index + 1
@@ -855,13 +774,6 @@ export class NumberReader {
 		return new ReaderToken('number', raw, lower, lower, start, end)
 	}
 
-	#foreignToken(raw: string, index: number, foreign: NumberForeign): ReaderTokenInterface {
-		const token = this.#numberToken(raw, index, index + raw.length)
-		token.mark({ foreign })
-		if (foreign === 'date') token.mark({ unreadable: 'joined' })
-		return token
-	}
-
 	#wordToken(raw: string, start: number, end: number): ReaderTokenInterface {
 		return new ReaderToken('word', raw, raw.toLowerCase(), this.#canon(raw), start, end)
 	}
@@ -907,10 +819,6 @@ export class NumberReader {
 
 	#isLetter(char: string | undefined): boolean {
 		return char !== undefined && /[a-z]/i.test(char)
-	}
-
-	#isDigit(char: string | undefined): boolean {
-		return char !== undefined && /\d/.test(char)
 	}
 
 	#isTimeWord(token: ReaderTokenInterface | undefined): boolean {

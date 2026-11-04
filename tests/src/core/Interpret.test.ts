@@ -48,6 +48,7 @@ import {
 	WAIT_READINGS,
 	UNSTATED_UNITS,
 	UNBOUND_LINK_READINGS,
+	NUMBER_LINK_READINGS,
 	REFUSAL_READINGS,
 	REVIEWER_LOAN_READINGS,
 	buildInterpretRecipe,
@@ -147,7 +148,7 @@ describe('Interpret', () => {
 		expect(result.ambiguities).toEqual([])
 		interpret.destroy()
 	})
-	it.each([...UNSTATED_UNITS, ...UNBOUND_LINK_READINGS])(
+	it.each([...UNSTATED_UNITS, ...UNBOUND_LINK_READINGS, ...NUMBER_LINK_READINGS])(
 		'asks and holds no value for $text',
 		({ entity, text }) => {
 			const interpret = new Interpret({
@@ -364,9 +365,12 @@ describe('Interpret', () => {
 		const asked = interpret.interpret('calculate arithmetic 42')
 		expect(asked.subject).toBeUndefined()
 		expect(asked.ambiguities[0]?.candidates).toEqual(['42'])
-		const phone = interpret.interpret('calculate arithmetic call 555-0142')
+		const phone = interpret.interpret('calculate arithmetic call me at 5551234')
 		expect(phone.subject).toEqual({ value: 10 })
 		expect(phone.ambiguities).toEqual([])
+		const undeclared = interpret.interpret('calculate arithmetic call 555-0142')
+		expect(undeclared.subject).toBeUndefined()
+		expect(undeclared.ambiguities[0]?.candidates).toEqual(['555-0142'])
 		interpret.destroy()
 	})
 
@@ -1094,6 +1098,13 @@ describe('Interpret — a number no anchor claimed', () => {
 		expect(Object.hasOwn(result, 'subject')).toBe(false)
 		expect(result.ambiguities).toEqual([
 			{
+				field: 'age',
+				question: 'What is your age?',
+				candidates: ['3'],
+				required: true,
+				fault: { reason: 'missing', path: ['age'], expected: 'number' },
+			},
+			{
 				field: 'accidents',
 				question: 'What is your accidents?',
 				candidates: ['3'],
@@ -1172,8 +1183,9 @@ describe('Interpret — a number that belongs to no quantity', () => {
 		const interpret = new Interpret({ recipes: [recipe], extractor: createCorpusExtractor() })
 		const dated = interpret.interpret('calculate insurance age 25, in 2019')
 		expect(dated.subject).toEqual({ age: 25, accidents: 0 })
-		const called = interpret.interpret('calculate insurance age 25, call 555-0142')
+		const called = interpret.interpret('calculate insurance age 25, call me at 5551234')
 		expect(called.subject).toEqual({ age: 25, accidents: 0 })
+		expect(interpret.interpret('calculate insurance age 25, call 555-0142').subject).toBeUndefined()
 		interpret.destroy()
 	})
 

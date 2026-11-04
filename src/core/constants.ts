@@ -170,20 +170,15 @@ export const INTERPRET_ERROR_CODES: readonly InterpretErrorCode[] = Object.freez
  * Holds the shapes `NumberReader` recognizes a number by.
  *
  * @remarks
- * Each carries the sticky flag, so every call site builds a fresh `RegExp` from it. `spokenFraction`
- * tests one character and needs no copy.
+ * `admitted` checks the whole digit-holding token. The currency, digit, and word scanners carry
+ * the sticky flag, so their call sites build a fresh `RegExp` from each.
  */
 export const READER_SHAPES = Object.freeze({
-	plan: /40[13]\s?\(?[kb]\)?(?![a-z])/iy,
-	phone: /(?:\+?\d{1,2}[\s.-]?)?\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}(?!\d)/y,
-	shortPhone: /\d{3}-\d{4}(?!\d)/y,
-	iso: /\d{4}-\d{1,2}-\d{1,2}(?!\d)/y,
-	slash: /\d{1,4}\/\d{1,4}(?:\/\d{1,4})?(?!\d)/y,
-	time: /\d{1,2}:\d{2}(?::\d{2})?(?!\d)/y,
+	admitted:
+		/^(?:(?:(?:us\$|usd|\$)\s?)?(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?|\.\d+)(?:%|k|mil|mill|million|thousand|grand|ish)?|(?:us\$|usd|\$)\s?(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?|\.\d+)(?:m|mm|b|bn))$/i,
 	currency: /(?:us\$|c\$|a\$|usd\s?(?=\.?\d)|\$|\u20ac|\u00a3|\u00a5)\s?(?=\.?\d)/iy,
 	digit: /\d+(?:,\d+)*(?:\.\d+)?|\.\d+/y,
 	word: /[a-z]+(?:'[a-z]+)*/iy,
-	spokenFraction: /[\u00bd\u00bc\u00be\u2153\u2154\u215b]/,
 })
 
 /** Holds the values number words and scale words read to. */
@@ -243,13 +238,6 @@ export const READER_SCALES = Object.freeze({
 
 /** Holds the word lists `NumberReader` reads a number's surroundings by. */
 export const READER_WORDS = Object.freeze({
-	unscaled: Object.freeze(
-		new Set(
-			'trillion quadrillion quintillion sextillion septillion octillion nonillion decillion undecillion duodecillion googol tn mln lakh lac crore arab kharab'.split(
-				' ',
-			),
-		),
-	),
 	synonyms: Object.freeze<Record<string, string>>({
 		hr: 'hour',
 		hrs: 'hour',
@@ -408,6 +396,7 @@ export const READER_WORDS = Object.freeze({
 
 /** Lists every `NumberUnreadable` reason, frozen, for the shape that describes a read number. */
 export const NUMBER_UNREADABLE_REASONS: readonly NumberUnreadable[] = Object.freeze([
+	'undeclared',
 	'fraction',
 	'foreign currency',
 	'grouping',

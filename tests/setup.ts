@@ -28,6 +28,7 @@ import {
 	numberShape,
 	objectShape,
 	optionalShape,
+	seededRandom,
 	stringShape,
 } from '@orkestrel/contract'
 import {
@@ -178,6 +179,28 @@ export const DEFAULT_RENDERINGS = [
 /** Holds the reviewer messages that must keep asking without an unstated value. */
 export const REFUSAL_READINGS = [
 	{
+		text: 'amount 50000 income 120000',
+		names: ['amount', 'income'],
+		items: [
+			{ text: '"50000"', start: 7, end: 12, reason: 'anchor-tie', field: 'income' },
+			{ text: '"120000"', start: 20, end: 26, reason: 'anchor-tie', field: 'income' },
+		],
+	},
+	{
+		text: 'amount 3_000_000',
+		names: ['amount'],
+		items: [
+			{
+				text: '"3_000_000"',
+				start: 7,
+				end: 16,
+				reason: 'unreadable',
+				unreadable: 'undeclared',
+				field: 'amount',
+			},
+		],
+	},
+	{
 		text: 'years 3 months',
 		names: ['years'],
 		items: [
@@ -230,13 +253,12 @@ export const REFUSAL_READINGS = [
 		names: ['values'],
 		collection: true,
 		items: [
-			{ text: '"10"', start: 7, end: 9, reason: 'collection', field: 'values' },
+			{ text: '"10"', start: 7, end: 9, reason: 'following-word', word: '","', field: 'values' },
 			{
 				text: '"20"',
 				start: 11,
 				end: 13,
-				reason: 'following-word',
-				word: '"months"',
+				reason: 'collection',
 				field: 'values',
 			},
 		],
@@ -331,7 +353,7 @@ export const UNSTATED_UNITS = [
 	{ entity: 'amount', text: 'amount 50000 per month' },
 ]
 
-/** Refuses conjunctions whose next target is neither an anchor nor a number. */
+/** Refuses conjunctions whose next target is not an anchor. */
 export const UNBOUND_LINK_READINGS = [
 	{ entity: 'amount', text: 'amount 50000 and up' },
 	{ entity: 'amount', text: 'amount 50000 and more' },
@@ -345,8 +367,10 @@ export const UNBOUND_LINK_READINGS = [
 	{ entity: 'amount', text: 'amount 50000 and a the income 120000' },
 ]
 
-/** Keeps the first claim while exposing the following numeric occurrence. */
+/** Refuses a link followed by a numeric occurrence instead of an anchor. */
 export const NUMBER_LINK_READINGS = [
+	{ entity: 'amount', text: 'amount 5 of 3000000', value: 5, unclaimed: 3000000 },
+	{ entity: 'amount', text: 'amount 3 and 5', value: 3, unclaimed: 5 },
 	{ entity: 'amount', text: 'amount 50000 and 60000', value: 50000, unclaimed: 60000 },
 	{ entity: 'amount', text: 'amount 50000 with a 20000 deposit', value: 50000, unclaimed: 20000 },
 	{ entity: 'years', text: 'years 3 and 6 months', value: 3, unclaimed: 6 },
@@ -813,8 +837,8 @@ export const WHOLE_NUMBER_FORMS: ReadonlyArray<readonly [string, number | undefi
 		['.5', 0.5],
 		['3k', 3000],
 		['$3m', 3000000],
-		['~3', 3],
-		['3+', 3],
+		['~3', undefined],
+		['3+', undefined],
 		['3 thousand', 3000],
 		['three thousand', 3000],
 		['3 million', 3000000],
@@ -831,20 +855,8 @@ export const WHOLE_NUMBER_FORMS: ReadonlyArray<readonly [string, number | undefi
 		['3 000 000', undefined],
 		['3,00,000', undefined],
 		['3.000.000', undefined],
-		['1 trillion', undefined],
-		['three trillion', undefined],
-		['1 quadrillion', undefined],
-		['three quadrillion', undefined],
-		['1 tn', undefined],
-		['3 mln', undefined],
-		['30 lakh', undefined],
-		['three lakh', undefined],
-		['3 crore', undefined],
-		['three crore', undefined],
 		['3trillion', undefined],
 		['3mln', undefined],
-		['1 quintillion', undefined],
-		['three sextillion', undefined],
 		['1/2', undefined],
 		['3/4', undefined],
 		['2½', undefined],
@@ -887,6 +899,122 @@ export const LOAN_HISTORIES = Object.freeze([
 export class InterpretContextFixture {
 	readonly id = 'context'
 }
+
+/** Pins the undeclared forms from the reader re-audit. */
+export const UNDECLARED_TOKENS = Object.freeze([
+	'3mn',
+	'3T',
+	'3_000_000',
+	'3|000|000',
+	'3:000:000',
+	'3*10^6',
+	'3^6',
+	'3rd',
+	'3EUR',
+	'3万',
+	'36months',
+	'50000/month',
+	'3/12',
+	'3+',
+	'100+',
+	'.5.2',
+	'~3',
+	'3cr',
+	'3hundred',
+	'3xyz',
+	'3mo',
+	'50000eur',
+	'$ 3xyz',
+	...Array.from({ length: 32 }, (_, index) => {
+		const seed = Math.floor(seededRandom(index + 13)() * 0x100000000)
+		const digits = String((seed % 100000) + 1)
+		const unknown = String.fromCodePoint(0x400 + (seed % 0x400))
+		return [`${digits}${unknown}`, `${unknown}${digits}`, `${digits}_${digits}`]
+	}).flat(),
+])
+
+/** Pins neighbors outside the declared ends, anchors, and conditional links. */
+export const UNDECLARED_NEIGHBORS = Object.freeze([
+	'.',
+	'!',
+	'?',
+	';',
+	'. 000 . 000',
+	'of 3000000',
+	'and 5',
+	'and six',
+	'with a 20000 deposit',
+	'%million',
+	'%foo',
+	',000,000',
+	'.5',
+	'5',
+	'00 000',
+	', 000',
+	'* 1000000',
+	'1/2',
+	'миллиона',
+	'(million)',
+	'- months',
+	'a million',
+	'a month',
+	'of them',
+	'at most',
+	'to start',
+	'is wrong',
+	'百万',
+	'éléments',
+	'месяца',
+	'ヶ月',
+	'个月',
+	'años',
+	'/',
+	'=',
+	':',
+	...'trillion quadrillion quintillion sextillion septillion octillion nonillion decillion undecillion duodecillion googol tn mln lakh lac crore arab kharab'.split(
+		' ',
+	),
+	...Array.from({ length: 32 }, (_, index) => {
+		const seed = Math.floor(seededRandom(index + 13)() * 0x100000000)
+		return String.fromCodePoint(0x400 + (seed % 0x400))
+	}),
+])
+
+/** Pins exact numeric readings the admission laws must retain. */
+export const ADMITTED_NUMBERS = Object.freeze([
+	['3,000,000', 3000000],
+	['$1.2M', 1200000],
+	['50k', 50000],
+	['3 mn', 3000000],
+	['3 and a half', 3.5],
+	['3', 3],
+	['.5', 0.5],
+	['6.25%', 6.25],
+	...Array.from({ length: 32 }, (_, index): ReadonlyArray<readonly [string, number]> => {
+		const value = Math.floor(seededRandom(index + 13)() * 999) + 1
+		return [
+			[String(value), value],
+			[`${value}.25`, value + 0.25],
+			[`${value}%`, value],
+			[`${value},000`, value * 1000],
+			[`${value}k`, value * 1000],
+			[`$${value}M`, value * 1e6],
+			[`USD ${value}bn`, value * 1e9],
+			[`${value}ish`, value],
+		]
+	}).flat(),
+] as const)
+
+/** Pins assignments the admission laws must retain. */
+export const ADMITTED_CLAIMS = Object.freeze([
+	['value 3.', [3]],
+	['value 3. Next', [3]],
+	['value 3 and a half', [3.5]],
+	['amount 50000 and income 120000', [50000, 120000]],
+	['amount 50000, income 120000', [50000, 120000]],
+	['amount 50000 with an income 120000', [50000, 120000]],
+	['value 25, now', [25]],
+] as const)
 
 /** Supplies a callable error context. */
 export function createCallableInterpretContext(): (() => void) & { readonly id: string } {

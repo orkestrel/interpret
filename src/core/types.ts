@@ -223,7 +223,7 @@ export interface TextSpan {
  * Names the decision that first prevented a numeric occurrence from being assigned.
  *
  * @remarks
- * `following-word`: a following word fails the compiler's anchor/link check.
+ * `following-word`: the next word, punctuation, or number fails neighbor admission.
  * `unreadable`: the selected occurrence has no exact value or has an unreadable mark.
  * `anchor-tie`: an anchor has equally near numbers, or a number has competing nearest anchors.
  * `correction`: an explicit correction cue refuses a suspect or changed occurrence.
@@ -286,15 +286,19 @@ export type AnchorRefusalHandler = (index: number, reason: 'negation' | 'anchor-
  * Names why a number's value cannot be read exactly.
  *
  * @remarks
- * `fraction` — "1/2", "½", or "half". `foreign currency` — not dollars. `grouping` — digits grouped
- * another way, "200.000". `signed` — a leading sign. `shorthand` — "1.2m" with no currency to say
- * it is money, "20s". `spoken` — "twelve fifty". `joined` — "two thousand and five hundred" joined
+ * `undeclared` — a digit-holding token outside the declared numeric forms, including signed
+ * literals, ordinals, compact dates, times, and unsupported suffixes. `fraction` — "½" or "half".
+ * `foreign currency` — a currency word other than dollars. `grouping` — digits grouped
+ * another way, "200.000" or "3 000 000". `spoken` — "twelve fifty".
+ * `joined` — "two thousand and five hundred" joined
  * ambiguously. `frequency` — "twice a week". `loose` — "a couple". `range` — "12 to 18", "5 or 6".
  * `dimensions` — "20 x 30". `overflow` — past what a number holds exactly.
- * `precision` — scaling would change under six-decimal rounding. Unsupported exponents use
- * `shorthand`; unsupported scale compositions use `joined`.
+ * `precision` — scaling would change under six-decimal rounding. The `signed` and `shorthand`
+ * literals remain in the public vocabulary; whole-token admission now refuses those forms
+ * as `undeclared`. Unsupported words after a number are checked at assignment.
  */
 export type NumberUnreadable =
+	| 'undeclared'
 	| 'fraction'
 	| 'foreign currency'
 	| 'grouping'
@@ -370,9 +374,7 @@ export type ReaderTokenForm = 'number' | 'word' | 'mark'
 /** Represents what the number reader's passes have marked on one token so far. */
 export interface ReaderMarks extends Omit<ReadNumber, 'raw' | 'start' | 'unit'> {
 	readonly index: number
-	readonly attached?: boolean
 	readonly glued?: boolean
-	readonly abbreviated?: boolean
 }
 
 /** Represents a written-out cardinal as far as it has been read. */
