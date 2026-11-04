@@ -220,6 +220,69 @@ export interface TextSpan {
 }
 
 /**
+ * Names the decision that first prevented a numeric occurrence from being assigned.
+ *
+ * @remarks
+ * `following-word`: a following word fails the compiler's anchor/link check.
+ * `unreadable`: the selected occurrence has no exact value or has an unreadable mark.
+ * `anchor-tie`: an anchor has equally near numbers, or a number has competing nearest anchors.
+ * `correction`: an explicit correction cue refuses a suspect or changed occurrence.
+ * `negation`: the anchor's clause is negated, refusing its numeric occurrences.
+ * `unanchored`: compilation ends without a claim or an earlier refusal for the occurrence.
+ * `collection`: a sole array mapping refuses its entire collection after one member fails.
+ */
+export type NumberRefusalReason =
+	| 'following-word'
+	| 'unreadable'
+	| 'anchor-tie'
+	| 'correction'
+	| 'negation'
+	| 'unanchored'
+	| 'collection'
+
+/**
+ * Represents one refused numeric occurrence, its normalized position, and its first decision.
+ *
+ * @remarks
+ * `text` and `word` use the contract's bounded `preview`, including string quotes.
+ * Spans index `Interpretation.normalized`, or the text supplied to `compileEntities` after
+ * `createNormalizer().normalize(text).text`. The compiler produces start at or before end;
+ * the structural shape and guard accept any nonnegative integer pair, including reversed pairs.
+ * `field` names the mapping available at that decision, not a guessed intended field.
+ * It is absent for competing anchors and unanchored occurrences. `unreadable` is the reader's
+ * existing detail when that check refuses. No offset map to the original input is supplied.
+ */
+export interface NumberRefusal extends TextSpan {
+	readonly text: string
+	readonly reason: NumberRefusalReason
+	readonly unreadable?: NumberUnreadable
+	readonly word?: string
+	readonly field?: FieldPath
+}
+
+/** Represents bounded refusal records and the count omitted after the published cap. */
+export interface NumberRefusals {
+	readonly items: readonly NumberRefusal[]
+	readonly omitted: number
+}
+
+/** Represents assigned entities and any bounded evidence of refused numeric occurrences. */
+export interface EntityCompilation {
+	readonly entities: readonly Entity[]
+	readonly refusals?: NumberRefusals
+}
+
+/** Represents the first refusal decision retained before bounded record construction. */
+export interface NumberRefusalDecision {
+	readonly reason: NumberRefusalReason
+	readonly word?: string
+	readonly field?: FieldPath
+}
+
+/** Observes the input occurrence index and the refusal decided by an anchor check. */
+export type AnchorRefusalHandler = (index: number, reason: 'negation' | 'anchor-tie') => void
+
+/**
  * Names why a number's value cannot be read exactly.
  *
  * @remarks
@@ -384,11 +447,11 @@ export interface NormalizeResult {
 }
 
 /**
- * Represents the `Extractor` stage's output: intent classification plus raw numbers.
+ * Represents the `Extractor` stage's output: intent classification plus exact reader values.
  *
  * @remarks
  * Recipe-agnostic by design — extraction never sees a `Recipe`, only the
- * text. `numbers`, not recipe-named entities; entity assignment is a
+ * text. Unreadable occurrences contribute no value; word forms do. `numbers`, not recipe-named entities; entity assignment is a
  * separate orchestrator step run only after a recipe has matched (see
  * `assignEntities` in `compilers.ts`).
  */
@@ -441,8 +504,13 @@ export interface GenerateResult {
  * version, subject, definition}` — re-running the same original text
  * against the same recipe version reproduces the same digest (the replay
  * contract).
+ * `refusals` is absent when compilation refused nothing, otherwise bounded by
+ * `NUMBER_REFUSAL_LIMIT`, with additional occurrences counted in `omitted`.
+ * These records do not enter the digest: two results can share a digest while their
+ * refusal records differ. Positions address `normalized`, not the original `text`.
  */
 export interface Interpretation {
+	readonly refusals?: NumberRefusals
 	readonly text: string
 	readonly normalized: string
 	readonly intent: Intent
@@ -871,13 +939,13 @@ export interface NormalizerInterface {
 	normalize(text: string): NormalizeResult
 }
 
-/** Represents the `Extractor` stage contract: recipe-agnostic intent classification + raw number mining. */
+/** Represents the `Extractor` stage contract: recipe-agnostic intent classification and exact reader values. */
 export interface ExtractorInterface {
 	/**
-	 * Classifies the intent and mines every numeric literal from the text.
+	 * Classifies the intent and returns exact values from the number reader.
 	 *
 	 * @param text - The text to read
-	 * @returns The classified intent plus the raw numbers mined from `text`
+	 * @returns The classified intent plus readable digit and word values, omitting unreadable occurrences
 	 */
 	extract(text: string): ExtractResult
 }

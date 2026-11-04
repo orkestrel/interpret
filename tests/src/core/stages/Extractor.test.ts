@@ -5,6 +5,12 @@ import { describe, expect, it } from 'vitest'
 // number mining only, never entity assignment.
 
 describe('Extractor', () => {
+	it('records no fragments from unreadable grouping', () => {
+		expect(new Extractor().extract('amount 3 000 000').numbers).toEqual([])
+	})
+	it('records a word form read exactly', () => {
+		expect(new Extractor().extract('value six and a half').numbers).toEqual([6.5])
+	})
 	it('extracts raw numbers and classifies intent from caller vocabulary', () => {
 		const extractor = new Extractor({
 			actions: { calculate: 'compute' },

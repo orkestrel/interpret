@@ -1,5 +1,5 @@
 import type { ContractShape } from '@orkestrel/contract'
-import type { Entity, EntityMapping, ReadNumber } from './types.js'
+import type { Entity, EntityCompilation, EntityMapping, ReadNumber } from './types.js'
 import { EntityCompiler } from './EntityCompiler.js'
 import { NumberReader } from './NumberReader.js'
 
@@ -51,6 +51,45 @@ export function assignEntities(
 	text: string,
 	shape: ContractShape,
 ): readonly Entity[] {
+	return compileEntities(numbers, mappings, text, shape).entities
+}
+
+/**
+ * Compiles exact reader occurrences into entities and bounded refusal evidence.
+ *
+ * @remarks
+ * Uses the same decisions as `assignEntities`, which returns only this result's entities.
+ * Each unclaimed occurrence keeps its first recorded decision; a claimed occurrence keeps none.
+ * Records follow input occurrence order. Only `NUMBER_REFUSAL_LIMIT` records are constructed,
+ * with the rest counted in `omitted`; `refusals` is absent when there are none.
+ * Text and following words use the contract's `preview`. Positions address normalized text:
+ * callers composing stages obtain it through `createNormalizer().normalize(text).text`.
+ * No diagnosis beyond the decisions made by assignment is inferred.
+ *
+ * @param numbers - The occurrences read from the normalized text
+ * @param mappings - The matched recipe's mappings
+ * @param text - The normalized text indexed by the occurrences
+ * @param shape - The recipe's subject shape
+ * @returns The assigned entities and any bounded refusal records
+ *
+ * @example
+ * ```ts
+ * import { numberShape, objectShape } from '@orkestrel/contract'
+ * import { compileEntities, createNormalizer, scanNumbers } from '@orkestrel/interpret'
+ *
+ * const text = createNormalizer().normalize('years 3 months').text
+ * const result = compileEntities(scanNumbers(text), [{ entity: 'years', aliases: [], field: 'years' }], text, objectShape({ years: numberShape() }))
+ * result.entities // []
+ * result.refusals?.items[0]?.reason // 'following-word'
+ * result.refusals?.items[0]?.start // 6
+ * ```
+ */
+export function compileEntities(
+	numbers: readonly ReadNumber[],
+	mappings: readonly EntityMapping[],
+	text: string,
+	shape: ContractShape,
+): EntityCompilation {
 	return new EntityCompiler().execute(numbers, mappings, text, shape)
 }
 

@@ -12,6 +12,12 @@ domain speaks, add the recipes it answers, and call `interpret()` on each turn o
 text. Environment-agnostic — no I/O, and no browser or server assumptions. Part of the
 `@orkestrel` line.
 
+When assignment refuses a number, `result.refusals` carries bounded evidence of its
+text, position in `result.normalized`, and the decision that refused it. Compositions
+of the public stages obtain the same evidence through `compileEntities`. The record
+holds at most 32 items and counts the rest in `omitted`; it does not change the decision
+or digest. See the guide's [refusal evidence](guides/interpret.md#refusal-evidence).
+
 ## Install
 
 ```sh

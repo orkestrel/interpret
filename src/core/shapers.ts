@@ -20,6 +20,8 @@ import {
 	INTERPRET_STAGES,
 	NUMBER_FOREIGN_KINDS,
 	NUMBER_UNREADABLE_REASONS,
+	NUMBER_REFUSAL_REASONS,
+	NUMBER_REFUSAL_LIMIT,
 	PROVENANCE_CATEGORIES,
 } from './constants.js'
 
@@ -52,6 +54,23 @@ export const readNumberShape: ContractShape = objectShape({
 	unit: optionalShape(stringShape()),
 	sentence: numberShape(),
 	segment: numberShape(),
+})
+
+/** Describes one refusal record with structurally valid, unordered nonnegative integer positions. */
+export const numberRefusalShape: ContractShape = objectShape({
+	text: stringShape(),
+	start: numberShape({ min: 0, integer: true }),
+	end: numberShape({ min: 0, integer: true }),
+	reason: literalShape(NUMBER_REFUSAL_REASONS),
+	unreadable: optionalShape(literalShape(NUMBER_UNREADABLE_REASONS)),
+	word: optionalShape(stringShape()),
+	field: optionalShape(fieldPathShape),
+})
+
+/** Describes bounded refusal items and a nonnegative integer omitted count. */
+export const numberRefusalsShape: ContractShape = objectShape({
+	items: arrayShape(numberRefusalShape, { max: NUMBER_REFUSAL_LIMIT }),
+	omitted: numberShape({ min: 0, integer: true }),
 })
 
 /** Describes an `EntityMapping`. */
@@ -151,6 +170,7 @@ export const stageFailureShape: ContractShape = objectShape({
 
 /** Describes an `Interpretation` in its JSON projection. */
 export const interpretationShape: ContractShape = objectShape({
+	refusals: optionalShape(numberRefusalsShape),
 	text: stringShape(),
 	normalized: stringShape(),
 	intent: intentShape,

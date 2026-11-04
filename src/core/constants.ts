@@ -4,6 +4,7 @@ import type {
 	Lexicon,
 	NumberForeign,
 	NumberUnreadable,
+	NumberRefusalReason,
 	ProvenanceCategory,
 } from './types.js'
 
@@ -420,6 +421,20 @@ export const NUMBER_UNREADABLE_REASONS: readonly NumberUnreadable[] = Object.fre
 	'dimensions',
 	'overflow',
 	'precision',
+])
+
+/** Limits the refusal records carried by one compilation or interpretation to 32. */
+export const NUMBER_REFUSAL_LIMIT = 32
+
+/** Lists the frozen vocabulary of first refusal decisions described by `NumberRefusalReason`. */
+export const NUMBER_REFUSAL_REASONS: readonly NumberRefusalReason[] = Object.freeze([
+	'following-word',
+	'unreadable',
+	'anchor-tie',
+	'correction',
+	'negation',
+	'unanchored',
+	'collection',
 ])
 
 /** Lists every `NumberForeign` kind, frozen, for the shape that describes a read number. */

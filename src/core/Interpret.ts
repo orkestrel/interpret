@@ -21,6 +21,7 @@ import type {
 	Interpretation,
 	NarratorInterface,
 	NormalizeResult,
+	NumberRefusals,
 	NormalizerInterface,
 	StageFailure,
 	StageRecord,
@@ -28,7 +29,7 @@ import type {
 } from './types.js'
 import { attempt, isError, isString } from '@orkestrel/contract'
 import { Emitter } from '@orkestrel/emitter'
-import { assignEntities, scanNumbers } from './compilers.js'
+import { compileEntities, scanNumbers } from './compilers.js'
 import { DEFAULT_INTERPRET_FLOOR } from './constants.js'
 import { InterpretError, isInterpretError } from './errors.js'
 import { assertRecipe, digestValue, findUnclaimedNumbers, matchRecipe } from './helpers.js'
@@ -205,7 +206,8 @@ export class Interpret implements InterpretInterface {
 		}
 
 		const numbers = scanNumbers(normalized.text)
-		const assigned = assignEntities(numbers, matched.mappings, normalized.text, matched.shape)
+		const compiled = compileEntities(numbers, matched.mappings, normalized.text, matched.shape)
+		const assigned = compiled.entities
 		const record = this.#recipes.recipe(matched.id)
 		const version = record?.version
 
@@ -219,6 +221,7 @@ export class Interpret implements InterpretInterface {
 				'LOW_CONFIDENCE',
 				matched.id,
 				version,
+				compiled.refusals,
 			)
 		}
 
@@ -247,6 +250,7 @@ export class Interpret implements InterpretInterface {
 				['format', 'generate'],
 				matched.id,
 				version,
+				compiled.refusals,
 			)
 		}
 		const clarified: ClarifyResult = clarifiedResult.value
@@ -272,6 +276,7 @@ export class Interpret implements InterpretInterface {
 				['generate'],
 				matched.id,
 				version,
+				compiled.refusals,
 			)
 		}
 		const formatted: FormatResult = formattedResult.value
@@ -289,6 +294,7 @@ export class Interpret implements InterpretInterface {
 				definition: matched.definition,
 			})
 			const asked: Interpretation = {
+				...(compiled.refusals === undefined ? {} : { refusals: compiled.refusals }),
 				text,
 				normalized: normalized.text,
 				intent,
@@ -329,6 +335,7 @@ export class Interpret implements InterpretInterface {
 				[],
 				matched.id,
 				version,
+				compiled.refusals,
 			)
 		}
 		const generated: GenerateResult = generatedResult.value
@@ -342,6 +349,7 @@ export class Interpret implements InterpretInterface {
 			definition: generated.definition,
 		})
 		const result: Interpretation = {
+			...(compiled.refusals === undefined ? {} : { refusals: compiled.refusals }),
 			text,
 			normalized: normalized.text,
 			intent,
@@ -429,6 +437,7 @@ export class Interpret implements InterpretInterface {
 		code: 'NO_RECIPE' | 'LOW_CONFIDENCE',
 		recipeId: string | undefined,
 		version: number | undefined,
+		refusals?: NumberRefusals,
 	): Interpretation {
 		const domains = [...new Set(this.#recipes.recipes().map((record) => record.recipe.domain))]
 		const ambiguity: Ambiguity = {
@@ -459,6 +468,7 @@ export class Interpret implements InterpretInterface {
 			['clarify', 'format', 'generate'],
 			recipeId,
 			version,
+			refusals,
 		)
 	}
 
@@ -479,6 +489,7 @@ export class Interpret implements InterpretInterface {
 		remaining: readonly InterpretStage[],
 		recipeId: string | undefined,
 		version: number | undefined,
+		refusals?: NumberRefusals,
 	): Interpretation {
 		const message = isError(error) ? error.message : String(error)
 		stages.push({ stage, input, output: undefined, failed: true, error: message })
@@ -494,6 +505,7 @@ export class Interpret implements InterpretInterface {
 			remaining,
 			recipeId,
 			version,
+			refusals,
 		)
 	}
 
@@ -512,6 +524,7 @@ export class Interpret implements InterpretInterface {
 		remaining: readonly InterpretStage[],
 		recipeId: string | undefined,
 		version: number | undefined,
+		refusals?: NumberRefusals,
 	): Interpretation {
 		for (const stage of remaining) {
 			stages.push({ stage, input: undefined, output: undefined, failed: false })
@@ -526,6 +539,7 @@ export class Interpret implements InterpretInterface {
 		const result: Interpretation = {
 			text,
 			normalized,
+			...(refusals === undefined ? {} : { refusals }),
 			intent,
 			...(recipeId === undefined ? {} : { recipe: recipeId }),
 			...(version === undefined ? {} : { version }),

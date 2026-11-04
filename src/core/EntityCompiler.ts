@@ -1,11 +1,24 @@
-import type { ContractShape } from '@orkestrel/contract'
-import type { Entity, EntityMapping, ReadNumber } from './types.js'
-import { escapeRegExp } from '@orkestrel/contract'
-import { CONFIDENCE_ALIAS, CONFIDENCE_COLLECT, CONFIDENCE_EXACT } from './constants.js'
+import type { ContractShape, FieldPath } from '@orkestrel/contract'
+import type {
+	Entity,
+	EntityCompilation,
+	EntityMapping,
+	ReadNumber,
+	NumberRefusal,
+	NumberRefusalDecision,
+	NumberRefusalReason,
+} from './types.js'
+import { escapeRegExp, preview } from '@orkestrel/contract'
+import {
+	CONFIDENCE_ALIAS,
+	CONFIDENCE_COLLECT,
+	CONFIDENCE_EXACT,
+	NUMBER_REFUSAL_LIMIT,
+} from './constants.js'
 import { findAnchoredNumber, matchesArrayField, tokenize } from './helpers.js'
 
 /**
- * Compiles one text's numeric occurrences into recipe entity assignments.
+ * Compiles one text's numeric occurrences into recipe assignments and bounded refusal evidence.
  *
  * @remarks
  * Aliases match exact token sequences; overlapping anchors keep the later start.
@@ -15,20 +28,25 @@ import { findAnchoredNumber, matchesArrayField, tokenize } from './helpers.js'
  * allowing one intervening article (`a`, `an`, or `the`). `or`, `but`, `plus`, `then`, and `now` stay out.
  * Explicit corrections, including `wait` except `wait to`, refuse occurrences
  * marked suspect or changed without substituting a rival value.
+ * Decisions are captured where they occur, retained once per occurrence, and discarded for
+ * claimed occurrences. Only the bounded public records render text through `preview`.
  */
 export class EntityCompiler {
 	readonly #entities: Entity[] = []
+	readonly #claimed = new Set<ReadNumber>()
+	readonly #decisions = new Map<ReadNumber, NumberRefusalDecision>()
 
 	execute(
 		numbers: readonly ReadNumber[],
 		mappings: readonly EntityMapping[],
 		text: string,
 		shape: ContractShape,
-	): readonly Entity[] {
-		if (mappings.length === 0 || numbers.length === 0) return []
+	): EntityCompilation {
+		if (mappings.length === 0 || numbers.length === 0) return this.#finish(numbers)
 		const tokens = tokenize(text)
 		const spans = numbers
 		const numberStarts = new Set(numbers.map((number) => number.start))
+		const followingWords = new Map<ReadNumber, string>()
 		const unbound = new Set(
 			numbers.filter((number) => {
 				const following = /^\s+([a-z]+)\b/i.exec(text.slice(number.end))
@@ -39,16 +57,20 @@ export class EntityCompiler {
 				const gap = link
 					? /^\s+(?:and|with)\s+(?:(?:a|an|the)\s+)?/i.exec(text.slice(number.end))
 					: null
-				if (link && gap === null) return true
+				if (link && gap === null) {
+					followingWords.set(number, word)
+					return true
+				}
 				const start = number.end + (gap?.[0].length ?? 0)
 				if (link && numberStarts.has(start)) return false
 				const head = link ? /^([a-z]+)\b/i.exec(text.slice(start))?.[1]?.toLowerCase() : word
-				return (
+				const refused =
 					head === undefined ||
 					!mappings.some((mapping) =>
 						[mapping.entity, ...mapping.aliases].some((anchor) => tokenize(anchor)[0] === head),
 					)
-				)
+				if (refused) followingWords.set(number, head ?? word)
+				return refused
 			}),
 		)
 		const correction =
@@ -98,30 +120,51 @@ export class EntityCompiler {
 			.toArray()
 			.sort((left, right) => left.position - right.position)
 		const claims = matches.flatMap((match) => {
-			const anchored = findAnchoredNumber(text, { start: match.position, end: match.end }, spans)
+			const anchored = findAnchoredNumber(
+				text,
+				{ start: match.position, end: match.end },
+				spans,
+				(index, reason) => {
+					const number = spans[index]
+					if (number !== undefined) this.#refuse(number, reason, match.mapping.field)
+				},
+			)
 			return anchored === undefined ? [] : [{ match, ...anchored }]
 		})
 		const lone = mappings.length === 1 ? mappings[0] : undefined
 		if (lone !== undefined && matchesArrayField(shape, lone.field) && claims.length > 0) {
 			if (
-				numbers.some(
-					(number) =>
-						unbound.has(number) ||
-						number.unreadable !== undefined ||
-						(correction && (number.suspect === true || number.changed === true)),
-				)
-			)
-				return []
-			return [
-				{
-					name: lone.entity,
-					value: numbers.flatMap((number) =>
-						number.unreadable === undefined && number.value !== undefined ? [number.value] : [],
-					),
-					provenance: { category: 'extracted', detail: 'collect' },
-					confidence: CONFIDENCE_COLLECT,
-				},
-			]
+				numbers.some((number) => {
+					if (unbound.has(number)) {
+						this.#refuse(number, 'following-word', lone.field, followingWords.get(number))
+						return true
+					}
+					if (number.unreadable !== undefined) {
+						this.#refuse(number, 'unreadable', lone.field)
+						return true
+					}
+					if (correction && (number.suspect === true || number.changed === true)) {
+						this.#refuse(number, 'correction', lone.field)
+						return true
+					}
+					return false
+				})
+			) {
+				for (const number of numbers) this.#refuse(number, 'collection', lone.field)
+				return this.#finish(numbers)
+			}
+			for (const number of numbers) {
+				if (number.unreadable === undefined && number.value !== undefined) this.#claimed.add(number)
+			}
+			this.#entities.push({
+				name: lone.entity,
+				value: numbers.flatMap((number) =>
+					number.unreadable === undefined && number.value !== undefined ? [number.value] : [],
+				),
+				provenance: { category: 'extracted', detail: 'collect' },
+				confidence: CONFIDENCE_COLLECT,
+			})
+			return this.#finish(numbers)
 		}
 		for (const claim of claims) {
 			const number = spans[claim.index]
@@ -139,15 +182,34 @@ export class EntityCompiler {
 			})
 			const nearest = Math.min(...rivals.map((other) => other.gap))
 			const held = rivals.filter((other) => other.gap === nearest)
-			if (held.length !== 1 || held[0] !== claim) continue
-			if (
-				number?.value === undefined ||
-				unbound.has(number) ||
-				number.unreadable !== undefined ||
-				(correction && (number.suspect === true || number.changed === true))
-			)
+			if (held.length !== 1) {
+				this.#refuse(number, 'anchor-tie')
 				continue
+			}
+			if (held[0] !== claim) continue
+			if (number.value === undefined) {
+				this.#refuse(number, 'unreadable', claim.match.mapping.field)
+				continue
+			}
+			if (unbound.has(number)) {
+				this.#refuse(
+					number,
+					'following-word',
+					claim.match.mapping.field,
+					followingWords.get(number),
+				)
+				continue
+			}
+			if (number.unreadable !== undefined) {
+				this.#refuse(number, 'unreadable', claim.match.mapping.field)
+				continue
+			}
+			if (correction && (number.suspect === true || number.changed === true)) {
+				this.#refuse(number, 'correction', claim.match.mapping.field)
+				continue
+			}
 			const value = number.value
+			this.#claimed.add(number)
 			this.#entities.push({
 				name: claim.match.mapping.entity,
 				value: matchesArrayField(shape, claim.match.mapping.field) ? [value] : value,
@@ -155,6 +217,45 @@ export class EntityCompiler {
 				confidence: claim.match.confidence,
 			})
 		}
-		return this.#entities
+		return this.#finish(numbers)
+	}
+
+	#refuse(number: ReadNumber, reason: NumberRefusalReason, field?: FieldPath, word?: string): void {
+		if (!this.#decisions.has(number))
+			this.#decisions.set(number, {
+				reason,
+				...(field === undefined ? {} : { field }),
+				...(word === undefined ? {} : { word }),
+			})
+	}
+
+	#finish(numbers: readonly ReadNumber[]): EntityCompilation {
+		const items: NumberRefusal[] = []
+		const omitted = { count: 0 }
+		for (const number of numbers) {
+			if (this.#claimed.has(number)) continue
+			if (items.length >= NUMBER_REFUSAL_LIMIT) {
+				omitted.count += 1
+				continue
+			}
+			this.#refuse(number, 'unanchored')
+			const decision = this.#decisions.get(number)
+			if (decision === undefined) continue
+			items.push({
+				text: preview(number.raw),
+				start: number.start,
+				end: number.end,
+				reason: decision.reason,
+				...(decision.reason === 'unreadable' && number.unreadable !== undefined
+					? { unreadable: number.unreadable }
+					: {}),
+				...(decision.word === undefined ? {} : { word: preview(decision.word) }),
+				...(decision.field === undefined ? {} : { field: decision.field }),
+			})
+		}
+		return {
+			entities: this.#entities,
+			...(items.length === 0 ? {} : { refusals: { items, omitted: omitted.count } }),
+		}
 	}
 }

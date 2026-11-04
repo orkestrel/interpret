@@ -55,6 +55,129 @@ export const DEFAULT_RENDERINGS = [
 ]
 
 /** Holds the reviewer messages that must keep asking without an unstated value. */
+export const REFUSAL_READINGS = [
+	{
+		text: 'years 3 months',
+		names: ['years'],
+		items: [
+			{ text: '"3"', start: 6, end: 7, reason: 'following-word', word: '"months"', field: 'years' },
+		],
+	},
+	{
+		text: 'amount 3 000 000',
+		names: ['amount'],
+		items: [
+			{
+				text: '"3 000 000"',
+				start: 7,
+				end: 16,
+				reason: 'unreadable',
+				unreadable: 'grouping',
+				field: 'amount',
+			},
+		],
+	},
+	{
+		text: 'amount 50000 income 120000 years',
+		names: ['amount', 'income', 'years'],
+		items: [
+			{ text: '"50000"', start: 7, end: 12, reason: 'anchor-tie', field: 'income' },
+			{ text: '"120000"', start: 20, end: 26, reason: 'anchor-tie', field: 'income' },
+		],
+	},
+	{
+		text: 'value 25, sorry, 30',
+		names: ['value'],
+		items: [
+			{ text: '"25"', start: 6, end: 8, reason: 'correction', field: 'value' },
+			{ text: '"30"', start: 17, end: 19, reason: 'unanchored' },
+		],
+	},
+	{
+		text: 'not value 25',
+		names: ['value'],
+		items: [{ text: '"25"', start: 10, end: 12, reason: 'negation', field: 'value' }],
+	},
+	{
+		text: 'value? 25',
+		names: ['value'],
+		items: [{ text: '"25"', start: 7, end: 9, reason: 'unanchored' }],
+	},
+	{ text: 'value 25', names: ['value'], items: [] },
+	{
+		text: 'values 10, 20 months',
+		names: ['values'],
+		collection: true,
+		items: [
+			{ text: '"10"', start: 7, end: 9, reason: 'collection', field: 'values' },
+			{
+				text: '"20"',
+				start: 11,
+				end: 13,
+				reason: 'following-word',
+				word: '"months"',
+				field: 'values',
+			},
+		],
+	},
+]
+
+export const REFUSAL_RECORDS = [
+	{
+		label: 'valid',
+		record: {
+			items: [
+				{
+					text: '"3"',
+					start: 6,
+					end: 7,
+					reason: 'following-word',
+					word: '"months"',
+					field: 'years',
+				},
+			],
+			omitted: 0,
+		},
+		valid: true,
+	},
+	{
+		label: 'reversed span is structurally valid',
+		record: { items: [{ text: '"3"', start: 7, end: 6, reason: 'unanchored' }], omitted: 0 },
+		valid: true,
+	},
+	{
+		label: 'unknown reason',
+		record: { items: [{ text: '"3"', start: 6, end: 7, reason: 'invented' }], omitted: 0 },
+		valid: false,
+	},
+	{ label: 'negative omitted', record: { items: [], omitted: -1 }, valid: false },
+	{ label: 'fractional omitted', record: { items: [], omitted: 0.5 }, valid: false },
+	{
+		label: 'negative start',
+		record: { items: [{ text: '"3"', start: -1, end: 7, reason: 'unanchored' }], omitted: 0 },
+		valid: false,
+	},
+	{
+		label: 'fractional end',
+		record: { items: [{ text: '"3"', start: 6, end: 7.5, reason: 'unanchored' }], omitted: 0 },
+		valid: false,
+	},
+	{
+		label: 'over cap',
+		record: {
+			items: Array.from({ length: 33 }, () => ({
+				text: '"3"',
+				start: 6,
+				end: 7,
+				reason: 'unanchored',
+			})),
+			omitted: 0,
+		},
+		valid: false,
+	},
+]
+
+/** Holds the reviewer messages that must keep asking without an unstated value. */
 export const REVIEWER_LOAN_READINGS = [
 	...[
 		'3 000 000',

@@ -56,6 +56,7 @@ await new GuideCommand({
 	const {
 		applyReplacements,
 		assignEntities,
+		compileEntities,
 		scanNumbers,
 		canonicalize,
 		canonicalizeNode,
@@ -118,6 +119,18 @@ await new GuideCommand({
 	if (!isRecord(manifest)) throw new Error('Invalid package manifest: package.json')
 	const sources = createSourceManager({ files, modules: MODULES })
 
+	it('executes the normalized refusal example', () => {
+		const text = createNormalizer().normalize('years 3 months').text
+		const result = compileEntities(
+			scanNumbers(text),
+			[{ entity: 'years', aliases: [], field: 'years' }],
+			text,
+			objectShape({ years: numberShape() }),
+		)
+		expect(result.entities).toEqual([])
+		expect(result.refusals?.items[0]?.reason).toBe('following-word')
+		expect(result.refusals?.items[0]?.start).toBe(6)
+	})
 	it('manifest lists at least one guide', () => {
 		expect(report.input).toEqual([])
 		expect(rows.length).toBeGreaterThan(0)

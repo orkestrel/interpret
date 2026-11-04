@@ -1,6 +1,7 @@
 import type { ContractShape, FieldPath, JSONValue } from '@orkestrel/contract'
 import type { Subject, SubjectAdmission, SymbolicExpression } from '@orkestrel/reason'
 import type {
+	AnchorRefusalHandler,
 	Entity,
 	EntityMapping,
 	Intent,
@@ -209,6 +210,7 @@ export function extractNumbers(text: string): readonly number[] {
  * @param text - The text
  * @param anchor - Where the anchor sits
  * @param numbers - Where each number sits
+ * @param refused - Optional observer of the existing negation and equal-distance refusal decisions
  * @returns The index into `numbers` of the number claimed and how far it sits, or `undefined`
  *
  * @example
@@ -226,6 +228,7 @@ export function findAnchoredNumber(
 	text: string,
 	anchor: TextSpan,
 	numbers: readonly TextSpan[],
+	refused?: AnchorRefusalHandler,
 ): { readonly index: number; readonly gap: number } | undefined {
 	const breaks = [
 		...text.matchAll(new RegExp(CLAUSE_BREAK_PATTERN.source, CLAUSE_BREAK_PATTERN.flags)),
@@ -235,8 +238,14 @@ export function findAnchoredNumber(
 		0,
 	)
 	const end = breaks.find((found) => found.index >= anchor.end)?.index ?? text.length
-	if (/\b(?:not|no|never|neither|nor|cannot)\b|n['’]t\b/i.test(text.slice(start, end)))
+	if (/\b(?:not|no|never|neither|nor|cannot)\b|n['’]t\b/i.test(text.slice(start, end))) {
+		if (refused !== undefined) {
+			for (const [index, number] of numbers.entries()) {
+				if (number.start >= start && number.start < end) refused(index, 'negation')
+			}
+		}
 		return undefined
+	}
 	const gaps = [...numbers.entries()]
 		.filter(([, number]) => number.start >= start && number.start < end)
 		// A digit inside the anchor's own word, the 401 of `401k`, is no number beside it.
@@ -258,7 +267,15 @@ export function findAnchoredNumber(
 		}))
 		.sort((left, right) => left.gap - right.gap)
 	const [nearest, next] = gaps
-	if (nearest === undefined || next?.gap === nearest.gap) return undefined
+	if (nearest === undefined) return undefined
+	if (next?.gap === nearest.gap) {
+		if (refused !== undefined) {
+			for (const candidate of gaps) {
+				if (candidate.gap === nearest.gap) refused(candidate.index, 'anchor-tie')
+			}
+		}
+		return undefined
+	}
 	return nearest
 }
 

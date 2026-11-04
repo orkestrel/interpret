@@ -1,3 +1,4 @@
+import { isRecord } from '@orkestrel/contract'
 import {
 	createConstant,
 	createFactorGroup,
@@ -8,6 +9,8 @@ import {
 } from '@orkestrel/reason'
 import {
 	createInterpret,
+	interpretationContract,
+	projectInterpretation,
 	isAmbiguity,
 	isComputedField,
 	isEntity,
@@ -26,7 +29,20 @@ import {
 	buildInterpretRecipe,
 	createCorpusExtractor,
 	TRICKY_KEYS,
+	REFUSAL_RECORDS,
 } from '../../setup.js'
+
+describe('refusal result boundary', () => {
+	it.each(REFUSAL_RECORDS)('agrees on $label', ({ record, valid }) => {
+		const interpret = createInterpret()
+		const result = { ...interpret.interpret('unmatched'), refusals: record }
+		const projected = projectInterpretation(interpret.interpret('unmatched'))
+		if (!isRecord(projected)) throw new Error('Expected a projected result record')
+		expect(isInterpretation(result)).toBe(valid)
+		expect(interpretationContract.is({ ...projected, refusals: record })).toBe(valid)
+		interpret.destroy()
+	})
+})
 
 // The interprets validators — deep TOTAL guards
 // (`.claude/rules/patterns.md` § Validation and contracts): adversarial

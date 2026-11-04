@@ -6,6 +6,8 @@ import type {
 	FieldMapping,
 	Intent,
 	Interpretation,
+	NumberRefusal,
+	NumberRefusals,
 	Provenance,
 	StageFailure,
 	StageRecord,
@@ -16,13 +18,22 @@ import {
 	isAuditFault,
 	isBoolean,
 	isNumber,
+	isNonNegativeInteger,
+	whereOf,
 	isString,
 	literalOf,
 	objectOf,
 	recordOf,
 } from '@orkestrel/contract'
 import { isContractShape, isDefinition, isFieldPath, isSymbolicExpression } from '@orkestrel/reason'
-import { INTERPRET_ERROR_CODES, INTERPRET_STAGES, PROVENANCE_CATEGORIES } from './constants.js'
+import {
+	INTERPRET_ERROR_CODES,
+	INTERPRET_STAGES,
+	PROVENANCE_CATEGORIES,
+	NUMBER_REFUSAL_LIMIT,
+	NUMBER_REFUSAL_REASONS,
+	NUMBER_UNREADABLE_REASONS,
+} from './constants.js'
 
 // Every guard here is a total function — adversarial input (junk, hostile
 // prototypes, cyclic/deep nesting) returns `false`, never throws.
@@ -357,6 +368,7 @@ export function isInterpretation(value: unknown): value is Interpretation {
 	return objectOf(
 		{
 			text: isString,
+			refusals: isNumberRefusals,
 			normalized: isString,
 			intent: isIntent,
 			recipe: isString,
@@ -374,6 +386,52 @@ export function isInterpretation(value: unknown): value is Interpretation {
 			confidence: isNumber,
 			digest: isString,
 		},
-		['recipe', 'version', 'subject', 'definition'],
+		['recipe', 'version', 'subject', 'definition', 'refusals'],
 	)(value)
+}
+
+/**
+ * Determines whether a value is a structurally valid refusal record.
+ *
+ * @remarks
+ * Positions are nonnegative integers; this guard does not compare their order.
+ * @param value - The value to test
+ * @returns Whether the record conforms to `numberRefusalShape`
+ * @example
+ * ```ts
+ * import { isNumberRefusal } from '@orkestrel/interpret'
+ * isNumberRefusal({ text: '"3"', start: 6, end: 7, reason: 'unanchored' }) // true
+ * ```
+ */
+export function isNumberRefusal(value: unknown): value is NumberRefusal {
+	return recordOf(
+		{
+			text: isString,
+			start: isNonNegativeInteger,
+			end: isNonNegativeInteger,
+			reason: literalOf(NUMBER_REFUSAL_REASONS),
+			unreadable: literalOf(NUMBER_UNREADABLE_REASONS),
+			word: isString,
+			field: isFieldPath,
+		},
+		['unreadable', 'word', 'field'],
+	)(value)
+}
+
+/**
+ * Determines whether a value holds bounded refusal items and a valid omitted count.
+ *
+ * @param value - The value to test
+ * @returns Whether the record conforms to `numberRefusalsShape`
+ * @example
+ * ```ts
+ * import { isNumberRefusals } from '@orkestrel/interpret'
+ * isNumberRefusals({ items: [], omitted: -1 }) // false
+ * ```
+ */
+export function isNumberRefusals(value: unknown): value is NumberRefusals {
+	return recordOf({
+		items: whereOf(arrayOf(isNumberRefusal), (items) => items.length <= NUMBER_REFUSAL_LIMIT),
+		omitted: isNonNegativeInteger,
+	})(value)
 }

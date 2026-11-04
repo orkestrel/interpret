@@ -13,6 +13,7 @@ import {
 	numberShape,
 	objectShape,
 	optionalShape,
+	parseJSON,
 	rawShape,
 	seededRandom,
 	stringShape,
@@ -32,6 +33,7 @@ import {
 	createRecipeContract,
 	digestValue,
 	Interpret,
+	Extractor,
 	interpretationContract,
 	InterpretContext,
 	isInterpretError,
@@ -46,6 +48,7 @@ import {
 	WAIT_READINGS,
 	UNSTATED_UNITS,
 	UNBOUND_LINK_READINGS,
+	REFUSAL_READINGS,
 	REVIEWER_LOAN_READINGS,
 	buildInterpretRecipe,
 	createCorpusExtractor,
@@ -62,6 +65,40 @@ import {
 // reverse passthroughs, emitter, and DESTROYED teardown.
 
 describe('Interpret', () => {
+	it.each(REFUSAL_READINGS)(
+		'records the first refusal in $text',
+		({ text, names, items, collection }) => {
+			const interpret = new Interpret({
+				extractor: new Extractor({
+					actions: Object.fromEntries(names.map((name) => [name, 'calculate'])),
+					domains: { arithmetic: names },
+				}),
+				recipes: [
+					buildInterpretRecipe({
+						mappings: names.map((entity) => ({ entity, aliases: [], field: entity })),
+						shape: objectShape(
+							Object.fromEntries(
+								names.map((name) => [
+									name,
+									collection === true ? arrayShape(numberShape()) : numberShape(),
+								]),
+							),
+						),
+						computations: [],
+					}),
+				],
+			})
+			const result = interpret.interpret(text)
+			expect(result.refusals).toEqual(items.length === 0 ? undefined : { items, omitted: 0 })
+			const projected = projectInterpretation(result)
+			expect(interpretationContract.is(projected)).toBe(true)
+			expect(interpretationContract.is(parseJSON(JSON.stringify(projected)))).toBe(true)
+			expect(result.failures).toEqual([])
+			for (const item of result.refusals?.items ?? [])
+				expect(item.start).toBeLessThanOrEqual(item.end)
+			interpret.destroy()
+		},
+	)
 	it.each(REVIEWER_LOAN_READINGS)('keeps the reviewer refusal for $text', ({ text, field }) => {
 		const interpret = new Interpret({
 			extractor: createExtractor({ actions: { loan: 'apply' }, domains: { lending: ['loan'] } }),
