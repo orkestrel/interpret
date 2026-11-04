@@ -11,8 +11,12 @@ Nothing here is an LLM, a provider, or an agent: the `prompt` a result carries i
 an external model and is never consumed internally, and the reverse direction complements the
 raters' `describe*` family rather than duplicating it. `normalize` applies contraction,
 abbreviation, and correction substitutions; `extract` classifies intent without ever seeing a
-recipe and mines the raw numbers; `clarify` resolves same-domain carry-over, recipe
-defaults, and dependency-ordered computed fields. Every discriminant names its axis rather
+recipe and mines the raw numbers; `clarify` resolves same-domain carry-over and
+dependency-ordered computed fields, then admits the subject they build through the recipe's
+`shape`, which says what is required, what is optional, and what an optional field defaults
+to. A subject the door refuses is no subject: `subject` stays absent and each refusal is an
+`Ambiguity` carrying its fault, with the question from the shape's `description`. Every
+discriminant names its axis rather
 than `kind` or `type`: `stage` splits the pipeline phases, `category` splits provenance, and
 `code` splits coded errors. Source: [`src/core`](../src/core). Surfaced through the
 `@src/core` barrel.
@@ -25,6 +29,7 @@ Add a recipe, interpret text through the normalize, extract, clarify, format, an
 pipeline, then render the result back to prose:
 
 ```ts
+import { numberShape, objectShape } from '@orkestrel/contract'
 import { createExtractor, createInterpret } from '@orkestrel/interpret'
 import {
 	createFactorGroup,
@@ -44,7 +49,7 @@ const interpret = createInterpret({
 			domain: 'arithmetic',
 			intents: ['calculate'],
 			mappings: [{ entity: 'value', aliases: [], field: 'value' }],
-			defaults: [],
+			shape: objectShape({ value: numberShape() }),
 			computations: [],
 			definition: createQuantitativeDefinition('t1', 'Arithmetic', [
 				createFactorGroup('total', 'sum', [createFieldFactor('value', 'value')]),
@@ -53,7 +58,7 @@ const interpret = createInterpret({
 	],
 })
 
-const result = interpret.interpret('calculate arithmetic 42')
+const result = interpret.interpret('calculate arithmetic value 42')
 result.subject // { value: 42 }
 result.ambiguities // []
 result.failures // []
@@ -69,73 +74,144 @@ non-match, and a thrown stage, each yield a visible incomplete `Interpretation` 
 throwing, and never an arbitrary fallback recipe. An interpretation is complete when
 `ambiguities` and `failures` are both empty; no stored flag repeats that fact.
 
+### Reading a recipe's shape
+
+`Recipe.shape` is the generated subject's shape, read at the door after clarify and
+computations. A required field absent is a question; an optional field with a default is
+filled, and `defaulted` lists what the door filled; a lossless repair, a number on a string
+field for one, is accepted and listed in `repairs`; anything else the door refuses is a
+question too, and it blocks whether or not the field is required. A question carries the
+`fault` it came from.
+
+```ts
+import { numberShape, objectShape, optionalShape } from '@orkestrel/contract'
+import { createExtractor, createInterpret } from '@orkestrel/interpret'
+import { createLogicalDefinition } from '@orkestrel/reason'
+
+const interpret = createInterpret({
+	extractor: createExtractor({
+		actions: { check: 'check' },
+		domains: { loans: ['loan'] },
+	}),
+	recipes: [
+		{
+			id: 'r',
+			name: 'Loan',
+			domain: 'loans',
+			intents: ['check'],
+			mappings: [{ entity: 'age', aliases: [], field: 'age' }],
+			computations: [],
+			definition: createLogicalDefinition('r', 'Loan', []),
+			shape: objectShape({
+				age: numberShape({ description: 'How old are you?' }),
+				term: optionalShape(numberShape(), { default: 12 }),
+			}),
+		},
+	],
+})
+
+const asked = interpret.interpret('check loan')
+asked.subject // undefined
+asked.ambiguities[0]?.question // 'How old are you?'
+asked.ambiguities[0]?.fault // { reason: 'missing', path: ['age'], expected: 'number' }
+
+const read = interpret.interpret('check loan age 30')
+read.subject // { age: 30, term: 12 }
+read.defaulted // [['term']]
+interpret.destroy()
+```
+
+A computation may read a default, and a computed value stands over one. A computed field is
+trusted no more than the least of what it read.
+
+Choosing a recipe asks rather than picks: a text naming two domains or two actions names
+neither, a recipe needs its domain named, because an action alone names no recipe, and a tie for
+the best score matches nothing. Each of these reaches the `NO_RECIPE` question. A result names
+the recipe it matched in `recipe` and `recipeVersion`.
+
+A number fills a field only through an anchor: the field's name or an alias, in the same clause,
+with no other number sitting as close. Position and distance across a clause are guesses, so
+they fill nothing. A value read below the floor asks, whether or not the field is required,
+because it is evidence a value was stated. A mapped field left to a default or a prior turn
+asks too while a number nobody claimed could be its value, with those numbers as `candidates`.
+That ask fires on any leftover number, a year or a phone number included. Every one of these
+blocks the subject. Only a mapping whose field's shape is an array collects many numbers.
+
+`add` and the `recipes` option refuse a recipe that is malformed, or whose shape does not stand
+or does not declare a field it maps or computes, with `InterpretError('DEFINITION')`.
+
+An `Interpretation` crosses a boundary as `projectInterpretation`, which
+`interpretationContract` admits. A recipe crosses on `createRecipeContract().is`, never `parse`.
+
 ### Types
 
-| Name                         | Kind      | Signature                                                                                                                                                                         | Summary                                                                                                                                                                                                                    |
-| ---------------------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ProvenanceCategory`         | type      | `'extracted' \| 'carried' \| 'default' \| 'computed' \| 'subject'`                                                                                                                | Names how one `FieldMapping` or `Entity` value was obtained.                                                                                                                                                               |
-| `InterpretStage`             | type      | `'normalize' \| 'extract' \| 'clarify' \| 'format' \| 'generate'`                                                                                                                 | Names the fixed pipeline phases an `InterpretInterface#interpret` run produces one `StageRecord` for, in order.                                                                                                            |
-| `InterpretErrorCode`         | type      | `'NORMALIZE_FAILED' \| 'EXTRACT_FAILED' \| 'CLARIFY_FAILED' \| 'FORMAT_FAILED' \| 'GENERATE_FAILED' \| 'NO_RECIPE' \| 'LOW_CONFIDENCE' \| 'DESTROYED'`                            | Names the coded misuse or failure conditions thrown as an `InterpretError` or carried on a `StageFailure`.                                                                                                                 |
-| `EntityMapping`              | interface | `{ entity, aliases, field, required? }`                                                                                                                                           | Represents one entity-extraction rule inside a `Recipe`: which literal alias phrases identify a value, and which subject field it lands on.                                                                                |
-| `FieldDefault`               | interface | `{ field, value }`                                                                                                                                                                | Represents a fallback value a `Recipe` fills onto a field left unresolved by extraction.                                                                                                                                   |
-| `ComputedField`              | interface | `{ field, expression }`                                                                                                                                                           | Represents a declaratively computed field: evaluate `expression` against the entities already resolved for this interpretation, and land the result on `field`.                                                            |
-| `Recipe`                     | interface | `{ id, name, domain, intents, mappings, defaults, computations, definition }`                                                                                                     | Represents a named, versionable interpretation recipe: which intents it answers, how to mine entities for it, its fallback data, its computed fields, and the reasons `Definition` it ultimately produces a `Subject` for. |
-| `Provenance`                 | interface | `{ category, detail? }`                                                                                                                                                           | Describes how one value landed — its origin category plus an optional strategy detail.                                                                                                                                     |
-| `Intent`                     | interface | `{ action?, domain?, confidence }`                                                                                                                                                | Represents the classified action + domain for one interpretation, with a combined confidence.                                                                                                                              |
-| `Entity`                     | interface | `{ name, value, provenance, confidence }`                                                                                                                                         | Represents one value assigned to a recipe's entity mapping, with its provenance and confidence.                                                                                                                            |
-| `Ambiguity`                  | interface | `{ field, question, candidates, required }`                                                                                                                                       | Represents an unresolved field surfaced as a human-readable question, never bare prose.                                                                                                                                    |
-| `FieldMapping`               | interface | `{ field, entity?, value, provenance, confidence }`                                                                                                                               | Represents one audited field of the built subject — its resolved value, provenance, and confidence.                                                                                                                        |
-| `TextChange`                 | interface | `{ from, to }`                                                                                                                                                                    | Represents one normalization substitution applied to the raw text.                                                                                                                                                         |
-| `StageRecord`                | interface | `{ stage, input, output, failed, error? }`                                                                                                                                        | Represents a structured input/output snapshot of one pipeline phase.                                                                                                                                                       |
-| `StageFailure`               | interface | `{ stage, code, message }`                                                                                                                                                        | Represents a visible marker for a stage that threw, carrying its coded reason.                                                                                                                                             |
-| `NormalizeResult`            | interface | `{ text, changes }`                                                                                                                                                               | Represents the `Normalizer` stage's output: the cleaned text plus every substitution applied.                                                                                                                              |
-| `ExtractResult`              | interface | `{ intent, numbers }`                                                                                                                                                             | Represents the `Extractor` stage's output: intent classification plus raw numbers.                                                                                                                                         |
-| `ClarifyResult`              | interface | `{ entities, ambiguities }`                                                                                                                                                       | Represents the `Clarifier` stage's output: resolved entities plus any remaining ambiguities.                                                                                                                               |
-| `FormatResult`               | interface | `{ prompt }`                                                                                                                                                                      | Represents the `Formatter` stage's output: the refined natural-language prompt.                                                                                                                                            |
-| `GenerateResult`             | interface | `{ subject, definition, mappings, confidence }`                                                                                                                                   | Represents the `Generator` stage's output: the built subject/definition pair plus its full field audit.                                                                                                                    |
-| `Interpretation`             | interface | `{ text, normalized, intent, entities, subject?, definition?, mappings, ambiguities, prompt, stages, failures, confidence, digest }`                                              | Represents the full, replayable outcome of one `interpret()` call.                                                                                                                                                         |
-| `RecipeRecord`               | interface | `{ id, recipe, version, hash }`                                                                                                                                                   | Represents a versioned, content-hashed `Recipe` as held by a `RecipeManagerInterface`.                                                                                                                                     |
-| `SubjectRecord`              | interface | `{ id, subject, version, hash }`                                                                                                                                                  | Represents a versioned, content-hashed `Subject` as held by a `SubjectManagerInterface`.                                                                                                                                   |
-| `DefinitionRecord`           | interface | `{ id, definition, version, hash }`                                                                                                                                               | Represents a versioned, content-hashed `Definition` as held by a `DefinitionManagerInterface`.                                                                                                                             |
-| `InterpretEventMap`          | type      | `{ readonly interpret: readonly [result: Interpretation]; readonly add: readonly [recipeId: string]; readonly error: readonly [error: unknown]; readonly destroy: readonly []; }` | Represents the push observation surface of an `InterpretInterface`.                                                                                                                                                        |
-| `RecordEventMap`             | type      | `{ readonly add: readonly [id: string]; readonly remove: readonly [id: string]; readonly destroy: readonly []; }`                                                                 | Represents the push observation surface shared by every record registry — an id-keyed collection, so `add` and `remove` are the events (never ordered-list `append`/`prepend`).                                            |
-| `RecipeManagerEventMap`      | type      | `RecordEventMap`                                                                                                                                                                  | Represents the push observation surface of a `RecipeManagerInterface`.                                                                                                                                                     |
-| `SubjectManagerEventMap`     | type      | `RecordEventMap`                                                                                                                                                                  | Represents the push observation surface of a `SubjectManagerInterface`, whose `add` carries the own-minted record id.                                                                                                      |
-| `DefinitionManagerEventMap`  | type      | `RecordEventMap`                                                                                                                                                                  | Represents the push observation surface of a `DefinitionManagerInterface`.                                                                                                                                                 |
-| `InterpretContextEventMap`   | type      | `{ readonly add: readonly [digest: string]; readonly clear: readonly []; readonly destroy: readonly []; }`                                                                        | Represents the push observation surface of an `InterpretContextInterface`.                                                                                                                                                 |
-| `NarratorFormatter`          | type      | `(value: unknown) => string`                                                                                                                                                      | Represents a pure formatting function for one lexicon `value()` unit.                                                                                                                                                      |
-| `Lexicon`                    | interface | `{ phrases?, labels?, templates? }`                                                                                                                                               | Represents caller-injected wording data for the reverse direction — mechanism, never policy. Every phrase, label, and template string a `Narrator` renders is data supplied here, never a core literal.                    |
-| `NarratorOptions`            | interface | `{ lexicon?, formatters? }`                                                                                                                                                       | Represents the options for `createNarrator` and the `Narrator` constructor.                                                                                                                                                |
-| `NormalizerOptions`          | interface | `{ contractions?, abbreviations?, corrections? }`                                                                                                                                 | Represents the options for `createNormalizer` and the `Normalizer` constructor.                                                                                                                                            |
-| `ExtractorOptions`           | interface | `{ actions?, domains? }`                                                                                                                                                          | Represents the options for `createExtractor` and the `Extractor` constructor.                                                                                                                                              |
-| `ClarifierOptions`           | interface | `{ floor?, narrator? }`                                                                                                                                                           | Represents the options for `createClarifier` and the `Clarifier` constructor.                                                                                                                                              |
-| `FormatterOptions`           | interface | `{ verbs?, narrator? }`                                                                                                                                                           | Represents the options for `createFormatter` and the `Formatter` constructor.                                                                                                                                              |
-| `RecipeManagerOptions`       | interface | `{ recipes?, on?, error? }`                                                                                                                                                       | Represents the options for `createRecipeManager` and the `RecipeManager` constructor — the initial seed collection.                                                                                                        |
-| `SubjectManagerOptions`      | interface | `{ subjects?, on?, error? }`                                                                                                                                                      | Represents the options for `createSubjectManager` and the `SubjectManager` constructor — the initial seed collection.                                                                                                      |
-| `DefinitionManagerOptions`   | interface | `{ definitions?, on?, error? }`                                                                                                                                                   | Represents the options for `createDefinitionManager` and the `DefinitionManager` constructor — the initial seed collection.                                                                                                |
-| `RecordStamp`                | interface | `{ id, version, hash }`                                                                                                                                                           | Represents the identity, version, and content hash a `RecordManagerInterface` derives for one record before its concrete shape is built.                                                                                   |
-| `RecordFunction`             | type      | `(stamp: RecordStamp, value: TValue) => TRecord`                                                                                                                                  | Builds one concrete record from the `RecordStamp` its registry derived and the value that record holds.                                                                                                                    |
-| `RecordManagerOptions`       | interface | `{ entity, on?, error? }`                                                                                                                                                         | Represents the options for the `RecordManager` constructor.                                                                                                                                                                |
-| `RecordManagerInterface`     | interface | `{ emitter, count, has(), record(), records(), add(), remove(), destroy() }`                                                                                                      | Represents the shared registry engine every record manager composes — the `Map`, the content-hash and version rule, the batch `remove` overloads, and teardown.                                                            |
-| `RecordOptions`              | interface | `{ id? }`                                                                                                                                                                         | Represents the per-call options for the record a manager's `add` mints.                                                                                                                                                    |
-| `InterpretContextOptions`    | interface | `{ session?, history?, on?, error? }`                                                                                                                                             | Represents the options for `createInterpretContext` and the `InterpretContext` constructor.                                                                                                                                |
-| `InterpretOptions`           | interface | `{ recipes?, context?, normalizer?, extractor?, clarifier?, formatter?, generator?, similarity?, floor?, history?, narrator?, on?, error? }`                                      | Represents the options for `createInterpret` and the `Interpret` constructor.                                                                                                                                              |
-| `NormalizerInterface`        | interface | `{ normalize() }`                                                                                                                                                                 | Represents the `Normalizer` stage contract: raw text in, cleaned text + applied changes out.                                                                                                                               |
-| `ExtractorInterface`         | interface | `{ extract() }`                                                                                                                                                                   | Represents the `Extractor` stage contract: recipe-agnostic intent classification + raw number mining.                                                                                                                      |
-| `ClarifierInterface`         | interface | `{ clarify() }`                                                                                                                                                                   | Represents the `Clarifier` stage contract: resolve carry-over, defaults, and computed fields against a set of already-assigned entities, surfacing ambiguities for anything required that stays unresolved.                |
-| `FormatterInterface`         | interface | `{ format() }`                                                                                                                                                                    | Represents the `Formatter` stage contract: render the refined natural-language prompt for a matched recipe.                                                                                                                |
-| `GeneratorInterface`         | interface | `{ generate() }`                                                                                                                                                                  | Represents the `Generator` stage contract: build the final subject/definition pair plus its field audit.                                                                                                                   |
-| `NarratorInterface`          | interface | `{ phrase(), label(), line(), value(), describe(), narrate() }`                                                                                                                   | Represents the `Narrator` contract — a stateless, total, lexicon-driven rendering engine for the reverse direction.                                                                                                        |
-| `RecipeManagerInterface`     | interface | `{ emitter, count, has(), recipe(), recipes(), add(), remove(), destroy() }`                                                                                                      | Represents the recipe registry — a self-owning, versioned/hashed record-holder with the singular/plural accessor pair and the batch `remove` overloads.                                                                    |
-| `SubjectManagerInterface`    | interface | `{ emitter, count, has(), subject(), subjects(), add(), remove(), destroy() }`                                                                                                    | Represents the subject registry — a self-owning, versioned/hashed record-holder that mints its own record ids (a `Subject` carries none).                                                                                  |
-| `DefinitionManagerInterface` | interface | `{ emitter, count, has(), definition(), definitions(), add(), remove(), destroy() }`                                                                                              | Represents the definition registry — a self-owning, versioned/hashed record-holder.                                                                                                                                        |
-| `InterpretContextInterface`  | interface | `{ emitter, session, subjects, definitions, previous(), entities(), add(), clear(), destroy() }`                                                                                  | Represents the cross-turn interpretation context: a capped, replayable history plus the subject/definition registries carry-over reads from.                                                                               |
-| `InterpretInterface`         | interface | `{ emitter, interpret(), add(), remove(), recipe(), recipes(), describe(), narrate(), destroy() }`                                                                                | Represents the interpretation orchestrator — the sole public entry point, mirroring `reasons`' `Reason` orchestrator shape.                                                                                                |
+| Name                         | Kind      | Signature                                                                                                                                                                         | Summary                                                                                                                                                                                                                                |
+| ---------------------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TextSpan`                   | interface | `{ start, end }`                                                                                                                                                                  | Represents where something sits in a text: `start` inclusive, `end` exclusive.                                                                                                                                                         |
+| `ShapeDefault`               | interface | `{ field, value }`                                                                                                                                                                | Represents one default a `Recipe`'s `shape` holds, by the field it fills.                                                                                                                                                              |
+| `ProvenanceCategory`         | type      | `'extracted' \| 'carried' \| 'default' \| 'computed' \| 'subject'`                                                                                                                | Names how one `FieldMapping` or `Entity` value was obtained.                                                                                                                                                                           |
+| `InterpretStage`             | type      | `'normalize' \| 'extract' \| 'clarify' \| 'format' \| 'generate'`                                                                                                                 | Names the fixed pipeline phases an `InterpretInterface#interpret` run produces one `StageRecord` for, in order.                                                                                                                        |
+| `InterpretErrorCode`         | type      | `'NORMALIZE_FAILED' \| 'EXTRACT_FAILED' \| 'CLARIFY_FAILED' \| 'FORMAT_FAILED' \| 'GENERATE_FAILED' \| 'NO_RECIPE' \| 'LOW_CONFIDENCE' \| 'DEFINITION' \| 'DESTROYED'`            | Names the coded misuse or failure conditions thrown as an `InterpretError` or carried on a `StageFailure`.                                                                                                                             |
+| `EntityMapping`              | interface | `{ entity, aliases, field }`                                                                                                                                                      | Represents one entity-extraction rule inside a `Recipe`: which literal alias phrases identify a value, and which subject field it lands on.                                                                                            |
+| `ComputedField`              | interface | `{ field, expression }`                                                                                                                                                           | Represents a declaratively computed field: evaluate `expression` against the entities already resolved for this interpretation, and land the result on `field`.                                                                        |
+| `Recipe`                     | interface | `{ id, name, domain, intents, mappings, computations, definition, shape }`                                                                                                        | Represents a named, versionable interpretation recipe: which intents it answers, how to mine entities for it, its computed fields, the shape of what it produces, and the reasons `Definition` it ultimately produces a `Subject` for. |
+| `Provenance`                 | interface | `{ category, detail? }`                                                                                                                                                           | Describes how one value landed — its origin category plus an optional strategy detail.                                                                                                                                                 |
+| `Intent`                     | interface | `{ action?, domain?, confidence }`                                                                                                                                                | Represents the classified action + domain for one interpretation, with a combined confidence.                                                                                                                                          |
+| `Entity`                     | interface | `{ name, field?, value, provenance, confidence }`                                                                                                                                 | Represents one value assigned to a recipe's entity mapping, with its provenance and confidence.                                                                                                                                        |
+| `Ambiguity`                  | interface | `{ field, question, candidates, required, fault? }`                                                                                                                               | Represents an unresolved field surfaced as a human-readable question, never bare prose.                                                                                                                                                |
+| `FieldMapping`               | interface | `{ field, entity?, value, provenance, confidence }`                                                                                                                               | Represents one audited field of the built subject — its resolved value, provenance, and confidence.                                                                                                                                    |
+| `TextChange`                 | interface | `{ from, to }`                                                                                                                                                                    | Represents one normalization substitution applied to the raw text.                                                                                                                                                                     |
+| `StageRecord`                | interface | `{ stage, input, output, failed, error? }`                                                                                                                                        | Represents a structured input/output snapshot of one pipeline phase.                                                                                                                                                                   |
+| `StageFailure`               | interface | `{ stage, code, message }`                                                                                                                                                        | Represents a visible marker for a stage that threw, carrying its coded reason.                                                                                                                                                         |
+| `NormalizeResult`            | interface | `{ text, changes }`                                                                                                                                                               | Represents the `Normalizer` stage's output: the cleaned text plus every substitution applied.                                                                                                                                          |
+| `ExtractResult`              | interface | `{ intent, numbers }`                                                                                                                                                             | Represents the `Extractor` stage's output: intent classification plus raw numbers.                                                                                                                                                     |
+| `ClarifyResult`              | interface | `{ entities, ambiguities, repairs, defaulted }`                                                                                                                                   | Represents the `Clarifier` stage's output: resolved entities plus any remaining ambiguities.                                                                                                                                           |
+| `FormatResult`               | interface | `{ prompt }`                                                                                                                                                                      | Represents the `Formatter` stage's output: the refined natural-language prompt.                                                                                                                                                        |
+| `GenerateResult`             | interface | `{ subject, definition, mappings, confidence }`                                                                                                                                   | Represents the `Generator` stage's output: the built subject/definition pair plus its full field audit.                                                                                                                                |
+| `Interpretation`             | interface | `{ text, normalized, intent, recipe?, recipeVersion?, entities, subject?, definition?, mappings, ambiguities, repairs, defaulted, prompt, stages, failures, confidence, digest }` | Represents the full, replayable outcome of one `interpret()` call.                                                                                                                                                                     |
+| `RecipeRecord`               | interface | `{ id, recipe, version, hash }`                                                                                                                                                   | Represents a versioned, content-hashed `Recipe` as held by a `RecipeManagerInterface`.                                                                                                                                                 |
+| `SubjectRecord`              | interface | `{ id, subject, version, hash }`                                                                                                                                                  | Represents a versioned, content-hashed `Subject` as held by a `SubjectManagerInterface`.                                                                                                                                               |
+| `DefinitionRecord`           | interface | `{ id, definition, version, hash }`                                                                                                                                               | Represents a versioned, content-hashed `Definition` as held by a `DefinitionManagerInterface`.                                                                                                                                         |
+| `InterpretEventMap`          | type      | `{ readonly interpret: readonly [result: Interpretation]; readonly add: readonly [recipeId: string]; readonly error: readonly [error: unknown]; readonly destroy: readonly []; }` | Represents the push observation surface of an `InterpretInterface`.                                                                                                                                                                    |
+| `RecordEventMap`             | type      | `{ readonly add: readonly [id: string]; readonly remove: readonly [id: string]; readonly destroy: readonly []; }`                                                                 | Represents the push observation surface shared by every record registry — an id-keyed collection, so `add` and `remove` are the events (never ordered-list `append`/`prepend`).                                                        |
+| `RecipeManagerEventMap`      | type      | `RecordEventMap`                                                                                                                                                                  | Represents the push observation surface of a `RecipeManagerInterface`.                                                                                                                                                                 |
+| `SubjectManagerEventMap`     | type      | `RecordEventMap`                                                                                                                                                                  | Represents the push observation surface of a `SubjectManagerInterface`, whose `add` carries the own-minted record id.                                                                                                                  |
+| `DefinitionManagerEventMap`  | type      | `RecordEventMap`                                                                                                                                                                  | Represents the push observation surface of a `DefinitionManagerInterface`.                                                                                                                                                             |
+| `InterpretContextEventMap`   | type      | `{ readonly add: readonly [digest: string]; readonly clear: readonly []; readonly destroy: readonly []; }`                                                                        | Represents the push observation surface of an `InterpretContextInterface`.                                                                                                                                                             |
+| `NarratorFormatter`          | type      | `(value: unknown) => string`                                                                                                                                                      | Represents a pure formatting function for one lexicon `value()` unit.                                                                                                                                                                  |
+| `Lexicon`                    | interface | `{ phrases?, labels?, templates? }`                                                                                                                                               | Represents caller-injected wording data for the reverse direction — mechanism, never policy. Every phrase, label, and template string a `Narrator` renders is data supplied here, never a core literal.                                |
+| `NarratorOptions`            | interface | `{ lexicon?, formatters? }`                                                                                                                                                       | Represents the options for `createNarrator` and the `Narrator` constructor.                                                                                                                                                            |
+| `NormalizerOptions`          | interface | `{ contractions?, abbreviations?, corrections? }`                                                                                                                                 | Represents the options for `createNormalizer` and the `Normalizer` constructor.                                                                                                                                                        |
+| `ExtractorOptions`           | interface | `{ actions?, domains? }`                                                                                                                                                          | Represents the options for `createExtractor` and the `Extractor` constructor.                                                                                                                                                          |
+| `ClarifierOptions`           | interface | `{ floor?, narrator? }`                                                                                                                                                           | Represents the options for `createClarifier` and the `Clarifier` constructor.                                                                                                                                                          |
+| `FormatterOptions`           | interface | `{ verbs?, narrator? }`                                                                                                                                                           | Represents the options for `createFormatter` and the `Formatter` constructor.                                                                                                                                                          |
+| `RecipeManagerOptions`       | interface | `{ recipes?, on?, error? }`                                                                                                                                                       | Represents the options for `createRecipeManager` and the `RecipeManager` constructor — the initial seed collection.                                                                                                                    |
+| `SubjectManagerOptions`      | interface | `{ subjects?, on?, error? }`                                                                                                                                                      | Represents the options for `createSubjectManager` and the `SubjectManager` constructor — the initial seed collection.                                                                                                                  |
+| `DefinitionManagerOptions`   | interface | `{ definitions?, on?, error? }`                                                                                                                                                   | Represents the options for `createDefinitionManager` and the `DefinitionManager` constructor — the initial seed collection.                                                                                                            |
+| `RecordStamp`                | interface | `{ id, version, hash }`                                                                                                                                                           | Represents the identity, version, and content hash a `RecordManagerInterface` derives for one record before its concrete shape is built.                                                                                               |
+| `RecordFunction`             | type      | `(stamp: RecordStamp, value: TValue) => TRecord`                                                                                                                                  | Builds one concrete record from the `RecordStamp` its registry derived and the value that record holds.                                                                                                                                |
+| `RecordManagerOptions`       | interface | `{ entity, on?, error? }`                                                                                                                                                         | Represents the options for the `RecordManager` constructor.                                                                                                                                                                            |
+| `RecordManagerInterface`     | interface | `{ emitter, count, has(), record(), records(), add(), remove(), destroy() }`                                                                                                      | Represents the shared registry engine every record manager composes — the `Map`, the content-hash and version rule, the batch `remove` overloads, and teardown.                                                                        |
+| `RecordOptions`              | interface | `{ id? }`                                                                                                                                                                         | Represents the per-call options for the record a manager's `add` mints.                                                                                                                                                                |
+| `InterpretContextOptions`    | interface | `{ session?, history?, on?, error? }`                                                                                                                                             | Represents the options for `createInterpretContext` and the `InterpretContext` constructor.                                                                                                                                            |
+| `InterpretOptions`           | interface | `{ recipes?, context?, normalizer?, extractor?, clarifier?, formatter?, generator?, similarity?, floor?, history?, narrator?, on?, error? }`                                      | Represents the options for `createInterpret` and the `Interpret` constructor.                                                                                                                                                          |
+| `NormalizerInterface`        | interface | `{ normalize() }`                                                                                                                                                                 | Represents the `Normalizer` stage contract: raw text in, cleaned text + applied changes out.                                                                                                                                           |
+| `ExtractorInterface`         | interface | `{ extract() }`                                                                                                                                                                   | Represents the `Extractor` stage contract: recipe-agnostic intent classification + raw number mining.                                                                                                                                  |
+| `ClarifierInterface`         | interface | `{ clarify() }`                                                                                                                                                                   | Represents the `Clarifier` stage contract: resolve carry-over, defaults, and computed fields against a set of already-assigned entities, surfacing ambiguities for anything required that stays unresolved.                            |
+| `FormatterInterface`         | interface | `{ format() }`                                                                                                                                                                    | Represents the `Formatter` stage contract: render the refined natural-language prompt for a matched recipe.                                                                                                                            |
+| `GeneratorInterface`         | interface | `{ generate() }`                                                                                                                                                                  | Represents the `Generator` stage contract: build the final subject/definition pair plus its field audit.                                                                                                                               |
+| `NarratorInterface`          | interface | `{ phrase(), label(), line(), value(), describe(), narrate() }`                                                                                                                   | Represents the `Narrator` contract — a stateless, total, lexicon-driven rendering engine for the reverse direction.                                                                                                                    |
+| `RecipeManagerInterface`     | interface | `{ emitter, count, has(), recipe(), recipes(), add(), remove(), destroy() }`                                                                                                      | Represents the recipe registry — a self-owning, versioned/hashed record-holder with the singular/plural accessor pair and the batch `remove` overloads.                                                                                |
+| `SubjectManagerInterface`    | interface | `{ emitter, count, has(), subject(), subjects(), add(), remove(), destroy() }`                                                                                                    | Represents the subject registry — a self-owning, versioned/hashed record-holder that mints its own record ids (a `Subject` carries none).                                                                                              |
+| `DefinitionManagerInterface` | interface | `{ emitter, count, has(), definition(), definitions(), add(), remove(), destroy() }`                                                                                              | Represents the definition registry — a self-owning, versioned/hashed record-holder.                                                                                                                                                    |
+| `InterpretContextInterface`  | interface | `{ emitter, session, subjects, definitions, previous(), entities(), add(), clear(), destroy() }`                                                                                  | Represents the cross-turn interpretation context: a capped, replayable history plus the subject/definition registries carry-over reads from.                                                                                           |
+| `InterpretInterface`         | interface | `{ emitter, interpret(), add(), remove(), recipe(), recipes(), describe(), narrate(), destroy() }`                                                                                | Represents the interpretation orchestrator — the sole public entry point, mirroring `reasons`' `Reason` orchestrator shape.                                                                                                            |
 
 ### Constants
 
 | Name                           | Kind  | Signature                          | Summary                                                                                                                                                                                                            |
 | ------------------------------ | ----- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `CLAUSE_BREAK_PATTERN`         | const | `RegExp`                           | Holds what ends a clause: closing punctuation, a comma or dot no digit follows, a newline, and a joining word. A colon stays inside, because "rate: 6" says one thing.                                             |
 | `DEFAULT_INTERPRET_SIMILARITY` | const | `0.8`                              | Names the default `similarity` for `createInterpret` and `matchAlias`, 0.8 — the fuzzy alias-match score threshold, between 0 and 1.                                                                               |
 | `DEFAULT_INTERPRET_FLOOR`      | const | `0.3`                              | Names the default `floor` for `createInterpret` and `matchRecipe`, 0.3 — the minimum intent confidence a recipe match, or the classified intent itself, must clear.                                                |
 | `DEFAULT_INTERPRET_HISTORY`    | const | `16`                               | Names the default `history` cap for an `InterpretContext`'s `previous()` ring buffer, 16.                                                                                                                          |
@@ -145,10 +221,9 @@ throwing, and never an arbitrary fallback recipe. An interpretation is complete 
 | `CONFIDENCE_EXACT`             | const | `1`                                | Names the confidence assigned to an exact keyword-proximity entity match, 1.                                                                                                                                       |
 | `CONFIDENCE_ALIAS`             | const | `0.9`                              | Names the confidence assigned to an exact alias-phrase entity match, 0.9.                                                                                                                                          |
 | `CONFIDENCE_COLLECT`           | const | `0.9`                              | Names the confidence assigned when a single entity mapping collects every extracted number, 0.9.                                                                                                                   |
-| `CONFIDENCE_POSITIONAL`        | const | `0.7`                              | Names the confidence assigned to a positional (order-based) entity match fallback, 0.7.                                                                                                                            |
 | `CONFIDENCE_CARRIED`           | const | `0.7`                              | Names the confidence assigned to a same-domain carried-over field, 0.7.                                                                                                                                            |
-| `CONFIDENCE_DEFAULT`           | const | `1`                                | Names the confidence assigned to a recipe default fill, 1.                                                                                                                                                         |
-| `CONFIDENCE_COMPUTED`          | const | `0.9`                              | Names the confidence assigned to a successfully resolved computed field, 0.9.                                                                                                                                      |
+| `CONFIDENCE_DEFAULT`           | const | `1`                                | Names the confidence assigned to a default the door filled, 1.                                                                                                                                                     |
+| `CONFIDENCE_COMPUTED`          | const | `0.9`                              | Names the most a computed field may be trusted, 0.9: its inputs can only lower it.                                                                                                                                 |
 | `NUMBER_PATTERN`               | const | `RegExp`                           | Holds the numeric-entity extraction pattern shared by `extractNumbers` and `assignEntities` — an optional leading `$`, thousands-comma-grouped digits, an optional decimal fraction, and an optional trailing `%`. |
 | `DEFAULT_CONTRACTIONS`         | const | `Readonly<Record<string, string>>` | Holds the neutral built-in contraction expansions for `Normalizer` — small on purpose; callers merge their own map over this one.                                                                                  |
 | `DEFAULT_LEXICON`              | const | `Lexicon`                          | Holds the neutral default `Lexicon` a `Narrator` merges caller data over.                                                                                                                                          |
@@ -161,7 +236,6 @@ import {
 	CONFIDENCE_COMPUTED,
 	CONFIDENCE_DEFAULT,
 	CONFIDENCE_EXACT,
-	CONFIDENCE_POSITIONAL,
 	DEFAULT_CONTRACTIONS,
 	DEFAULT_INTERPRET_FLOOR,
 	DEFAULT_INTERPRET_HISTORY,
@@ -176,7 +250,6 @@ DEFAULT_INTERPRET_HISTORY // 16
 CONFIDENCE_EXACT // 1
 CONFIDENCE_ALIAS // 0.9
 CONFIDENCE_COLLECT // 0.9
-CONFIDENCE_POSITIONAL // 0.7
 CONFIDENCE_CARRIED // 0.7
 CONFIDENCE_DEFAULT // 1
 CONFIDENCE_COMPUTED // 0.9
@@ -220,7 +293,6 @@ published member conforms, because a foreign engine's return is not this package
 | Name               | Kind     | Signature                                     | Summary                                                                                                                                            |
 | ------------------ | -------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `isEntityMapping`  | function | `(value: unknown) => value is EntityMapping`  | Determines whether a value is an exact `EntityMapping` input record — a literal alias-phrase extraction rule pointing at a subject field.          |
-| `isFieldDefault`   | function | `(value: unknown) => value is FieldDefault`   | Determines whether a value is an exact `FieldDefault` input record — a fallback value a `Recipe` fills onto an unresolved field.                   |
 | `isComputedField`  | function | `(value: unknown) => value is ComputedField`  | Determines whether a value is an exact `ComputedField` input record — a declaratively computed field carrying a reasons `SymbolicExpression` tree. |
 | `isRecipe`         | function | `(value: unknown) => value is Recipe`         | Determines whether a value is an exact `Recipe` input record — a named, versionable interpretation recipe.                                         |
 | `isProvenance`     | function | `(value: unknown) => value is Provenance`     | Determines whether a value is an open `Provenance` result record.                                                                                  |
@@ -233,13 +305,13 @@ published member conforms, because a foreign engine's return is not this package
 | `isInterpretation` | function | `(value: unknown) => value is Interpretation` | Determines whether a value is an open `Interpretation` result record.                                                                              |
 
 ```ts
+import { objectShape } from '@orkestrel/contract'
 import {
 	createInterpret,
 	isAmbiguity,
 	isComputedField,
 	isEntity,
 	isEntityMapping,
-	isFieldDefault,
 	isFieldMapping,
 	isIntent,
 	isInterpretation,
@@ -255,7 +327,6 @@ import {
 } from '@orkestrel/reason'
 
 isEntityMapping({ entity: 'age', aliases: ['years old'], field: 'age' }) // true
-isFieldDefault({ field: 'term', value: 12 }) // true
 isComputedField({
 	field: 'monthly',
 	expression: {
@@ -271,7 +342,7 @@ isRecipe({
 	domain: 'arithmetic',
 	intents: ['calculate'],
 	mappings: [],
-	defaults: [],
+	shape: objectShape({}),
 	computations: [],
 	definition: createQuantitativeDefinition('t1', 'Arithmetic', [
 		createFactorGroup('total', 'sum', [createFieldFactor('value', 'value')]),
@@ -295,25 +366,37 @@ guardEngine.destroy()
 Pure, exported utility functions — the referentially-transparent leaves
 behind the `Interpret` orchestrator and its stages.
 
-| Name                 | Kind     | Signature                                                                                                                   | Summary                                                                                                                                 |
-| -------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `setField`           | function | `(subject: Subject, field: FieldPath, value: unknown) => Subject`                                                           | Writes a value at a (possibly nested) field path on a subject, copy-on-write.                                                           |
-| `applyReplacements`  | function | `(text: string, map: Readonly<Record<string, string>>) => string`                                                           | Replaces every whole-word occurrence of a map's keys with their values.                                                                 |
-| `collapseWhitespace` | function | `(text: string) => string`                                                                                                  | Collapses every run of whitespace to a single space and trims the ends.                                                                 |
-| `tokenize`           | function | `(text: string) => readonly string[]`                                                                                       | Splits text into lowercase tokens, stripping punctuation outside a small numeric/currency-safe allowlist.                               |
-| `extractNumbers`     | function | `(text: string) => readonly number[]`                                                                                       | Mines every numeric literal from text — optional leading `$`, thousands commas, an optional decimal fraction, an optional trailing `%`. |
-| `assignEntities`     | function | `(numbers: readonly number[], mappings: readonly EntityMapping[], text: string, similarity: number) => readonly Entity[]`   | Assigns already-extracted numbers to a matched recipe's entity mappings.                                                                |
-| `classifyIntent`     | function | `(text: string, actions: Readonly<Record<string, string>>, domains: Readonly<Record<string, readonly string[]>>) => Intent` | Classifies the action + domain intent of a text against caller-supplied vocabularies.                                                   |
-| `scoreSimilarity`    | function | `(a: string, b: string) => number`                                                                                          | Measures bigram (Dice coefficient) string similarity, case-insensitive.                                                                 |
-| `matchAlias`         | function | `(token: string, aliases: readonly string[], threshold: number) => number`                                                  | Returns the best `scoreSimilarity` a token achieves against a list of aliases, gated by a threshold.                                    |
-| `canonicalize`       | function | `(value: unknown) => string`                                                                                                | Renders a value into a canonical, key-order-stable string — the pre-image of `digestValue`.                                             |
-| `canonicalizeNode`   | function | `(value: unknown, ancestors: ReadonlySet<object>) => string`                                                                | Renders one node of a value into its canonical, key-order-stable string, against the object ancestors already on the recursion path.    |
-| `digestValue`        | function | `(value: unknown) => string`                                                                                                | Computes a canonical structural digest of a pure-JSON value — a key-order-stable FNV-1a hash rendered as an 8-hex-digit string.         |
-| `scoreRecipe`        | function | `(intent: Intent, recipe: Recipe) => number`                                                                                | Scores how well a classified intent matches one recipe's domain + action.                                                               |
-| `matchRecipe`        | function | `(intent: Intent, recipes: readonly Recipe[], floor: number) => Recipe \| undefined`                                        | Finds the best-scoring added recipe for a classified intent, gated by a confidence floor.                                               |
-| `variablesOf`        | function | `(expression: SymbolicExpression) => readonly string[]`                                                                     | Collects every variable name referenced by a symbolic expression tree, in first-occurrence order.                                       |
-| `resolveExpression`  | function | `(expression: SymbolicExpression, bindings: Readonly<Record<string, number>>) => number \| undefined`                       | Evaluates a symbolic expression tree against resolved bindings.                                                                         |
-| `renderSubject`      | function | `(subject: Subject, narrator: NarratorInterface) => string`                                                                 | Renders a one-line, display-neutral description of a reasons `Subject`, through an injected `Narrator`.                                 |
+| Name                    | Kind     | Signature                                                                                                                                       | Summary                                                                                                                                 |
+| ----------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `findUnclaimedNumbers`  | function | `(numbers: readonly number[], entities: readonly Entity[]) => readonly number[]`                                                                | Finds the numbers no entity claimed.                                                                                                    |
+| `isNestedField`         | function | `(field: FieldPath) => boolean`                                                                                                                 | Determines whether a field path descends, so an entity's name cannot say where it lands.                                                |
+| `findAnchoredNumber`    | function | `(text: string, anchor: TextSpan, numbers: readonly TextSpan[]) => number \| undefined`                                                         | Finds the one number an anchor can claim: the nearest in its clause, when no other sits as close.                                       |
+| `projectInterpretation` | function | `(result: Interpretation) => JSONValue \| undefined`                                                                                            | Projects an interpretation to JSON, so it can cross a boundary.                                                                         |
+| `assertRecipe`          | function | `(recipe: unknown) => asserts recipe is Recipe`                                                                                                 | Asserts a value is a recipe that stands.                                                                                                |
+| `describeRecipeShape`   | function | `(recipe: Recipe) => readonly string[]`                                                                                                         | Describes what is wrong with a recipe's shape, against the recipe itself.                                                               |
+| `settleEntities`        | function | `(entities: readonly Entity[], mappings: readonly EntityMapping[], admission: SubjectAdmission) => readonly Entity[]`                           | Settles entities against what the door admitted.                                                                                        |
+| `collectShapeDefaults`  | function | `(shape: ContractShape, path?: readonly string[]) => readonly ShapeDefault[]`                                                                   | Collects each default a shape holds, keyed by its field.                                                                                |
+| `findFieldDescription`  | function | `(shape: ContractShape, field: FieldPath) => string \| undefined`                                                                               | Finds the description a shape gives a field, which words the question for it.                                                           |
+| `isArrayField`          | function | `(shape: ContractShape, field: FieldPath) => boolean`                                                                                           | Determines whether a shape's field holds an array, so a mapping onto it collects many.                                                  |
+| `buildSubject`          | function | `(entities: readonly Entity[], mappings: readonly EntityMapping[]) => Subject`                                                                  | Builds a subject from entities, each on the field it lands on.                                                                          |
+| `findEntityField`       | function | `(entity: Entity, mappings: readonly EntityMapping[]) => FieldPath`                                                                             | Finds the field an entity lands on.                                                                                                     |
+| `setField`              | function | `(subject: Subject, field: FieldPath, value: unknown) => Subject`                                                                               | Writes a value at a (possibly nested) field path on a subject, copy-on-write.                                                           |
+| `applyReplacements`     | function | `(text: string, map: Readonly<Record<string, string>>) => string`                                                                               | Replaces every whole-word occurrence of a map's keys with their values.                                                                 |
+| `collapseWhitespace`    | function | `(text: string) => string`                                                                                                                      | Collapses every run of whitespace to a single space and trims the ends.                                                                 |
+| `tokenize`              | function | `(text: string) => readonly string[]`                                                                                                           | Splits text into lowercase tokens, stripping punctuation outside a small numeric/currency-safe allowlist.                               |
+| `extractNumbers`        | function | `(text: string) => readonly number[]`                                                                                                           | Mines every numeric literal from text — optional leading `$`, thousands commas, an optional decimal fraction, an optional trailing `%`. |
+| `assignEntities`        | function | `(numbers: readonly number[], mappings: readonly EntityMapping[], text: string, similarity: number, shape: ContractShape) => readonly Entity[]` | Assigns already-extracted numbers to a matched recipe's entity mappings.                                                                |
+| `classifyIntent`        | function | `(text: string, actions: Readonly<Record<string, string>>, domains: Readonly<Record<string, readonly string[]>>) => Intent`                     | Classifies the action + domain intent of a text against caller-supplied vocabularies.                                                   |
+| `scoreSimilarity`       | function | `(a: string, b: string) => number`                                                                                                              | Measures bigram (Dice coefficient) string similarity, case-insensitive.                                                                 |
+| `matchAlias`            | function | `(token: string, aliases: readonly string[], threshold: number) => number`                                                                      | Returns the best `scoreSimilarity` a token achieves against a list of aliases, gated by a threshold.                                    |
+| `canonicalize`          | function | `(value: unknown) => string`                                                                                                                    | Renders a value into a canonical, key-order-stable string — the pre-image of `digestValue`.                                             |
+| `canonicalizeNode`      | function | `(value: unknown, ancestors: ReadonlySet<object>) => string`                                                                                    | Renders one node of a value into its canonical, key-order-stable string, against the object ancestors already on the recursion path.    |
+| `digestValue`           | function | `(value: unknown) => string`                                                                                                                    | Computes a canonical structural digest of a pure-JSON value — a key-order-stable FNV-1a hash rendered as an 8-hex-digit string.         |
+| `scoreRecipe`           | function | `(intent: Intent, recipe: Recipe) => number`                                                                                                    | Scores how well a classified intent matches one recipe's domain + action.                                                               |
+| `matchRecipe`           | function | `(intent: Intent, recipes: readonly Recipe[], floor: number) => Recipe \| undefined`                                                            | Finds the best-scoring added recipe for a classified intent, gated by a confidence floor.                                               |
+| `variablesOf`           | function | `(expression: SymbolicExpression) => readonly string[]`                                                                                         | Collects every variable name referenced by a symbolic expression tree, in first-occurrence order.                                       |
+| `resolveExpression`     | function | `(expression: SymbolicExpression, bindings: Readonly<Record<string, number>>) => number \| undefined`                                           | Evaluates a symbolic expression tree against resolved bindings.                                                                         |
+| `renderSubject`         | function | `(subject: Subject, narrator: NarratorInterface) => string`                                                                                     | Renders a one-line, display-neutral description of a reasons `Subject`, through an injected `Narrator`.                                 |
 
 ```ts
 import { applyReplacements, collapseWhitespace, setField, tokenize } from '@orkestrel/interpret'
@@ -329,6 +412,7 @@ Extraction, classification, and fuzzy matching — the leaves behind
 `Extractor#extract` and recipe entity assignment:
 
 ```ts
+import { numberShape, objectShape } from '@orkestrel/contract'
 import {
 	assignEntities,
 	classifyIntent,
@@ -342,7 +426,8 @@ const mappings = [
 	{ entity: 'age', aliases: ['years old'], field: 'age' },
 	{ entity: 'score', aliases: ['credit score'], field: 'score' },
 ]
-assignEntities([25, 720], mappings, '25 year old with score 720', 0.8)
+const shape = objectShape({ age: numberShape(), score: numberShape() })
+assignEntities([25, 720], mappings, 'age 25 with score 720', 0.8, shape)
 classifyIntent('calculate my rate', { calculate: 'compute' }, { rating: ['rate'] })
 scoreSimilarity('rate', 'rate') // 1
 matchAlias('valu', ['value', 'amount'], 0.6) // ~0.86 — fuzzy hit on 'value'
@@ -352,6 +437,7 @@ Digest, recipe matching, computed-field resolution, and the reverse
 direction:
 
 ```ts
+import { objectShape } from '@orkestrel/contract'
 import type { Recipe } from '@orkestrel/interpret'
 import {
 	canonicalize,
@@ -393,7 +479,7 @@ const recipe: Recipe = {
 	domain: 'rating',
 	intents: ['compute'],
 	mappings: [],
-	defaults: [],
+	shape: objectShape({}),
 	computations: [],
 	definition: { reasoning: 'symbolic', id: 't1', name: 'T', equations: [], variables: {} },
 }
@@ -418,21 +504,22 @@ parseRecipe('not json') // undefined
 
 ### Factories
 
-| Name                      | Kind     | Signature                                                            | Summary                                                                                                                                                |
-| ------------------------- | -------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `createInterpret`         | function | `(options?: InterpretOptions) => InterpretInterface`                 | Creates an interpretation orchestrator, returning an `InterpretInterface` seeded from `InterpretOptions`.                                              |
-| `createNormalizer`        | function | `(options?: NormalizerOptions) => NormalizerInterface`               | Creates a text normalizer, returning a stateless `NormalizerInterface`.                                                                                |
-| `createExtractor`         | function | `(options?: ExtractorOptions) => ExtractorInterface`                 | Creates a recipe-agnostic intent classifier and number extractor, returning a stateless `ExtractorInterface`.                                          |
-| `createClarifier`         | function | `(options?: ClarifierOptions) => ClarifierInterface`                 | Creates a clarifier — carry-over, defaults, and computed-field resolution against an assigned entity set — returning a stateless `ClarifierInterface`. |
-| `createFormatter`         | function | `(options?: FormatterOptions) => FormatterInterface`                 | Creates a prompt formatter, returning a stateless `FormatterInterface`.                                                                                |
-| `createGenerator`         | function | `() => GeneratorInterface`                                           | Creates a subject and definition generator, returning a stateless `GeneratorInterface`.                                                                |
-| `createRecipeManager`     | function | `(options?: RecipeManagerOptions) => RecipeManagerInterface`         | Creates a recipe registry, returning a working `RecipeManagerInterface`.                                                                               |
-| `createSubjectManager`    | function | `(options?: SubjectManagerOptions) => SubjectManagerInterface`       | Creates a subject registry, returning a working `SubjectManagerInterface`.                                                                             |
-| `createDefinitionManager` | function | `(options?: DefinitionManagerOptions) => DefinitionManagerInterface` | Creates a definition registry, returning a working `DefinitionManagerInterface`.                                                                       |
-| `createInterpretContext`  | function | `(options?: InterpretContextOptions) => InterpretContextInterface`   | Creates a cross-turn interpretation context, returning a working `InterpretContextInterface`.                                                          |
-| `createNarrator`          | function | `(options?: NarratorOptions) => NarratorInterface`                   | Creates a lexicon-driven reverse-direction rendering engine, returning a stateless `NarratorInterface`.                                                |
+| Name                      | Kind     | Signature                                                            | Summary                                                                                                                                                                      |
+| ------------------------- | -------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `createInterpret`         | function | `(options?: InterpretOptions) => InterpretInterface`                 | Creates an interpretation orchestrator, returning an `InterpretInterface` seeded from `InterpretOptions`.                                                                    |
+| `createNormalizer`        | function | `(options?: NormalizerOptions) => NormalizerInterface`               | Creates a text normalizer, returning a stateless `NormalizerInterface`.                                                                                                      |
+| `createExtractor`         | function | `(options?: ExtractorOptions) => ExtractorInterface`                 | Creates a recipe-agnostic intent classifier and number extractor, returning a stateless `ExtractorInterface`.                                                                |
+| `createClarifier`         | function | `(options?: ClarifierOptions) => ClarifierInterface`                 | Creates a clarifier — carry-over, computed-field resolution, and the door's reading of the recipe's shape against an assigned entity set — returning a `ClarifierInterface`. |
+| `createFormatter`         | function | `(options?: FormatterOptions) => FormatterInterface`                 | Creates a prompt formatter, returning a stateless `FormatterInterface`.                                                                                                      |
+| `createGenerator`         | function | `() => GeneratorInterface`                                           | Creates a subject and definition generator, returning a stateless `GeneratorInterface`.                                                                                      |
+| `createRecipeManager`     | function | `(options?: RecipeManagerOptions) => RecipeManagerInterface`         | Creates a recipe registry, returning a working `RecipeManagerInterface`.                                                                                                     |
+| `createSubjectManager`    | function | `(options?: SubjectManagerOptions) => SubjectManagerInterface`       | Creates a subject registry, returning a working `SubjectManagerInterface`.                                                                                                   |
+| `createDefinitionManager` | function | `(options?: DefinitionManagerOptions) => DefinitionManagerInterface` | Creates a definition registry, returning a working `DefinitionManagerInterface`.                                                                                             |
+| `createInterpretContext`  | function | `(options?: InterpretContextOptions) => InterpretContextInterface`   | Creates a cross-turn interpretation context, returning a working `InterpretContextInterface`.                                                                                |
+| `createNarrator`          | function | `(options?: NarratorOptions) => NarratorInterface`                   | Creates a lexicon-driven reverse-direction rendering engine, returning a stateless `NarratorInterface`.                                                                      |
 
 ```ts
+import { numberShape, objectShape } from '@orkestrel/contract'
 import {
 	createClarifier,
 	createDefinitionManager,
@@ -471,7 +558,7 @@ const recipes = createRecipeManager({
 			domain: 'arithmetic',
 			intents: ['calculate'],
 			mappings: [{ entity: 'value', aliases: [], field: 'value' }],
-			defaults: [],
+			shape: objectShape({ value: numberShape() }),
 			computations: [],
 			definition: createQuantitativeDefinition('t1', 'Arithmetic', [
 				createFactorGroup('total', 'sum', [createFieldFactor('value', 'value')]),
@@ -492,6 +579,32 @@ createDefinitionManager({
 }).count // 1
 ```
 
+### Shapes
+
+The definition and result as `ContractShape` values.
+
+| Name                  | Kind     | Signature             | Summary                                               |
+| --------------------- | -------- | --------------------- | ----------------------------------------------------- |
+| `interpretationShape` | const    | `ContractShape`       | Describes an `Interpretation` in its JSON projection. |
+| `stageFailureShape`   | const    | `ContractShape`       | Describes a `StageFailure`.                           |
+| `stageRecordShape`    | const    | `ContractShape`       | Describes a `StageRecord` in its JSON projection.     |
+| `fieldMappingShape`   | const    | `ContractShape`       | Describes a `FieldMapping` in its JSON projection.    |
+| `ambiguityShape`      | const    | `ContractShape`       | Describes an `Ambiguity`.                             |
+| `entityShape`         | const    | `ContractShape`       | Describes an `Entity` in its JSON projection.         |
+| `intentShape`         | const    | `ContractShape`       | Describes an `Intent`.                                |
+| `provenanceShape`     | const    | `ContractShape`       | Describes a `Provenance`.                             |
+| `createRecipeShape`   | function | `() => ContractShape` | Creates the shape of a `Recipe`.                      |
+| `entityMappingShape`  | const    | `ContractShape`       | Describes an `EntityMapping`.                         |
+
+### Contracts
+
+The compiled contract of what is flat enough to compile at import.
+
+| Name                     | Kind     | Signature                          | Summary                                                                                              |
+| ------------------------ | -------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `interpretationContract` | const    | `ContractInterface<unknown>`       | Publishes an `Interpretation`'s JSON projection as a contract, read through `projectInterpretation`. |
+| `createRecipeContract`   | function | `() => ContractInterface<unknown>` | Creates a `Recipe` as a contract. Cross it on `is`, never `parse`.                                   |
+
 ### Classes
 
 | Name                | Kind  | Signature                                                                                                             | Summary                                                                                                                                                                                                                                                                                                      |
@@ -500,7 +613,7 @@ createDefinitionManager({
 | `Narrator`          | class | `new (options?: NarratorOptions) => NarratorInterface`                                                                | Implements a stateless, total, lexicon-driven rendering engine for the reverse direction — the reverse-direction mirror of the forward `Formatter`'s `verbs` seam, supplying mechanism rather than wording policy.                                                                                           |
 | `Normalizer`        | class | `new (options?: NormalizerOptions) => NormalizerInterface`                                                            | Implements the normalize stage: applies contraction, abbreviation, and correction substitutions in order, then collapses whitespace.                                                                                                                                                                         |
 | `Extractor`         | class | `new (options?: ExtractorOptions) => ExtractorInterface`                                                              | Implements the extract stage: recipe-agnostic intent classification plus raw numeric-entity mining.                                                                                                                                                                                                          |
-| `Clarifier`         | class | `new (options?: ClarifierOptions) => ClarifierInterface`                                                              | Implements the clarify stage: resolves same-domain carry-over, recipe defaults, and declaratively computed fields against an already-assigned entity set, surfacing an `Ambiguity` for every required mapping that stays unresolved.                                                                         |
+| `Clarifier`         | class | `new (options?: ClarifierOptions) => ClarifierInterface`                                                              | Implements the clarify stage: resolves same-domain carry-over and declaratively computed fields against an already-assigned entity set, admits the subject they build through the recipe's shape, and surfaces an `Ambiguity` for everything the door refused.                                               |
 | `Formatter`         | class | `new (options?: FormatterOptions) => FormatterInterface`                                                              | Implements the format stage: renders the refined natural-language prompt for a matched recipe.                                                                                                                                                                                                               |
 | `Generator`         | class | `new () => GeneratorInterface`                                                                                        | Implements the generate stage: builds the final `Subject` from a fully resolved entity set, plus its complete field audit.                                                                                                                                                                                   |
 | `RecordManager`     | class | `new <TValue, TRecord extends RecordStamp>(options: RecordManagerOptions) => RecordManagerInterface<TValue, TRecord>` | Implements the shared registry engine behind every record manager in this module — it owns the `Map`, the content-hash and version rule, the batch `remove` overloads, and teardown.                                                                                                                         |
@@ -551,11 +664,12 @@ extractor.extract('calculate my rate at 85')
 
 #### `ClarifierInterface`
 
-| Method    | Returns         | Summary                                                                                                                                                                            |
-| --------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `clarify` | `ClarifyResult` | Resolves carry-over, recipe defaults, and computed fields, and surfaces an `Ambiguity` for every unresolved required field, worded through the narrator's `ambiguity.entity` line. |
+| Method    | Returns         | Summary                                                                                                                                                                                                                                                                                                                                                                                      |
+| --------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `clarify` | `ClarifyResult` | Resolves carry-over and computed fields, admits the result through the recipe's shape, and surfaces an `Ambiguity` for everything the door refused, every value read below the floor, and every mapped field left to a default or a prior turn while a number nobody claimed could be its value, with its question from the shape's `description` or the narrator's `ambiguity.entity` line. |
 
 ```ts
+import { numberShape, objectShape } from '@orkestrel/contract'
 import { createClarifier } from '@orkestrel/interpret'
 
 const clarifier = createClarifier({ floor: 0.3 })
@@ -566,8 +680,8 @@ clarifier.clarify(
 		name: 'Arithmetic',
 		domain: 'arithmetic',
 		intents: ['calculate'],
-		mappings: [{ entity: 'value', aliases: [], field: 'value', required: true }],
-		defaults: [],
+		mappings: [{ entity: 'value', aliases: [], field: 'value' }],
+		shape: objectShape({ value: numberShape() }),
 		computations: [],
 		definition: {
 			reasoning: 'symbolic',
@@ -587,6 +701,7 @@ A computation addresses one numeric element of an array-valued field as
 aggregate over it:
 
 ```ts
+import { arrayShape, numberShape, objectShape } from '@orkestrel/contract'
 import { createClarifier } from '@orkestrel/interpret'
 import { createOperation, createVariable } from '@orkestrel/reason'
 
@@ -604,7 +719,7 @@ clarifier.clarify(
 		domain: 'arithmetic',
 		intents: ['calculate'],
 		mappings: [{ entity: 'value', aliases: [], field: 'value' }],
-		defaults: [],
+		shape: objectShape({ value: arrayShape(numberShape()), total: numberShape() }),
 		computations: [
 			{
 				field: 'total',
@@ -631,6 +746,7 @@ clarifier.clarify(
 | `format` | `FormatResult` | Renders the refined natural-language prompt for a matched recipe, clause by clause through the narrator's `prompt.*` lines. |
 
 ```ts
+import { objectShape } from '@orkestrel/contract'
 import { createFormatter } from '@orkestrel/interpret'
 
 const formatter = createFormatter({ verbs: { calculate: 'Calculate' } })
@@ -642,7 +758,7 @@ formatter.format(
 		domain: 'arithmetic',
 		intents: ['calculate'],
 		mappings: [],
-		defaults: [],
+		shape: objectShape({}),
 		computations: [],
 		definition: {
 			reasoning: 'symbolic',
@@ -664,6 +780,7 @@ formatter.format(
 | `generate` | `GenerateResult` | Builds the final subject and definition pair plus its complete field audit, deriving no field the recipe did not declare. |
 
 ```ts
+import { numberShape, objectShape } from '@orkestrel/contract'
 import { createGenerator } from '@orkestrel/interpret'
 
 const generator = createGenerator()
@@ -682,7 +799,7 @@ generator.generate(
 		domain: 'arithmetic',
 		intents: ['calculate'],
 		mappings: [{ entity: 'value', aliases: [], field: 'value' }],
-		defaults: [],
+		shape: objectShape({ value: numberShape() }),
 		computations: [],
 		definition: {
 			reasoning: 'symbolic',
@@ -793,6 +910,7 @@ all-or-nothing. A call after `destroy()` throws `InterpretError('DESTROYED', …
 | `destroy` | `void`                      | Tears the recipe registry down idempotently — clears the collection, emits `destroy`, then destroys the emitter last. |
 
 ```ts
+import { objectShape } from '@orkestrel/contract'
 import { createRecipeManager } from '@orkestrel/interpret'
 import {
 	createFactorGroup,
@@ -807,7 +925,7 @@ const record = recipes.add({
 	domain: 'arithmetic',
 	intents: ['calculate'],
 	mappings: [],
-	defaults: [],
+	shape: objectShape({}),
 	computations: [],
 	definition: createQuantitativeDefinition('t1', 'Arithmetic', [
 		createFactorGroup('total', 'sum', [createFieldFactor('value', 'value')]),
@@ -948,6 +1066,7 @@ subscribes to its emitter.
 | `destroy`   | `void`                | Tears the orchestrator down idempotently — the recipe registry, the context it constructed itself, then the emitter last.               |
 
 ```ts
+import { numberShape, objectShape } from '@orkestrel/contract'
 import { createExtractor, createInterpret } from '@orkestrel/interpret'
 import {
 	createFactorGroup,
@@ -967,13 +1086,13 @@ interpret.add({
 	domain: 'arithmetic',
 	intents: ['calculate'],
 	mappings: [{ entity: 'value', aliases: [], field: 'value' }],
-	defaults: [],
+	shape: objectShape({ value: numberShape() }),
 	computations: [],
 	definition: createQuantitativeDefinition('t1', 'Arithmetic', [
 		createFactorGroup('total', 'sum', [createFieldFactor('value', 'value')]),
 	]),
 })
-const result = interpret.interpret('calculate arithmetic 42')
+const result = interpret.interpret('calculate arithmetic value 42')
 result.subject // { value: 42 }
 interpret.recipe('t1') // the plain Recipe data
 interpret.recipes() // every added recipe
@@ -1002,7 +1121,7 @@ interpret.destroy()
 - [`tests/src/core/validators.test.ts`](../tests/src/core/validators.test.ts) — every guard stays total against junk, cycles, and hostile prototypes, with the exact posture for an input record and the open posture for a result record.
 - [`tests/src/core/stages/Normalizer.test.ts`](../tests/src/core/stages/Normalizer.test.ts) — the substitution order, the recorded changes, and the final whitespace collapse.
 - [`tests/src/core/stages/Extractor.test.ts`](../tests/src/core/stages/Extractor.test.ts) — intent classification against caller vocabularies, and numeric mining, with no recipe in sight.
-- [`tests/src/core/stages/Clarifier.test.ts`](../tests/src/core/stages/Clarifier.test.ts) — resolution order across fresh entities, same-domain carry-over, defaults, and dependency-ordered computed fields, plus the ambiguity every unresolved required mapping raises.
+- [`tests/src/core/stages/Clarifier.test.ts`](../tests/src/core/stages/Clarifier.test.ts) — resolution order across fresh entities, same-domain carry-over, what the door fills, repairs, and refuses, and dependency-ordered computed fields, plus the ambiguity every refusal and every below-floor required mapping raises.
 - [`tests/src/core/stages/Formatter.test.ts`](../tests/src/core/stages/Formatter.test.ts) — the clause assembly through the narrator's `prompt.*` lines, and the verb fallback.
 - [`tests/src/core/stages/Generator.test.ts`](../tests/src/core/stages/Generator.test.ts) — the entity-to-field rule, the single-element unwrap, the mean confidence, and the field audit.
 - [`tests/src/core/managers/RecordManager.test.ts`](../tests/src/core/managers/RecordManager.test.ts) — the content hash and version rule, the all-or-nothing batch `remove`, the emitted events, and idempotent teardown.

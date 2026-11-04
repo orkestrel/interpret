@@ -27,6 +27,7 @@ import { RecordManager } from './RecordManager.js'
  *
  * @example
  * ```ts
+ * import { objectShape } from '@orkestrel/contract'
  * import { createFactorGroup, createFieldFactor, createQuantitativeDefinition } from '@orkestrel/reason'
  * import { RecipeManager } from '@orkestrel/interpret'
  *
@@ -37,7 +38,7 @@ import { RecordManager } from './RecordManager.js'
  * 	domain: 'arithmetic',
  * 	intents: ['calculate'],
  * 	mappings: [],
- * 	defaults: [],
+ * 	shape: objectShape({}),
  * 	computations: [],
  * 	definition: createQuantitativeDefinition('t1', 'Arithmetic', [
  * 		createFactorGroup('total', 'sum', [createFieldFactor('value', 'value')]),

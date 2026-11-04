@@ -84,7 +84,7 @@ describe('interprets integration', () => {
 		interpret.destroy()
 	})
 
-	it('numeric corpus: "$50,000" parses to 50000 and lands on a single-mapping collect', () => {
+	it('numeric corpus: "$50,000" parses to 50000 and lands on its anchored field', () => {
 		const interpret = buildCorpusInterpret([
 			buildInterpretRecipe({ mappings: [{ entity: 'income', aliases: [], field: 'income' }] }),
 		])
@@ -95,7 +95,7 @@ describe('interprets integration', () => {
 
 	it('numeric corpus: a statistics turn keeps its collected array and derives no field of its own', () => {
 		const interpret = buildCorpusInterpret([buildStatisticsRecipe()])
-		expect(interpret.interpret('compute statistics 42').subject?.value).toBe(42)
+		expect(interpret.interpret('compute statistics 42').subject?.value).toEqual([42])
 		const many = interpret.interpret('compute statistics 10 20 30')
 		expect(many.subject).toEqual({ value: [10, 20, 30] })
 		interpret.destroy()

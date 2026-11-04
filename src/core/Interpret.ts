@@ -31,7 +31,7 @@ import { Emitter } from '@orkestrel/emitter'
 import { assignEntities } from './compilers.js'
 import { DEFAULT_INTERPRET_FLOOR, DEFAULT_INTERPRET_SIMILARITY } from './constants.js'
 import { InterpretError } from './errors.js'
-import { digestValue, matchRecipe } from './helpers.js'
+import { assertRecipe, digestValue, findUnclaimedNumbers, matchRecipe } from './helpers.js'
 import { InterpretContext } from './InterpretContext.js'
 import { RecipeManager } from './managers/RecipeManager.js'
 import { Narrator } from './Narrator.js'
@@ -57,7 +57,8 @@ import { Normalizer } from './stages/Normalizer.js'
  * matched recipe whose intent confidence falls below the configured `floor`,
  * yields an explicit, auditable incomplete result (a `field: 'intent'`
  * ambiguity, absent subject/definition) rather than an arbitrary fallback
- * recipe. A stage throw is caught, marked on its record and on
+ * recipe. `subject` stays absent while a required ambiguity is open, and
+ * `add` refuses a recipe that does not stand with `InterpretError('DEFINITION')`. A stage throw is caught, marked on its record and on
  * `failures`, emitted as `error`, and still yields a visible incomplete result
  * — never a silent fallback. Every result carries a `digest` over its original
  * text plus the matched recipe id/version and the built subject/definition,
@@ -71,6 +72,7 @@ import { Normalizer } from './stages/Normalizer.js'
  *
  * @example
  * ```ts
+ * import { numberShape, objectShape } from '@orkestrel/contract'
  * import { createFactorGroup, createFieldFactor, createQuantitativeDefinition } from '@orkestrel/reason'
  * import { Interpret, Extractor } from '@orkestrel/interpret'
  *
@@ -83,7 +85,7 @@ import { Normalizer } from './stages/Normalizer.js'
  * 			domain: 'arithmetic',
  * 			intents: ['calculate'],
  * 			mappings: [{ entity: 'value', aliases: [], field: 'value' }],
- * 			defaults: [],
+ * 			shape: objectShape({ value: numberShape() }),
  * 			computations: [],
  * 			definition: createQuantitativeDefinition('t1', 'Arithmetic', [
  * 				createFactorGroup('total', 'sum', [createFieldFactor('value', 'value')]),
@@ -91,7 +93,7 @@ import { Normalizer } from './stages/Normalizer.js'
  * 		},
  * 	],
  * })
- * interpret.interpret('calculate arithmetic 42').subject // { value: 42 }
+ * interpret.interpret('calculate arithmetic value 42').subject // { value: 42 }
  * ```
  */
 export class Interpret implements InterpretInterface {
@@ -110,6 +112,7 @@ export class Interpret implements InterpretInterface {
 	#destroyed = false
 
 	constructor(options?: InterpretOptions) {
+		for (const recipe of options?.recipes ?? []) assertRecipe(recipe)
 		this.#similarity = options?.similarity ?? DEFAULT_INTERPRET_SIMILARITY
 		this.#floor = options?.floor ?? DEFAULT_INTERPRET_FLOOR
 		this.#recipes = new RecipeManager({
@@ -208,6 +211,7 @@ export class Interpret implements InterpretInterface {
 			matched.mappings,
 			normalized.text,
 			this.#similarity,
+			matched.shape,
 		)
 		const record = this.#recipes.recipe(matched.id)
 		const version = record?.version
@@ -226,7 +230,13 @@ export class Interpret implements InterpretInterface {
 		}
 
 		const clarifiedResult = attempt(() =>
-			this.#clarifier.clarify(assigned, matched, this.#context, intent),
+			this.#clarifier.clarify(
+				assigned,
+				matched,
+				this.#context,
+				intent,
+				findUnclaimedNumbers(extract.numbers, assigned),
+			),
 		)
 		if (!clarifiedResult.success) {
 			const error = clarifiedResult.error
@@ -296,22 +306,28 @@ export class Interpret implements InterpretInterface {
 		const generated: GenerateResult = generatedResult.value
 		stages.push({ stage: 'generate', input: clarified.entities, output: generated, failed: false })
 
+		// A subject the door refused, or one a required question stands over, is no subject.
+		const open = clarified.ambiguities.some((ambiguity) => ambiguity.required)
 		const digest = digestValue({
 			text,
 			recipeId: matched.id,
 			recipeVersion: version,
-			subject: generated.subject,
+			subject: open ? undefined : generated.subject,
 			definition: generated.definition,
 		})
 		const result: Interpretation = {
 			text,
 			normalized: normalized.text,
 			intent,
+			recipe: matched.id,
+			...(version === undefined ? {} : { recipeVersion: version }),
 			entities: clarified.entities,
-			subject: generated.subject,
+			...(open ? {} : { subject: generated.subject }),
 			definition: generated.definition,
 			mappings: generated.mappings,
 			ambiguities: clarified.ambiguities,
+			repairs: clarified.repairs,
+			defaulted: clarified.defaulted,
 			prompt: formatted.prompt,
 			stages,
 			failures: [],
@@ -319,7 +335,7 @@ export class Interpret implements InterpretInterface {
 			digest,
 		}
 
-		this.#context.subjects.add(generated.subject)
+		if (!open) this.#context.subjects.add(generated.subject)
 		this.#context.definitions.add(generated.definition, { id: generated.definition.id })
 		this.#context.add(result)
 		this.#emitter.emit('interpret', result)
@@ -328,6 +344,7 @@ export class Interpret implements InterpretInterface {
 
 	add(recipe: Recipe): void {
 		this.#ensureAlive()
+		assertRecipe(recipe)
 		this.#recipes.add(recipe, { id: recipe.id })
 		this.#emitter.emit('add', recipe.id)
 	}
@@ -484,9 +501,13 @@ export class Interpret implements InterpretInterface {
 			text,
 			normalized,
 			intent,
+			...(recipeId === undefined ? {} : { recipe: recipeId }),
+			...(recipeVersion === undefined ? {} : { recipeVersion }),
 			entities,
 			mappings: [],
 			ambiguities,
+			repairs: [],
+			defaulted: [],
 			prompt: '',
 			stages,
 			failures: [...failures],

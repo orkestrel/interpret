@@ -3,7 +3,6 @@ import type {
 	ComputedField,
 	Entity,
 	EntityMapping,
-	FieldDefault,
 	FieldMapping,
 	Intent,
 	Interpretation,
@@ -18,12 +17,16 @@ import {
 	isNumber,
 	isString,
 	literalOf,
-	notOf,
 	objectOf,
 	recordOf,
-	unionOf,
 } from '@orkestrel/contract'
-import { isDefinition, isFieldPath, isSymbolicExpression } from '@orkestrel/reason'
+import {
+	isAuditFault,
+	isContractShape,
+	isDefinition,
+	isFieldPath,
+	isSymbolicExpression,
+} from '@orkestrel/reason'
 import { INTERPRET_ERROR_CODES, INTERPRET_STAGES, PROVENANCE_CATEGORIES } from './constants.js'
 
 // Every guard here is a total function — adversarial input (junk, hostile
@@ -55,39 +58,11 @@ import { INTERPRET_ERROR_CODES, INTERPRET_STAGES, PROVENANCE_CATEGORIES } from '
  * ```
  */
 export function isEntityMapping(value: unknown): value is EntityMapping {
-	return recordOf(
-		{
-			entity: isString,
-			aliases: arrayOf(isString),
-			field: isFieldPath,
-			required: isBoolean,
-		},
-		['required'],
-	)(value)
-}
-
-/**
- * Determines whether a value is an exact {@link FieldDefault} input record —
- * a fallback value a {@link Recipe} fills onto an unresolved field.
- *
- * @remarks
- * `value` is unconstrained (any value, including `null` or `undefined`) as
- * long as the key is present — the trivially-true guard `notOf(unionOf())`
- * mirrors the reasons `Check.value` precedent.
- *
- * @param value - The value to test
- * @returns True if `value` is a well-formed field default; false otherwise
- *
- * @example
- * ```ts
- * import { isFieldDefault } from '@orkestrel/interpret'
- *
- * isFieldDefault({ field: 'term', value: 12 })   // true
- * isFieldDefault({ field: 'term' })               // false — value missing
- * ```
- */
-export function isFieldDefault(value: unknown): value is FieldDefault {
-	return recordOf({ field: isFieldPath, value: notOf(unionOf()) })(value)
+	return recordOf({
+		entity: isString,
+		aliases: arrayOf(isString),
+		field: isFieldPath,
+	})(value)
 }
 
 /**
@@ -131,6 +106,7 @@ export function isComputedField(value: unknown): value is ComputedField {
  *
  * @example
  * ```ts
+ * import { objectShape } from '@orkestrel/contract'
  * import { createFactorGroup, createFieldFactor, createQuantitativeDefinition } from '@orkestrel/reason'
  * import { isRecipe } from '@orkestrel/interpret'
  *
@@ -140,7 +116,7 @@ export function isComputedField(value: unknown): value is ComputedField {
  * 	domain: 'arithmetic',
  * 	intents: ['calculate'],
  * 	mappings: [],
- * 	defaults: [],
+ * 	shape: objectShape({}),
  * 	computations: [],
  * 	definition: createQuantitativeDefinition('t1', 'Arithmetic', [
  * 		createFactorGroup('total', 'sum', [createFieldFactor('value', 'value')]),
@@ -156,9 +132,9 @@ export function isRecipe(value: unknown): value is Recipe {
 		domain: isString,
 		intents: arrayOf(isString),
 		mappings: arrayOf(isEntityMapping),
-		defaults: arrayOf(isFieldDefault),
 		computations: arrayOf(isComputedField),
 		definition: isDefinition,
+		shape: isContractShape,
 	})(value)
 }
 
@@ -236,7 +212,10 @@ export function isIntent(value: unknown): value is Intent {
  * ```
  */
 export function isEntity(value: unknown): value is Entity {
-	return objectOf({ name: isString, provenance: isProvenance, confidence: isNumber })(value)
+	return objectOf(
+		{ name: isString, field: isFieldPath, provenance: isProvenance, confidence: isNumber },
+		['field'],
+	)(value)
 }
 
 /**
@@ -273,8 +252,8 @@ export function isFieldMapping(value: unknown): value is FieldMapping {
  * Determines whether a value is an open {@link Ambiguity} result record.
  *
  * @remarks
- * `field`, `question`, the string `candidates` list, and `required` are each
- * checked; an unknown member passes.
+ * `field`, `question`, the string `candidates` list, `required`, and an optional
+ * `fault` are each checked; an unknown member passes.
  *
  * @param value - The value to test
  * @returns True if the published ambiguity members conform; false otherwise
@@ -288,12 +267,16 @@ export function isFieldMapping(value: unknown): value is FieldMapping {
  * ```
  */
 export function isAmbiguity(value: unknown): value is Ambiguity {
-	return objectOf({
-		field: isFieldPath,
-		question: isString,
-		candidates: arrayOf(isString),
-		required: isBoolean,
-	})(value)
+	return objectOf(
+		{
+			field: isFieldPath,
+			question: isString,
+			candidates: arrayOf(isString),
+			required: isBoolean,
+			fault: isAuditFault,
+		},
+		['fault'],
+	)(value)
 }
 
 /**
@@ -381,17 +364,21 @@ export function isInterpretation(value: unknown): value is Interpretation {
 			text: isString,
 			normalized: isString,
 			intent: isIntent,
+			recipe: isString,
+			recipeVersion: isNumber,
 			entities: arrayOf(isEntity),
 			subject: objectOf({}),
 			definition: objectOf({}),
 			mappings: arrayOf(isFieldMapping),
 			ambiguities: arrayOf(isAmbiguity),
+			repairs: arrayOf(isAuditFault),
+			defaulted: arrayOf(isFieldPath),
 			prompt: isString,
 			stages: arrayOf(isStageRecord),
 			failures: arrayOf(isStageFailure),
 			confidence: isNumber,
 			digest: isString,
 		},
-		['subject', 'definition'],
+		['recipe', 'recipeVersion', 'subject', 'definition'],
 	)(value)
 }

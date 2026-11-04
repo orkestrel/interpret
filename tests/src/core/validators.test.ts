@@ -12,7 +12,6 @@ import {
 	isComputedField,
 	isEntity,
 	isEntityMapping,
-	isFieldDefault,
 	isFieldMapping,
 	isIntent,
 	isInterpretation,
@@ -52,11 +51,8 @@ const ADVERSARIAL: readonly unknown[] = [
 ]
 
 describe('isEntityMapping', () => {
-	it('accepts a well-formed mapping, optional `required` included or omitted', () => {
+	it('accepts a well-formed mapping', () => {
 		expect(isEntityMapping({ entity: 'age', aliases: ['years old'], field: 'age' })).toBe(true)
-		expect(
-			isEntityMapping({ entity: 'age', aliases: ['years old'], field: 'age', required: true }),
-		).toBe(true)
 		expect(isEntityMapping({ entity: 'age', aliases: [], field: ['nested', 'age'] })).toBe(true)
 	})
 
@@ -64,6 +60,9 @@ describe('isEntityMapping', () => {
 		expect(isEntityMapping({ entity: 'age', aliases: [/\d+/], field: 'age' })).toBe(false)
 		expect(isEntityMapping({ entity: 'age', aliases: [] })).toBe(false)
 		expect(isEntityMapping({ entity: 'age', aliases: [], field: 'age', extra: true })).toBe(false)
+		expect(isEntityMapping({ entity: 'age', aliases: [], field: 'age', required: true })).toBe(
+			false,
+		)
 	})
 
 	it('rejects adversarial junk', () => {
@@ -95,24 +94,6 @@ describe('isEntityMapping', () => {
 	})
 })
 
-describe('isFieldDefault', () => {
-	it('accepts any present value, including null / undefined / 0', () => {
-		expect(isFieldDefault({ field: 'term', value: 12 })).toBe(true)
-		expect(isFieldDefault({ field: 'term', value: null })).toBe(true)
-		expect(isFieldDefault({ field: 'term', value: undefined })).toBe(true)
-		expect(isFieldDefault({ field: 'term', value: 0 })).toBe(true)
-	})
-
-	it('rejects a missing `value` key and a missing `field`', () => {
-		expect(isFieldDefault({ field: 'term' })).toBe(false)
-		expect(isFieldDefault({ value: 12 })).toBe(false)
-	})
-
-	it('rejects adversarial junk', () => {
-		for (const value of ADVERSARIAL) expect(isFieldDefault(value)).toBe(false)
-	})
-})
-
 describe('isComputedField', () => {
 	it('accepts a well-formed computed field composing a symbolic expression', () => {
 		expect(
@@ -141,9 +122,8 @@ describe('isRecipe', () => {
 		expect(isRecipe(buildInterpretRecipe())).toBe(true)
 	})
 
-	it('accepts a recipe with computations and defaults populated', () => {
+	it('accepts a recipe with computations populated', () => {
 		const recipe = buildInterpretRecipe({
-			defaults: [{ field: 'term', value: 12 }],
 			computations: [
 				{
 					field: 'monthly',
@@ -157,6 +137,17 @@ describe('isRecipe', () => {
 	it('rejects a recipe whose definition fails isDefinition', () => {
 		const bad = { ...buildInterpretRecipe(), definition: { reasoning: 'quantum' } }
 		expect(isRecipe(bad)).toBe(false)
+	})
+
+	it('rejects a recipe whose shape is no contract shape, and one with no shape', () => {
+		expect(isRecipe({ ...buildInterpretRecipe(), shape: { category: 'quantum' } })).toBe(false)
+		const { shape, ...shapeless } = buildInterpretRecipe()
+		expect(shape.category).toBe('object')
+		expect(isRecipe(shapeless)).toBe(false)
+	})
+
+	it('rejects a recipe still carrying defaults', () => {
+		expect(isRecipe({ ...buildInterpretRecipe(), defaults: [] })).toBe(false)
 	})
 
 	it('rejects a recipe missing most fields, and one with an extra key', () => {
@@ -188,9 +179,9 @@ describe('isRecipe', () => {
 		hostile.domain = base.domain
 		hostile.intents = base.intents
 		hostile.mappings = base.mappings
-		hostile.defaults = base.defaults
 		hostile.computations = base.computations
 		hostile.definition = base.definition
+		hostile.shape = base.shape
 		hostile.__proto__ = { polluted: true }
 		expect(Object.hasOwn(hostile, '__proto__')).toBe(true)
 		expect(isRecipe(hostile)).toBe(false)
@@ -476,6 +467,8 @@ describe('isInterpretation', () => {
 				},
 			],
 			ambiguities: [],
+			repairs: [],
+			defaulted: [],
 			prompt: 'Calculate Arithmetic',
 			stages: [{ stage: 'normalize', input: 'raw', output: 'normalized', failed: false }],
 			failures: [],
@@ -505,6 +498,8 @@ describe('isInterpretation', () => {
 			entities: [],
 			mappings: [],
 			ambiguities: [],
+			repairs: [],
+			defaulted: [],
 			prompt: 'Calculate Arithmetic',
 			stages: [],
 			failures: [],
@@ -533,6 +528,8 @@ describe('isInterpretation', () => {
 			entities: [],
 			mappings: [],
 			ambiguities: [],
+			repairs: [],
+			defaulted: [],
 			prompt: '',
 			stages: [],
 			failures: [],

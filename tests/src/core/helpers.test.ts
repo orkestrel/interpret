@@ -1,3 +1,11 @@
+import type { Entity } from '@src/core'
+import {
+	arrayShape,
+	nullableShape,
+	numberShape,
+	objectShape,
+	optionalShape,
+} from '@orkestrel/contract'
 import {
 	createConstant,
 	createEquation,
@@ -8,14 +16,25 @@ import {
 } from '@orkestrel/reason'
 import {
 	applyReplacements,
+	assertRecipe,
 	assignEntities,
+	buildSubject,
 	canonicalize,
 	canonicalizeNode,
 	classifyIntent,
 	collapseWhitespace,
+	collectShapeDefaults,
 	createNarrator,
+	describeRecipeShape,
 	digestValue,
 	extractNumbers,
+	findEntityField,
+	findAnchoredNumber,
+	findFieldDescription,
+	findUnclaimedNumbers,
+	isArrayField,
+	isInterpretError,
+	isNestedField,
 	matchAlias,
 	matchRecipe,
 	renderSubject,
@@ -23,16 +42,18 @@ import {
 	scoreSimilarity,
 	scoreRecipe,
 	setField,
+	settleEntities,
 	SubjectManager,
 	tokenize,
 	variablesOf,
 } from '@src/core'
+import { captureError } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import {
 	buildInterpretRecipe,
-	expectSymbolic,
 	EXTREME_NUMBERS,
 	InterpretFixtureValue,
+	OPEN_SHAPE,
 } from '../../setup.js'
 
 // The interprets pure leaves — every function is referentially transparent
@@ -90,9 +111,10 @@ describe('extractNumbers', () => {
 })
 
 describe('assignEntities', () => {
-	it('single-mapping collects every number (array when >1, scalar otherwise)', () => {
+	it('single mapping onto an array field collects every number, one included', () => {
 		const mappings = [{ entity: 'readings', aliases: [], field: 'readings' }]
-		expect(assignEntities([10, 20, 30], mappings, 'values 10 20 30', 0.8)).toEqual([
+		const shape = objectShape({ readings: arrayShape(numberShape()) })
+		expect(assignEntities([10, 20, 30], mappings, 'values 10 20 30', 0.8, shape)).toEqual([
 			{
 				name: 'readings',
 				value: [10, 20, 30],
@@ -100,14 +122,39 @@ describe('assignEntities', () => {
 				confidence: 0.9,
 			},
 		])
-		expect(assignEntities([42], mappings, 'value 42', 0.8)).toEqual([
+		expect(assignEntities([42], mappings, 'value 42', 0.8, shape)).toEqual([
 			{
 				name: 'readings',
-				value: 42,
+				value: [42],
 				provenance: { category: 'extracted', detail: 'collect' },
 				confidence: 0.9,
 			},
 		])
+	})
+
+	it('single mapping onto a scalar field takes an anchored number and collects none', () => {
+		const mappings = [{ entity: 'age', aliases: [], field: 'age' }]
+		const shape = objectShape({ age: numberShape() })
+		expect(assignEntities([1, 2], mappings, 'one 1 two 2', 0.8, shape)).toEqual([])
+		expect(assignEntities([25, 1], mappings, 'age 25 and one 1', 0.8, shape)).toEqual([
+			{
+				name: 'age',
+				value: 25,
+				provenance: { category: 'extracted', detail: 'keyword' },
+				confidence: 1,
+			},
+		])
+	})
+
+	it('a number on an array field among many mappings lands as an array of one', () => {
+		const mappings = [
+			{ entity: 'age', aliases: [], field: 'age' },
+			{ entity: 'scores', aliases: [], field: 'scores' },
+		]
+		const shape = objectShape({ age: numberShape(), scores: arrayShape(numberShape()) })
+		const entities = assignEntities([25, 7], mappings, 'age 25, scores 7', 0.8, shape)
+		expect(entities.find((entity) => entity.name === 'scores')?.value).toEqual([7])
+		expect(entities.find((entity) => entity.name === 'age')?.value).toBe(25)
 	})
 
 	it('keyword-proximity: exact entity-name token wins at CONFIDENCE_EXACT', () => {
@@ -120,6 +167,7 @@ describe('assignEntities', () => {
 			mappings,
 			'the rate is 0.85 and the score is 720',
 			0.8,
+			OPEN_SHAPE,
 		)
 		const rate = entities.find((entity) => entity.name === 'rate')
 		expect(rate?.value).toBe(0.85)
@@ -129,13 +177,13 @@ describe('assignEntities', () => {
 
 	it('load-bearing corpus pin: "score 85 near \'score\'" assigns to the score field', () => {
 		const mappings = [{ entity: 'score', aliases: ['credit score'], field: 'score' }]
-		const entities = assignEntities([85], mappings, 'the score is 85', 0.8)
+		const entities = assignEntities([85], mappings, 'the score is 85', 0.8, OPEN_SHAPE)
 		expect(entities).toEqual([
 			{
 				name: 'score',
 				value: 85,
-				provenance: { category: 'extracted', detail: 'collect' },
-				confidence: 0.9,
+				provenance: { category: 'extracted', detail: 'keyword' },
+				confidence: 1,
 			},
 		])
 	})
@@ -145,7 +193,13 @@ describe('assignEntities', () => {
 			{ entity: 'age', aliases: ['years old'], field: 'age' },
 			{ entity: 'income', aliases: [], field: 'income' },
 		]
-		const entities = assignEntities([25, 50000], mappings, 'age is 25, income was $50,000', 0.8)
+		const entities = assignEntities(
+			[25, 50000],
+			mappings,
+			'age is 25, income was $50,000',
+			0.8,
+			OPEN_SHAPE,
+		)
 		expect(entities.find((entity) => entity.name === 'age')?.value).toBe(25)
 		expect(entities.find((entity) => entity.name === 'income')?.value).toBe(50000)
 	})
@@ -160,6 +214,7 @@ describe('assignEntities', () => {
 			mappings,
 			'net.pay 100 then netxpay 200 other 5',
 			0.8,
+			OPEN_SHAPE,
 		)
 		expect(entities.find((entity) => entity.name === 'net.pay')).toEqual({
 			name: 'net.pay',
@@ -169,26 +224,37 @@ describe('assignEntities', () => {
 		})
 	})
 
-	it('positional fallback fills an unmatched mapping with the next unused number', () => {
+	it('no anchor fills no field, because position is a guess', () => {
 		const mappings = [
 			{ entity: 'width', aliases: [], field: 'width' },
 			{ entity: 'height', aliases: [], field: 'height' },
 		]
-		const entities = assignEntities([4, 8], mappings, 'dimensions 4 8', 0.8)
-		expect(entities).toEqual([
-			{
-				name: 'width',
-				value: 4,
-				provenance: { category: 'extracted', detail: 'positional' },
-				confidence: 0.7,
-			},
-			{
-				name: 'height',
-				value: 8,
-				provenance: { category: 'extracted', detail: 'positional' },
-				confidence: 0.7,
-			},
-		])
+		expect(assignEntities([4, 8], mappings, 'dimensions 4 8', 0.8, OPEN_SHAPE)).toEqual([])
+	})
+
+	it('an anchor claims nothing across a clause, nor from a tie', () => {
+		const mappings = [
+			{ entity: 'rate', aliases: [], field: 'rate' },
+			{ entity: 'term', aliases: [], field: 'term' },
+		]
+		expect(
+			assignEntities([7], mappings, 'the rate, then term 7', 0.8, OPEN_SHAPE).map(
+				(entity) => entity.name,
+			),
+		).toEqual(['term'])
+		expect(assignEntities([5, 7], mappings, '5 rate 7', 0.8, OPEN_SHAPE)).toEqual([])
+		expect(
+			assignEntities([5, 7], mappings, '5  rate 7', 0.8, OPEN_SHAPE).map((entity) => entity.value),
+		).toEqual([7])
+	})
+
+	it('a number another anchor claimed is not taken second-hand', () => {
+		const mappings = [
+			{ entity: 'rate', aliases: [], field: 'rate' },
+			{ entity: 'term', aliases: [], field: 'term' },
+		]
+		const entities = assignEntities([7, 900], mappings, 'rate term 7 and more 900', 0.8, OPEN_SHAPE)
+		expect(entities.map((entity) => entity.name)).toEqual(['rate'])
 	})
 
 	it('alias fuzzy match uses the dynamic matchAlias score as confidence', () => {
@@ -197,8 +263,9 @@ describe('assignEntities', () => {
 		const entities = assignEntities(
 			[10, 20],
 			[...mappings, ...secondMapping],
-			'dollar 10 dolars 20',
+			'dollar 10, dolars 20',
 			0.5,
+			OPEN_SHAPE,
 		)
 		expect(entities.length).toBeGreaterThan(0)
 		for (const entity of entities) {
@@ -207,50 +274,30 @@ describe('assignEntities', () => {
 		}
 	})
 
-	it('returns keyword-anchored entities before positionally filled ones', () => {
+	it('fills only the mapping an anchor names, and leaves the other to ask', () => {
 		const mappings = [
 			{ entity: 'age', aliases: ['years old'], field: 'age' },
 			{ entity: 'score', aliases: ['credit score'], field: 'score' },
 		]
-		const entities = assignEntities([25, 720], mappings, '25 year old with score 720', 0.8)
-		expect(entities.map((entity) => entity.name)).toEqual(['score', 'age'])
-		expect(entities.map((entity) => entity.value)).toEqual([720, 25])
-		expect(entities.map((entity) => entity.provenance.detail)).toEqual(['keyword', 'positional'])
-	})
-
-	it('anchors a keyword on a whole word, never on the same letters inside a longer word', () => {
-		const mappings = [
-			{ entity: 'age', aliases: [], field: 'age' },
-			{ entity: 'value', aliases: [], field: 'value' },
-		]
-		const entities = assignEntities([50, 25], mappings, 'the average is 50 and age 25', 0.8)
-		expect(entities.find((entity) => entity.name === 'age')?.value).toBe(25)
-	})
-
-	it('anchors a repeated keyword on its rightmost occurrence, as the contract states', () => {
-		const mappings = [
-			{ entity: 'age', aliases: [], field: 'age' },
-			{ entity: 'value', aliases: [], field: 'value' },
-		]
-		const entities = assignEntities([25, 30], mappings, 'age 25 and age 30', 0.8)
-		expect(entities.find((entity) => entity.name === 'age')?.value).toBe(30)
-	})
-
-	it('returns empty for an empty mapping list or no numbers', () => {
-		expect(assignEntities([1, 2], [], 'a b', 0.8)).toEqual([])
-		expect(
-			assignEntities([], [{ entity: 'x', aliases: [], field: 'x' }], 'no numbers', 0.8),
-		).toEqual([])
+		const entities = assignEntities(
+			[25, 720],
+			mappings,
+			'25 year old with score 720',
+			0.8,
+			OPEN_SHAPE,
+		)
+		expect(entities.map((entity) => entity.name)).toEqual(['score'])
+		expect(entities.map((entity) => entity.value)).toEqual([720])
 	})
 
 	it('is deterministic across repeated calls', () => {
 		const mappings = [
-			{ entity: 'age', aliases: ['years old'], field: 'age' },
+			{ entity: 'age', aliases: [], field: 'age' },
 			{ entity: 'income', aliases: [], field: 'income' },
 		]
 		const text = 'age is 25, income was $50,000'
-		expect(assignEntities([25, 50000], mappings, text, 0.8)).toEqual(
-			assignEntities([25, 50000], mappings, text, 0.8),
+		expect(assignEntities([25, 50000], mappings, text, 0.8, OPEN_SHAPE)).toEqual(
+			assignEntities([25, 50000], mappings, text, 0.8, OPEN_SHAPE),
 		)
 	})
 })
@@ -563,35 +610,21 @@ describe('resolveExpression', () => {
 	})
 
 	describe('absent-operand parity with the engine (SymbolicReasoner)', () => {
-		it('add with absent right defaults to 0 in both resolveExpression and the engine', () => {
+		it('add with absent right is a gap in resolveExpression, and the engine refuses it', () => {
 			const node = createOperation('add', createVariable('x'))
-			const viaHelper = resolveExpression(node, { x: 5 })
 			const definition = createSymbolicDefinition(
 				'd',
 				'D',
 				[createEquation('e1', createConstant(0), node, 'result')],
-				{
-					variables: { x: 5 },
-				},
+				{ variables: { x: 5 } },
 			)
-			const result = expectSymbolic(createSymbolicReasoner().reason({}, definition))
-			expect(viaHelper).toBe(result.solutions.result)
+			expect(resolveExpression(node, { x: 5 })).toBeUndefined()
+			expect(createSymbolicReasoner().reason({}, definition).success).toBe(false)
 		})
 
-		it('multiply with absent right is 0 (engine-pinned, NOT Transform default 1) in both paths', () => {
+		it('multiply with absent right is a gap too, never an identity', () => {
 			const node = createOperation('multiply', createVariable('x'))
-			const viaHelper = resolveExpression(node, { x: 5 })
-			const definition = createSymbolicDefinition(
-				'd',
-				'D',
-				[createEquation('e1', createConstant(0), node, 'result')],
-				{
-					variables: { x: 5 },
-				},
-			)
-			const result = expectSymbolic(createSymbolicReasoner().reason({}, definition))
-			expect(viaHelper).toBe(0)
-			expect(viaHelper).toBe(result.solutions.result)
+			expect(resolveExpression(node, { x: 5 })).toBeUndefined()
 		})
 
 		it('divide with absent right is a gap here and NaN→gap in the engine (both non-finite)', () => {
@@ -635,5 +668,237 @@ describe('renderSubject', () => {
 		expect(renderSubject({ tags: ['a', 'b'], name: 'Ada' }, narrator)).toBe(
 			'with name: Ada, tags: a,b',
 		)
+	})
+})
+
+describe("the recipe's shape", () => {
+	const entity: Entity = {
+		name: 'age',
+		value: 25,
+		provenance: { category: 'extracted' },
+		confidence: 1,
+	}
+
+	it("findEntityField reads the entity's own field, then its mapping, then its name", () => {
+		const mappings = [{ entity: 'age', aliases: [], field: ['person', 'age'] }]
+		expect(findEntityField({ ...entity, field: ['x'] }, mappings)).toEqual(['x'])
+		expect(findEntityField(entity, mappings)).toEqual(['person', 'age'])
+		expect(findEntityField(entity, [])).toBe('age')
+	})
+
+	it('buildSubject lands each entity on its field', () => {
+		expect(
+			buildSubject([entity, { ...entity, name: 'rate', field: ['terms', 'rate'], value: 3 }], []),
+		).toEqual({ age: 25, terms: { rate: 3 } })
+	})
+
+	it('isArrayField reads an array and a nullable array, and nothing else', () => {
+		const shape = objectShape({
+			a: arrayShape(numberShape()),
+			b: nullableShape(arrayShape(numberShape())),
+			c: optionalShape(arrayShape(numberShape())),
+			d: numberShape(),
+			e: nullableShape(numberShape()),
+		})
+		expect(isArrayField(shape, 'a')).toBe(true)
+		expect(isArrayField(shape, 'b')).toBe(true)
+		expect(isArrayField(shape, 'c')).toBe(true)
+		expect(isArrayField(shape, 'd')).toBe(false)
+		expect(isArrayField(shape, 'e')).toBe(false)
+		expect(isArrayField(shape, 'absent')).toBe(false)
+	})
+
+	it('isNestedField holds only a path of more than one key', () => {
+		expect(isNestedField(['a', 'b'])).toBe(true)
+		expect(isNestedField(['a'])).toBe(false)
+		expect(isNestedField('a.b')).toBe(false)
+	})
+
+	it('findUnclaimedNumbers takes one number per claim, and reads an array by element', () => {
+		expect(findUnclaimedNumbers([25, 700], [entity])).toEqual([700])
+		expect(findUnclaimedNumbers([25, 25], [entity])).toEqual([25])
+		expect(findUnclaimedNumbers([1, 2, 3], [{ ...entity, value: [1, 3] }])).toEqual([2])
+		expect(findUnclaimedNumbers([], [entity])).toEqual([])
+	})
+
+	it('findAnchoredNumber claims the one number nearest in the clause', () => {
+		const rate = { start: 0, end: 4 }
+		expect(
+			findAnchoredNumber('rate 5, term 7', rate, [
+				{ start: 5, end: 6 },
+				{ start: 13, end: 14 },
+			]),
+		).toBe(0)
+		expect(
+			findAnchoredNumber('5 rate 7', { start: 2, end: 6 }, [
+				{ start: 0, end: 1 },
+				{ start: 7, end: 8 },
+			]),
+		).toBeUndefined()
+		expect(findAnchoredNumber('rate, term 7', rate, [{ start: 11, end: 12 }])).toBeUndefined()
+		expect(
+			findAnchoredNumber('rate 5 and term 7', { start: 11, end: 15 }, [
+				{ start: 5, end: 6 },
+				{ start: 16, end: 17 },
+			]),
+		).toBe(1)
+		expect(findAnchoredNumber('rate 1,200 today', rate, [{ start: 5, end: 10 }])).toBe(0)
+		expect(findAnchoredNumber('rate 1.5 today', rate, [{ start: 5, end: 8 }])).toBe(0)
+		expect(findAnchoredNumber('rate: 6', rate, [{ start: 6, end: 7 }])).toBe(0)
+		expect(findAnchoredNumber('rate', rate, [])).toBeUndefined()
+	})
+
+	it('findFieldDescription reads through optional and nullable', () => {
+		const shape = objectShape({
+			a: numberShape({ description: 'A?' }),
+			b: optionalShape(numberShape({ description: 'B?' })),
+			c: nullableShape(numberShape({ description: 'C?' })),
+			d: numberShape(),
+		})
+		expect(findFieldDescription(shape, 'a')).toBe('A?')
+		expect(findFieldDescription(shape, 'b')).toBe('B?')
+		expect(findFieldDescription(shape, 'c')).toBe('C?')
+		expect(findFieldDescription(shape, 'd')).toBeUndefined()
+		expect(findFieldDescription(shape, 'absent')).toBeUndefined()
+	})
+
+	it('collectShapeDefaults walks objects and stops at a default', () => {
+		const shape = objectShape({
+			a: optionalShape(numberShape(), { default: 1 }),
+			b: optionalShape(numberShape()),
+			c: objectShape({ d: optionalShape(numberShape(), { default: 2 }) }),
+			e: optionalShape(objectShape({ f: numberShape() }), { default: { f: 3 } }),
+			g: nullableShape(objectShape({ h: optionalShape(numberShape(), { default: 4 }) })),
+			i: arrayShape(numberShape()),
+		})
+		expect(collectShapeDefaults(shape)).toEqual([
+			{ field: ['a'], value: 1 },
+			{ field: ['c', 'd'], value: 2 },
+			{ field: ['e'], value: { f: 3 } },
+			{ field: ['g', 'h'], value: 4 },
+		])
+	})
+
+	it('settleEntities takes the admitted value and adds what the door filled', () => {
+		const settled = settleEntities(
+			[{ ...entity, name: 'code', value: 42 }],
+			[
+				{ entity: 'code', aliases: [], field: 'code' },
+				{ entity: 'length', aliases: [], field: 'term' },
+			],
+			{
+				subject: { code: '42', term: 12, extra: { rate: 3 } },
+				faults: [],
+				repairs: [],
+				defaulted: ['term', ['extra', 'rate']],
+				errors: [],
+			},
+		)
+		expect(settled).toEqual([
+			{ ...entity, name: 'code', value: '42' },
+			{ name: 'length', value: 12, provenance: { category: 'default' }, confidence: 1 },
+			{
+				name: 'extra.rate',
+				field: ['extra', 'rate'],
+				value: 3,
+				provenance: { category: 'default' },
+				confidence: 1,
+			},
+		])
+	})
+
+	it('settleEntities leaves what a refusal saw alone', () => {
+		const entities = [entity]
+		expect(
+			settleEntities(entities, [], { faults: [], repairs: [], defaulted: [], errors: ['no'] }),
+		).toBe(entities)
+	})
+
+	it('settleEntities keeps the entity itself when nothing changed', () => {
+		const settled = settleEntities([entity], [], {
+			subject: { age: 25 },
+			faults: [],
+			repairs: [],
+			defaulted: [],
+			errors: [],
+		})
+		expect(settled[0]).toBe(entity)
+	})
+
+	it('describeRecipeShape reads the shape, what is mapped, and what is computed', () => {
+		const recipe = buildInterpretRecipe({
+			mappings: [
+				{ entity: 'age', aliases: [], field: 'age' },
+				{ entity: 'agee', aliases: [], field: 'agee' },
+			],
+			computations: [{ field: 'total', expression: createConstant(1) }],
+			shape: objectShape({ age: numberShape() }),
+		})
+		expect(describeRecipeShape(recipe)).toEqual([
+			'Field "agee" is mapped, and the shape does not declare it',
+			'Field "total" is computed, and the shape does not declare it',
+		])
+		expect(describeRecipeShape(buildInterpretRecipe({ shape: numberShape() }))).toEqual(
+			expect.arrayContaining(['Shape must describe an object']),
+		)
+		expect(describeRecipeShape(buildInterpretRecipe())).toEqual([])
+	})
+
+	it('assertRecipe throws DEFINITION with what is wrong, and passes what stands', () => {
+		expect(() => assertRecipe(buildInterpretRecipe())).not.toThrow()
+		const malformed = captureError(() => assertRecipe({ id: 'r' }))
+		expect(isInterpretError(malformed) ? malformed.code : undefined).toBe('DEFINITION')
+		const invalid = captureError(() =>
+			assertRecipe(buildInterpretRecipe({ shape: objectShape({ other: numberShape() }) })),
+		)
+		expect(isInterpretError(invalid) ? invalid.context : undefined).toEqual({
+			errors: ['Field "value" is mapped, and the shape does not declare it'],
+		})
+	})
+})
+
+describe('choosing a recipe asks rather than picks', () => {
+	const actions = { calculate: 'compute', check: 'verify', constructor: 'build' }
+	const domains = { rating: ['rate'], lending: ['loan'] }
+
+	it('classifyIntent names no domain on a tie, and no action when two are named', () => {
+		expect(classifyIntent('calculate the rate of a loan', actions, domains)).toEqual({
+			action: 'compute',
+			confidence: 0.5,
+		})
+		expect(classifyIntent('calculate and check the rate', actions, domains)).toEqual({
+			domain: 'rating',
+			confidence: 0.5,
+		})
+		expect(classifyIntent('calculate the loan rate rate', actions, domains)).toEqual({
+			action: 'compute',
+			domain: 'rating',
+			confidence: 1,
+		})
+	})
+
+	it("classifyIntent reads only a vocabulary's own keys", () => {
+		expect(classifyIntent('tostring please', {}, {})).toEqual({ confidence: 0 })
+		expect(classifyIntent('constructor', {}, {})).toEqual({ confidence: 0 })
+		expect(classifyIntent('constructor', actions, {})).toEqual({ action: 'build', confidence: 0.5 })
+	})
+
+	it('matchRecipe refuses an action alone, however few recipes answer it', () => {
+		const recipe = buildInterpretRecipe()
+		expect(matchRecipe({ action: 'calculate', confidence: 0.5 }, [recipe], 0.3)).toBeUndefined()
+	})
+
+	it('matchRecipe takes a domain alone when one recipe holds it', () => {
+		const recipe = buildInterpretRecipe()
+		expect(matchRecipe({ domain: 'arithmetic', confidence: 0.5 }, [recipe], 0.3)).toBe(recipe)
+	})
+
+	it('matchRecipe refuses a tie for the best score', () => {
+		const first = buildInterpretRecipe({ id: 'first' })
+		const second = buildInterpretRecipe({ id: 'second' })
+		const intent = { action: 'calculate', domain: 'arithmetic', confidence: 1 }
+		expect(matchRecipe(intent, [first, second], 0.3)).toBeUndefined()
+		const elsewhere = buildInterpretRecipe({ id: 'third', intents: ['other'] })
+		expect(matchRecipe(intent, [first, elsewhere], 0.3)).toBe(first)
 	})
 })

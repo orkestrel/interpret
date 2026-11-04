@@ -179,6 +179,26 @@ describe('Narrator', () => {
 	})
 
 	describe('narrate — DEFAULT_LEXICON pinned strings', () => {
+		it('says an unread conclusion, and never reads a state as true', () => {
+			const narrator = new Narrator()
+			for (const conclusion of ['met', 'unmet', 'unread'] as const) {
+				expect(
+					narrator.narrate({
+						reasoning: 'logical',
+						conclusion,
+						rules: [],
+						count: 1,
+						success: conclusion !== 'unread',
+						trace: [],
+						errors: [],
+						faults: [],
+						repairs: [],
+						defaulted: [],
+					}),
+				).toBe(`${conclusion}: 1 rule(s)`)
+			}
+		})
+
 		it('reproduces a symbolic result verbatim, joining multiple solutions', () => {
 			const narrator = new Narrator()
 			expect(
@@ -188,6 +208,9 @@ describe('Narrator', () => {
 					success: true,
 					trace: [],
 					errors: [],
+					faults: [],
+					repairs: [],
+					defaulted: [],
 				}),
 			).toBe('solved x=5')
 			expect(
@@ -197,6 +220,9 @@ describe('Narrator', () => {
 					success: true,
 					trace: [],
 					errors: [],
+					faults: [],
+					repairs: [],
+					defaulted: [],
 				}),
 			).toBe('solved x=5, y=10')
 		})
@@ -212,6 +238,9 @@ describe('Narrator', () => {
 					success: true,
 					trace: [],
 					errors: [],
+					faults: [],
+					repairs: [],
+					defaulted: [],
 				}),
 			).toBe('scored 42 across 2 group(s)')
 			expect(
@@ -223,6 +252,9 @@ describe('Narrator', () => {
 					success: false,
 					trace: [],
 					errors: ['bad'],
+					faults: [],
+					repairs: [],
+					defaulted: [],
 				}),
 			).toBe('scored 0 across 0 group(s); failed: bad')
 		})
@@ -232,23 +264,29 @@ describe('Narrator', () => {
 			expect(
 				narrator.narrate({
 					reasoning: 'logical',
-					conclusion: true,
+					conclusion: 'met',
 					rules: [],
 					count: 3,
 					success: true,
 					trace: [],
 					errors: [],
+					faults: [],
+					repairs: [],
+					defaulted: [],
 				}),
 			).toBe('met: 3 rule(s)')
 			expect(
 				narrator.narrate({
 					reasoning: 'logical',
-					conclusion: false,
+					conclusion: 'unmet',
 					rules: [],
 					count: 3,
 					success: true,
 					trace: [],
 					errors: [],
+					faults: [],
+					repairs: [],
+					defaulted: [],
 				}),
 			).toBe('unmet: 3 rule(s)')
 		})
@@ -265,6 +303,9 @@ describe('Narrator', () => {
 					success: true,
 					trace: [],
 					errors: [],
+					faults: [],
+					repairs: [],
+					defaulted: [],
 				}),
 			).toBe('derived 2 fact(s)')
 		})
@@ -273,12 +314,15 @@ describe('Narrator', () => {
 			const narrator = new Narrator()
 			const result: LogicalResult = {
 				reasoning: 'logical',
-				conclusion: true,
+				conclusion: 'met',
 				rules: [],
 				count: 1,
 				success: true,
 				trace: [],
 				errors: [],
+				faults: [],
+				repairs: [],
+				defaulted: [],
 			}
 			expect(narrator.narrate(result)).toBe(narrator.narrate(result))
 		})
@@ -296,12 +340,15 @@ describe('Narrator', () => {
 			expect(
 				narrator.narrate({
 					reasoning: 'logical',
-					conclusion: true,
+					conclusion: 'met',
 					rules: [],
 					count: 3,
 					success: true,
 					trace: [],
 					errors: [],
+					faults: [],
+					repairs: [],
+					defaulted: [],
 				}),
 			).toBe('met (3 rule(s) checked)')
 		})
@@ -357,6 +404,9 @@ describe('Narrator', () => {
 					success: true,
 					trace: [],
 					errors: [],
+					faults: [],
+					repairs: [],
+					defaulted: [],
 				}),
 			).toBe('scored 50,000 across 3 group(s)')
 		})
@@ -374,6 +424,9 @@ describe('Narrator', () => {
 					success: false,
 					trace: [],
 					errors: ['bad group', 'missing factor'],
+					faults: [],
+					repairs: [],
+					defaulted: [],
 				}),
 			).toBe('scored 0 across 0 group(s); failed: bad group, missing factor')
 		})
@@ -417,17 +470,23 @@ describe('Narrator', () => {
 					success: true,
 					trace: [],
 					errors: [],
+					faults: [],
+					repairs: [],
+					defaulted: [],
 				}),
 			).toBe('Q: 1/2')
 			expect(
 				narrator.narrate({
 					reasoning: 'logical',
-					conclusion: true,
+					conclusion: 'met',
 					rules: [],
 					count: 3,
 					success: true,
 					trace: [],
 					errors: [],
+					faults: [],
+					repairs: [],
+					defaulted: [],
 				}),
 			).toBe('L: met/3')
 			expect(
@@ -437,6 +496,9 @@ describe('Narrator', () => {
 					success: true,
 					trace: [],
 					errors: [],
+					faults: [],
+					repairs: [],
+					defaulted: [],
 				}),
 			).toBe('S: x=5')
 			expect(
@@ -446,6 +508,9 @@ describe('Narrator', () => {
 					success: true,
 					trace: [],
 					errors: [],
+					faults: [],
+					repairs: [],
+					defaulted: [],
 				}),
 			).toBe('I: 1')
 		})

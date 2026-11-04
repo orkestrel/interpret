@@ -20,7 +20,14 @@ import type {
 	RecordStamp,
 	Recipe,
 } from '@src/core'
-import { isArray } from '@orkestrel/contract'
+import {
+	arrayShape,
+	isArray,
+	numberShape,
+	objectShape,
+	optionalShape,
+	stringShape,
+} from '@orkestrel/contract'
 import {
 	createConstant,
 	createEquation,
@@ -225,6 +232,9 @@ export const TRICKY_KEYS: readonly string[] = Object.freeze([
 
 // ── Interprets fixtures (environment-agnostic) ────────────────────────────────
 
+/** Holds a shape admitting any field, for a recipe whose test is about something else. */
+export const OPEN_SHAPE = objectShape({}, { additionalProperties: true })
+
 /**
  * Builds a small, neutral `Recipe` — a single `value` entity mapping onto a
  * one-factor quantitative definition — the shared fixture the `interprets`
@@ -242,11 +252,11 @@ export function buildInterpretRecipe(overrides?: Partial<Recipe>): Recipe {
 		domain: 'arithmetic',
 		intents: ['calculate'],
 		mappings: [{ entity: 'value', aliases: ['amount', 'number'], field: 'value' }],
-		defaults: [],
 		computations: [],
 		definition: createQuantitativeDefinition('recipe-1', 'Arithmetic', [
 			createFactorGroup('total', 'sum', [createFieldFactor('value', 'value')]),
 		]),
+		shape: OPEN_SHAPE,
 		...overrides,
 	}
 }
@@ -306,14 +316,9 @@ export function buildInsuranceRecipe(overrides?: Partial<Recipe>): Recipe {
 		domain: 'insurance',
 		intents: ['calculate'],
 		mappings: [
-			{ entity: 'age', aliases: ['years old', 'year old', 'years'], field: 'age', required: true },
+			{ entity: 'age', aliases: ['years old', 'year old', 'years'], field: 'age' },
 			{ entity: 'accidents', aliases: ['accident', 'incidents'], field: 'accidents' },
 			{ entity: 'coverage', aliases: ['plan', 'policy'], field: 'coverage' },
-		],
-		defaults: [
-			{ field: 'accidents', value: 0 },
-			{ field: 'coverage', value: 'standard' },
-			{ field: 'deductible', value: 500 },
 		],
 		computations: [
 			{
@@ -324,6 +329,13 @@ export function buildInsuranceRecipe(overrides?: Partial<Recipe>): Recipe {
 		definition: createQuantitativeDefinition('insurance-auto', 'Auto Insurance Rate', [
 			createFactorGroup('age-group', 'product', [createStaticFactor('age-factor', 1)]),
 		]),
+		shape: objectShape({
+			age: numberShape(),
+			accidents: optionalShape(numberShape(), { default: 0 }),
+			coverage: optionalShape(stringShape(), { default: 'standard' }),
+			deductible: optionalShape(numberShape(), { default: 500 }),
+			monthly: optionalShape(numberShape()),
+		}),
 		...overrides,
 	}
 }
@@ -346,9 +358,12 @@ export function buildEligibilityRecipe(overrides?: Partial<Recipe>): Recipe {
 			{ entity: 'age', aliases: ['years old', 'year old', 'years'], field: 'age' },
 			{ entity: 'score', aliases: ['credit score', 'credit', 'rating'], field: 'score' },
 		],
-		defaults: [],
 		computations: [],
 		definition: createLogicalDefinition('eligibility', 'Eligibility', []),
+		shape: objectShape({
+			age: optionalShape(numberShape()),
+			score: optionalShape(numberShape()),
+		}),
 		...overrides,
 	}
 }
@@ -368,19 +383,19 @@ export function buildLoanRecipe(overrides?: Partial<Recipe>): Recipe {
 		domain: 'loan',
 		intents: ['calculate'],
 		mappings: [{ entity: 'amount', aliases: [], field: 'amount' }],
-		defaults: [],
 		computations: [],
 		definition: createQuantitativeDefinition('loan-personal', 'Personal Loan', [
 			createFactorGroup('total', 'sum', [createFieldFactor('amount', 'amount')]),
 		]),
+		shape: objectShape({ amount: numberShape() }),
 		...overrides,
 	}
 }
 
 /**
- * Builds the statistics corpus recipe — a SINGLE `value` mapping so extraction
- * collects every number: one number lands as a scalar, several as an array the
- * `Generator` keeps as it stands. An aggregate over that array is a
+ * Builds the statistics corpus recipe — a SINGLE `value` mapping onto an array field,
+ * so extraction collects every number and the `Generator` keeps the array as it
+ * stands. An aggregate over that array is a
  * `ComputedField` the caller declares through `overrides`.
  *
  * @param overrides - Fields merged over the corpus defaults
@@ -393,11 +408,14 @@ export function buildStatisticsRecipe(overrides?: Partial<Recipe>): Recipe {
 		domain: 'statistics',
 		intents: ['compute'],
 		mappings: [{ entity: 'value', aliases: [], field: 'value' }],
-		defaults: [],
 		computations: [],
 		definition: createQuantitativeDefinition('statistics', 'Statistics', [
 			createFactorGroup('total', 'sum', [createFieldFactor('value', 'value')]),
 		]),
+		shape: objectShape(
+			{ value: arrayShape(numberShape()) },
+			{ additionalProperties: numberShape() },
+		),
 		...overrides,
 	}
 }
@@ -439,6 +457,8 @@ export function buildInterpretation(overrides?: Partial<Interpretation>): Interp
 			},
 		],
 		ambiguities: [],
+		repairs: [],
+		defaulted: [],
 		prompt: 'Calculate Auto Insurance with age: 25',
 		stages: [],
 		failures: [],

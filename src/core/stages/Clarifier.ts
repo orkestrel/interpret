@@ -1,3 +1,5 @@
+import type { AuditFault, FieldPath } from '@orkestrel/contract'
+import type { SubjectDoorInterface } from '@orkestrel/reason'
 import type {
 	Ambiguity,
 	ClarifierInterface,
@@ -11,43 +13,60 @@ import type {
 	Recipe,
 } from '../types.js'
 import { isArray, isFiniteNumber } from '@orkestrel/contract'
-import { formatField } from '@orkestrel/reason'
+import { createSubjectDoor, formatField } from '@orkestrel/reason'
 import {
 	CONFIDENCE_CARRIED,
 	CONFIDENCE_COMPUTED,
 	CONFIDENCE_DEFAULT,
 	DEFAULT_INTERPRET_FLOOR,
 } from '../constants.js'
-import { resolveExpression, variablesOf } from '../helpers.js'
+import { InterpretError } from '../errors.js'
+import {
+	buildSubject,
+	collectShapeDefaults,
+	findEntityField,
+	findFieldDescription,
+	isNestedField,
+	resolveExpression,
+	settleEntities,
+	variablesOf,
+} from '../helpers.js'
 import { Narrator } from '../Narrator.js'
 
 /**
- * Implements the clarify stage: resolves same-domain carry-over, recipe defaults,
- * and declaratively computed fields against an already-assigned entity set,
- * surfacing an {@link Ambiguity} for every required mapping that stays
- * unresolved.
+ * Implements the clarify stage: resolves same-domain carry-over and declaratively
+ * computed fields against an already-assigned entity set, admits the subject they
+ * build through the recipe's shape, and surfaces an {@link Ambiguity} for everything
+ * the door refused.
  *
  * @remarks
  * Resolution order: fresh (already-assigned) entities always win; carry-over
  * fills a mapping only from the same domain's most recent prior turn (a
  * domain change drops carry-over entirely) and never overwrites a fresh
- * value; recipe defaults fill any field still unresolved after carry-over;
- * computed fields resolve in dependency (topological) order through
+ * value; computed fields resolve in dependency (topological) order through
  * `resolveExpression` — an unresolved input, a non-finite result, or a
- * dependency cycle leaves the field a gap, never landing an entity. A
- * computation reads every resolved numeric field by name, and can address one
+ * dependency cycle leaves the field a gap, never landing an entity; the door then
+ * reads the whole subject, so `parse` fills each default still absent and a computed
+ * value stands over a default. A computation reads every resolved numeric field and
+ * every default in the shape by name, is trusted no more than the least of what it
+ * read, and can address one
  * numeric element of an array-valued field as `{field}.{index}`, so an
  * aggregate over a collection of known length is declarable while a collection
  * whose length varies per turn has none — an unbound element abandons the
  * whole expression. `floor` comes from {@link ClarifierOptions} rather than a
  * hardcoded constant, and gates whether a resolved entity's confidence counts
  * as "resolved enough" when raising ambiguities — a field with a value below
- * `floor` still raises its ambiguity. Every question is rendered through the
- * injected {@link NarratorInterface}'s `ambiguity.entity` line rather than
- * minted from a literal here, so wording stays caller data.
+ * `floor` raises its ambiguity whether or not the shape requires the field, because it
+ * is evidence a value was stated, so neither it nor a default stands. A mapped field left
+ * to a default or a prior turn raises one too while a number nobody claimed could be its
+ * value. Every ambiguity here blocks the subject. A question reads the
+ * shape's `description` for the field, and otherwise renders through the injected
+ * {@link NarratorInterface}'s `ambiguity.entity` line rather than minted from a literal
+ * here, so wording stays caller data.
  *
  * @example
  * ```ts
+ * import { numberShape, objectShape } from '@orkestrel/contract'
  * import { Clarifier } from '@orkestrel/interpret'
  *
  * const clarifier = new Clarifier({ floor: 0.3 })
@@ -58,10 +77,10 @@ import { Narrator } from '../Narrator.js'
  * 		name: 'Arithmetic',
  * 		domain: 'arithmetic',
  * 		intents: ['calculate'],
- * 		mappings: [{ entity: 'value', aliases: [], field: 'value', required: true }],
- * 		defaults: [],
+ * 		mappings: [{ entity: 'value', aliases: [], field: 'value' }],
  * 		computations: [],
  * 		definition: { reasoning: 'symbolic', id: 't1', name: 'Arithmetic', equations: [], variables: {} },
+ * 		shape: objectShape({ value: numberShape() }),
  * 	},
  * 	undefined,
  * 	{ action: 'calculate', domain: 'arithmetic', confidence: 1 },
@@ -71,6 +90,7 @@ import { Narrator } from '../Narrator.js'
 export class Clarifier implements ClarifierInterface {
 	readonly #floor: number
 	readonly #narrator: NarratorInterface
+	readonly #door: SubjectDoorInterface = createSubjectDoor()
 
 	constructor(options?: ClarifierOptions) {
 		this.#floor = options?.floor ?? DEFAULT_INTERPRET_FLOOR
@@ -82,23 +102,31 @@ export class Clarifier implements ClarifierInterface {
 		recipe: Recipe,
 		context: InterpretContextInterface | undefined,
 		intent: Intent,
+		unclaimed: readonly number[] = [],
 	): ClarifyResult {
 		const resolved: Entity[] = [...entities]
 		const filledEntityNames = new Set(resolved.map((entity) => entity.name))
 		const filledFields = new Set(
-			resolved.map((entity) => {
-				const mapping = recipe.mappings.find((candidate) => candidate.entity === entity.name)
-				return mapping === undefined ? entity.name : formatField(mapping.field)
-			}),
+			resolved.map((entity) => formatField(findEntityField(entity, recipe.mappings))),
 		)
 
 		this.#carryOver(recipe, context, intent, filledEntityNames, filledFields, resolved)
-		this.#fillDefaults(recipe, filledFields, resolved)
 		this.#resolveComputations(recipe, filledFields, resolved)
 
-		const ambiguities = this.#collectAmbiguities(recipe, resolved)
+		const subject = buildSubject(resolved, recipe.mappings)
+		const admission = this.#door.admit(subject, recipe.shape)
+		// A refusal with no fault names nothing to ask, so it is the recipe's error, not a question.
+		if (admission.subject === undefined && admission.faults.length === 0) {
+			throw new InterpretError('DEFINITION', admission.errors.join(', '))
+		}
+		const settled = settleEntities(resolved, recipe.mappings, admission)
 
-		return { entities: resolved, ambiguities }
+		return {
+			entities: settled,
+			ambiguities: this.#collectAmbiguities(recipe, settled, admission.faults, unclaimed),
+			repairs: admission.repairs,
+			defaulted: admission.defaulted,
+		}
 	}
 
 	// Same-domain-only carry-over — a chaining pass over `context.previous()`
@@ -134,43 +162,22 @@ export class Clarifier implements ClarifierInterface {
 		}
 	}
 
-	// Fills every still-unresolved default field — never overwrites.
-	#fillDefaults(recipe: Recipe, filledFields: Set<string>, resolved: Entity[]): void {
-		for (const fieldDefault of recipe.defaults) {
-			const key = formatField(fieldDefault.field)
-			if (filledFields.has(key)) continue
-			const mapping = recipe.mappings.find((candidate) => formatField(candidate.field) === key)
-			resolved.push({
-				name: mapping?.entity ?? key,
-				value: fieldDefault.value,
-				provenance: { category: 'default' },
-				confidence: CONFIDENCE_DEFAULT,
-			})
-			filledFields.add(key)
-		}
-	}
-
-	// Resolves computed fields in dependency order, seeding bindings from every
-	// already-resolved numeric field (extracted/carried/default) and from each
-	// numeric element of an array-valued field under `{field}.{index}`, then
-	// growing bindings as each computed field lands. A scalar field whose path
-	// formats to an array element's key — `['value', '0']` and the first element
-	// of `value` both format to `value.0` — collides here, and the entity later
-	// in `resolved` overwrites the earlier binding.
+	// Resolves computed fields in dependency order, seeding bindings from each default the shape
+	// holds, then from every already-resolved numeric field (extracted/carried) and each numeric
+	// element of an array-valued field under `{field}.{index}`, then growing bindings as each
+	// computed field lands. A computed field is trusted no more than the least of what it read. A
+	// scalar field whose path formats to an array element's key — `['value', '0']` and the first
+	// element of `value` both format to `value.0` — collides here, and the entity later in
+	// `resolved` overwrites the earlier binding.
 	#resolveComputations(recipe: Recipe, filledFields: Set<string>, resolved: Entity[]): void {
 		const bindings: Record<string, number> = {}
+		const trust = new Map<string, number>()
+		for (const { field, value } of collectShapeDefaults(recipe.shape)) {
+			this.#bind(bindings, trust, formatField(field), value, CONFIDENCE_DEFAULT)
+		}
 		for (const entity of resolved) {
-			const mapping = recipe.mappings.find((candidate) => candidate.entity === entity.name)
-			const field = mapping === undefined ? entity.name : formatField(mapping.field)
-			const value = entity.value
-			if (isFiniteNumber(value)) {
-				bindings[field] = value
-				continue
-			}
-			if (!isArray(value)) continue
-			for (const [index, item] of Array.prototype.entries.call(value)) {
-				if (isFiniteNumber(item)) bindings[`${field}.${index}`] = item
-			}
+			const field = formatField(findEntityField(entity, recipe.mappings))
+			this.#bind(bindings, trust, field, entity.value, entity.confidence)
 		}
 
 		for (const computation of this.#orderComputations(recipe.computations)) {
@@ -178,15 +185,42 @@ export class Clarifier implements ClarifierInterface {
 			if (filledFields.has(key)) continue
 			const value = resolveExpression(computation.expression, bindings)
 			if (value === undefined) continue
+			const inputs = variablesOf(computation.expression).map((name) => trust.get(name) ?? 0)
+			const confidence = Math.min(CONFIDENCE_COMPUTED, ...inputs)
 			const mapping = recipe.mappings.find((candidate) => formatField(candidate.field) === key)
 			resolved.push({
 				name: mapping?.entity ?? key,
+				...(mapping === undefined && isNestedField(computation.field)
+					? { field: computation.field }
+					: {}),
 				value,
 				provenance: { category: 'computed' },
-				confidence: CONFIDENCE_COMPUTED,
+				confidence,
 			})
 			filledFields.add(key)
 			bindings[key] = value
+			trust.set(key, confidence)
+		}
+	}
+
+	// Binds a finite number under its key, and each finite element of an array under `{key}.{index}`.
+	#bind(
+		bindings: Record<string, number>,
+		trust: Map<string, number>,
+		key: string,
+		value: unknown,
+		confidence: number,
+	): void {
+		if (isFiniteNumber(value)) {
+			bindings[key] = value
+			trust.set(key, confidence)
+			return
+		}
+		if (!isArray(value)) return
+		for (const [index, item] of Array.prototype.entries.call(value)) {
+			if (!isFiniteNumber(item)) continue
+			bindings[`${key}.${index}`] = item
+			trust.set(`${key}.${index}`, confidence)
 		}
 	}
 
@@ -232,21 +266,53 @@ export class Clarifier implements ClarifierInterface {
 		return ordered
 	}
 
-	// One ambiguity per required mapping without a resolved-enough entity.
-	#collectAmbiguities(recipe: Recipe, resolved: readonly Entity[]): Ambiguity[] {
-		const ambiguities: Ambiguity[] = []
-		for (const mapping of recipe.mappings) {
-			if (mapping.required !== true) continue
+	// One ambiguity per fault the door refused, one per mapped value read below the floor, and one
+	// per mapped field this text left to a default or a prior turn while a number nobody claimed
+	// could be its value. A value this text stated or a computation derived has no such doubt.
+	#collectAmbiguities(
+		recipe: Recipe,
+		resolved: readonly Entity[],
+		faults: readonly AuditFault[],
+		unclaimed: readonly number[],
+	): readonly Ambiguity[] {
+		const candidates = unclaimed.map(String)
+		const refused = new Set(faults.map((fault) => formatField(fault.path)))
+		const doubted = recipe.mappings.flatMap((mapping) => {
+			if (refused.has(formatField(mapping.field))) return []
 			const entity = resolved.find((candidate) => candidate.name === mapping.entity)
-			const resolvedEnough = entity !== undefined && entity.confidence >= this.#floor
-			if (resolvedEnough) continue
-			ambiguities.push({
-				field: mapping.field,
-				question: this.#narrator.line('ambiguity.entity', { entity: mapping.entity }),
-				candidates: [],
-				required: true,
-			})
+			if (entity !== undefined && entity.confidence < this.#floor) {
+				return [this.#ask(recipe, mapping.field, [])]
+			}
+			const stated =
+				entity?.provenance.category === 'extracted' || entity?.provenance.category === 'computed'
+			return stated || unclaimed.length === 0 ? [] : [this.#ask(recipe, mapping.field, candidates)]
+		})
+		return [
+			...faults.map((fault) =>
+				this.#ask(recipe, fault.path, fault.reason === 'missing' ? candidates : [], fault),
+			),
+			...doubted,
+		]
+	}
+
+	// Words a question from the shape's description, or the narrator's line when it has none.
+	#ask(
+		recipe: Recipe,
+		field: FieldPath,
+		candidates: readonly string[],
+		fault?: AuditFault,
+	): Ambiguity {
+		const key = formatField(field)
+		const mapping = recipe.mappings.find((candidate) => formatField(candidate.field) === key)
+		const question =
+			findFieldDescription(recipe.shape, field) ??
+			this.#narrator.line('ambiguity.entity', { entity: mapping?.entity ?? key })
+		return {
+			field: mapping?.field ?? field,
+			question,
+			candidates,
+			required: true,
+			...(fault === undefined ? {} : { fault }),
 		}
-		return ambiguities
 	}
 }

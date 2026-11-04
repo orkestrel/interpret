@@ -1,35 +1,33 @@
+import type { ContractShape } from '@orkestrel/contract'
 import type { Entity, EntityMapping } from './types.js'
 import { escapeRegExp } from '@orkestrel/contract'
 import {
 	CONFIDENCE_ALIAS,
 	CONFIDENCE_COLLECT,
 	CONFIDENCE_EXACT,
-	CONFIDENCE_POSITIONAL,
 	NUMBER_PATTERN,
 } from './constants.js'
-import { matchAlias, tokenize } from './helpers.js'
+import { findAnchoredNumber, isArrayField, matchAlias, tokenize } from './helpers.js'
 
 /** Compiles one text's numeric occurrences into recipe entity assignments. */
 export class EntityCompiler {
 	readonly #used = new Set<number>()
-	readonly #filled = new Set<string>()
 	readonly #entities: Entity[] = []
-	#index = 0
 
 	execute(
 		numbers: readonly number[],
 		mappings: readonly EntityMapping[],
 		text: string,
 		similarity: number,
+		shape: ContractShape,
 	): readonly Entity[] {
 		if (mappings.length === 0 || numbers.length === 0) return []
-		if (mappings.length === 1) {
-			const mapping = mappings[0]
-			if (mapping === undefined) return []
+		const lone = mappings.length === 1 ? mappings[0] : undefined
+		if (lone !== undefined && isArrayField(shape, lone.field)) {
 			return [
 				{
-					name: mapping.entity,
-					value: numbers.length === 1 ? numbers[0] : numbers,
+					name: lone.entity,
+					value: numbers,
 					provenance: { category: 'extracted', detail: 'collect' },
 					confidence: CONFIDENCE_COLLECT,
 				},
@@ -37,15 +35,17 @@ export class EntityCompiler {
 		}
 		const tokens = tokenize(text)
 		const lowerText = text.toLowerCase()
-		const positions = [
-			...text.matchAll(new RegExp(NUMBER_PATTERN.source, NUMBER_PATTERN.flags)),
-		].map((match) => match.index)
+		const spans = [...text.matchAll(new RegExp(NUMBER_PATTERN.source, NUMBER_PATTERN.flags))].map(
+			// The pattern takes the spaces after a number, which are no part of it.
+			(match) => ({ start: match.index, end: match.index + match[0].trimEnd().length }),
+		)
 		const matches = Iterator.from(mappings)
 			.map((mapping) => {
 				const entityToken = mapping.entity.toLowerCase()
 				return tokens.reduce<{
 					readonly mapping: EntityMapping
 					readonly position: number
+					readonly end: number
 					readonly confidence: number
 					readonly detail: 'keyword' | 'alias'
 				}>(
@@ -57,67 +57,49 @@ export class EntityCompiler {
 						)
 						if (token === entityToken) {
 							return position > matched.position
-								? { mapping, position, confidence: CONFIDENCE_EXACT, detail: 'keyword' }
+								? {
+										mapping,
+										position,
+										end: position + token.length,
+										confidence: CONFIDENCE_EXACT,
+										detail: 'keyword',
+									}
 								: matched
 						}
 						if (mapping.aliases.some((alias) => alias.toLowerCase() === token)) {
 							return position > matched.position
-								? { mapping, position, confidence: CONFIDENCE_ALIAS, detail: 'alias' }
+								? {
+										mapping,
+										position,
+										end: position + token.length,
+										confidence: CONFIDENCE_ALIAS,
+										detail: 'alias',
+									}
 								: matched
 						}
 						const confidence = matchAlias(token, mapping.aliases, similarity)
 						return confidence > 0 && position > matched.position
-							? { mapping, position, confidence, detail: 'alias' }
+							? { mapping, position, end: position + token.length, confidence, detail: 'alias' }
 							: matched
 					},
-					{ mapping, position: -1, confidence: 0, detail: 'keyword' },
+					{ mapping, position: -1, end: -1, confidence: 0, detail: 'keyword' },
 				)
 			})
 			.filter((match) => match.position >= 0)
 			.toArray()
 			.sort((left, right) => left.position - right.position)
 		for (const match of matches) {
-			const best = Array.prototype.keys.call(numbers).reduce<{
-				readonly index: number
-				readonly distance: number
-			}>(
-				(nearest, index) => {
-					if (this.#used.has(index)) return nearest
-					const position = positions[index]
-					if (position === undefined) return nearest
-					const distance = Math.abs(position - match.position)
-					return distance < nearest.distance ? { index, distance } : nearest
-				},
-				{ index: -1, distance: Number.POSITIVE_INFINITY },
-			)
-			if (best.index < 0) continue
-			const value = numbers[best.index]
+			const best = findAnchoredNumber(text, { start: match.position, end: match.end }, spans)
+			if (best === undefined || this.#used.has(best)) continue
+			const value = numbers[best]
 			if (value === undefined) continue
-			this.#used.add(best.index)
-			this.#filled.add(match.mapping.entity)
+			this.#used.add(best)
 			this.#entities.push({
 				name: match.mapping.entity,
-				value,
+				value: isArrayField(shape, match.mapping.field) ? [value] : value,
 				provenance: { category: 'extracted', detail: match.detail },
 				confidence: match.confidence,
 			})
-		}
-		for (const mapping of mappings) {
-			if (this.#filled.has(mapping.entity)) continue
-			while (this.#index < numbers.length && this.#used.has(this.#index)) this.#index += 1
-			if (this.#index >= numbers.length) break
-			const value = numbers[this.#index]
-			if (value !== undefined) {
-				this.#used.add(this.#index)
-				this.#filled.add(mapping.entity)
-				this.#entities.push({
-					name: mapping.entity,
-					value,
-					provenance: { category: 'extracted', detail: 'positional' },
-					confidence: CONFIDENCE_POSITIONAL,
-				})
-			}
-			this.#index += 1
 		}
 		return this.#entities
 	}

@@ -39,17 +39,23 @@ export const CONFIDENCE_ALIAS = 0.9
  */
 export const CONFIDENCE_COLLECT = 0.9
 
-/** Names the confidence assigned to a positional (order-based) entity match fallback, 0.7. */
-export const CONFIDENCE_POSITIONAL = 0.7
-
 /** Names the confidence assigned to a same-domain carried-over field, 0.7. */
 export const CONFIDENCE_CARRIED = 0.7
 
-/** Names the confidence assigned to a recipe default fill, 1. */
+/** Names the confidence assigned to a default the door filled, 1. */
 export const CONFIDENCE_DEFAULT = 1
 
-/** Names the confidence assigned to a successfully resolved computed field, 0.9. */
+/** Names the most a computed field may be trusted, 0.9: its inputs can only lower it. */
 export const CONFIDENCE_COMPUTED = 0.9
+
+/**
+ * Holds what ends a clause: closing punctuation, a comma or dot no digit follows, a newline, and
+ * a joining word. A colon stays inside, because "rate: 6" says one thing.
+ *
+ * @remarks
+ * Carries the global flag, so every call site builds a fresh `RegExp` from it.
+ */
+export const CLAUSE_BREAK_PATTERN = /[!?;\n]|[.,](?!\d)|\b(?:and|but|while|though|although)\b/gi
 
 /**
  * Holds the numeric-entity extraction pattern shared by `extractNumbers` and
@@ -154,5 +160,6 @@ export const INTERPRET_ERROR_CODES: readonly InterpretErrorCode[] = Object.freez
 	'GENERATE_FAILED',
 	'NO_RECIPE',
 	'LOW_CONFIDENCE',
+	'DEFINITION',
 	'DESTROYED',
 ])

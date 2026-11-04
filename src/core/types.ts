@@ -1,4 +1,4 @@
-import type { FieldPath } from '@orkestrel/contract'
+import type { AuditFault, ContractShape, FieldPath, JSONValue } from '@orkestrel/contract'
 import type { EmitterErrorHandler, EmitterHooks, EmitterInterface } from '@orkestrel/emitter'
 import type { Definition, ReasonResult, Subject, SymbolicExpression } from '@orkestrel/reason'
 
@@ -22,10 +22,10 @@ import type { Definition, ReasonResult, Subject, SymbolicExpression } from '@ork
  * Names how one {@link FieldMapping} or {@link Entity} value was obtained.
  *
  * @remarks
- * `extracted` — mined from the raw text through keyword / alias / positional
+ * `extracted` — mined from the raw text through keyword / alias
  * matching. `carried` — reused from a same-domain prior turn in an
  * {@link InterpretContextInterface}. `default` — filled from a
- * {@link Recipe}'s {@link FieldDefault}. `computed` — derived by evaluating
+ * default in a {@link Recipe}'s `shape`. `computed` — derived by evaluating
  * a {@link ComputedField}'s expression. `subject` — already present on an
  * injected base subject, untouched by this interpretation.
  */
@@ -52,7 +52,8 @@ export type InterpretStage = 'normalize' | 'extract' | 'clarify' | 'format' | 'g
  * phase. `NO_RECIPE` — no added {@link Recipe} scored at or above
  * the confidence floor (or the registry is empty). `LOW_CONFIDENCE` — a
  * recipe matched but the classified {@link Intent}'s confidence fell below
- * the floor. `DESTROYED` — any use of a destroyed entity.
+ * the floor. `DEFINITION` — a {@link Recipe} is malformed, or its `shape` does not stand or
+ * does not declare a field it maps or computes. `DESTROYED` — any use of a destroyed entity.
  */
 export type InterpretErrorCode =
 	| 'NORMALIZE_FAILED'
@@ -62,6 +63,7 @@ export type InterpretErrorCode =
 	| 'GENERATE_FAILED'
 	| 'NO_RECIPE'
 	| 'LOW_CONFIDENCE'
+	| 'DEFINITION'
 	| 'DESTROYED'
 
 // === Recipe data model — pure JSON-serializable, versionable, diffable, hashable
@@ -72,20 +74,13 @@ export type InterpretErrorCode =
  *
  * @remarks
  * `aliases` are literal phrases (no `RegExp` — recipes stay JSON), matched
- * exact-then-fuzzy against tokens surrounding an extracted number. `required`
- * marks the field as needing an {@link Ambiguity} when it stays unresolved.
+ * exact-then-fuzzy against tokens surrounding an extracted number. Whether the
+ * field is required is the {@link Recipe}'s `shape` to say.
  */
 export interface EntityMapping {
 	readonly entity: string
 	readonly aliases: readonly string[]
 	readonly field: FieldPath
-	readonly required?: boolean
-}
-
-/** Represents a fallback value a {@link Recipe} fills onto a field left unresolved by extraction. */
-export interface FieldDefault {
-	readonly field: FieldPath
-	readonly value: unknown
 }
 
 /**
@@ -116,7 +111,7 @@ export interface ComputedField {
 
 /**
  * Represents a named, versionable interpretation recipe: which intents it answers,
- * how to mine entities for it, its fallback data, its computed fields, and
+ * how to mine entities for it, its computed fields, the shape of what it produces, and
  * the reasons `Definition` it ultimately produces a `Subject` for.
  *
  * @remarks
@@ -124,7 +119,9 @@ export interface ComputedField {
  * vocabulary (`reasoning` / `Check` / `terms` / `form` / `origin`). A
  * `Recipe` and its `Definition` are one authored record, and their ids stay
  * independent: nothing requires `recipe.id` to equal `definition.id`.
- * `intents` lists the `Intent.action` values this recipe answers.
+ * `intents` lists the `Intent.action` values this recipe answers. `shape` is the generated
+ * subject's shape, read at the door after clarify and computations: it says which fields are
+ * required, which are optional, and what an optional one defaults to.
  */
 export interface Recipe {
 	readonly id: string
@@ -132,9 +129,15 @@ export interface Recipe {
 	readonly domain: string
 	readonly intents: readonly string[]
 	readonly mappings: readonly EntityMapping[]
-	readonly defaults: readonly FieldDefault[]
 	readonly computations: readonly ComputedField[]
 	readonly definition: Definition
+	readonly shape: ContractShape
+}
+
+/** Represents one default a {@link Recipe}'s `shape` holds, by the field it fills. */
+export interface ShapeDefault {
+	readonly field: readonly string[]
+	readonly value: JSONValue
 }
 
 // === Intent, entity, ambiguity, provenance
@@ -162,20 +165,34 @@ export interface Intent {
 	readonly confidence: number
 }
 
-/** Represents one value assigned to a recipe's entity mapping, with its provenance and confidence. */
+/**
+ * Represents one value assigned to a recipe's entity mapping, with its provenance and confidence.
+ *
+ * @remarks
+ * `field` is where a value no mapping names lands, as a default or a computed field does.
+ */
 export interface Entity {
 	readonly name: string
+	readonly field?: FieldPath
 	readonly value: unknown
 	readonly provenance: Provenance
 	readonly confidence: number
 }
 
-/** Represents an unresolved field surfaced as a human-readable question, never bare prose. */
+/**
+ * Represents an unresolved field surfaced as a human-readable question, never bare prose.
+ *
+ * @remarks
+ * `fault` is what the door refused, when it refused: the question a caller asks can be derived
+ * from it. A value read below the floor, a number no anchor claimed, and an unmatched intent
+ * carry none. `candidates` lists the numbers no anchor claimed, which may hold the answer.
+ */
 export interface Ambiguity {
 	readonly field: FieldPath
 	readonly question: string
 	readonly candidates: readonly string[]
 	readonly required: boolean
+	readonly fault?: AuditFault
 }
 
 /**
@@ -192,6 +209,12 @@ export interface FieldMapping {
 	readonly value: unknown
 	readonly provenance: Provenance
 	readonly confidence: number
+}
+
+/** Represents where something sits in a text: `start` inclusive, `end` exclusive. */
+export interface TextSpan {
+	readonly start: number
+	readonly end: number
 }
 
 /** Represents one normalization substitution applied to the raw text. */
@@ -247,10 +270,17 @@ export interface ExtractResult {
 	readonly numbers: readonly number[]
 }
 
-/** Represents the `Clarifier` stage's output: resolved entities plus any remaining ambiguities. */
+/**
+ * Represents the `Clarifier` stage's output: resolved entities plus any remaining ambiguities.
+ *
+ * @remarks
+ * `repairs` and `defaulted` are what the door accepted and filled.
+ */
 export interface ClarifyResult {
 	readonly entities: readonly Entity[]
 	readonly ambiguities: readonly Ambiguity[]
+	readonly repairs: readonly AuditFault[]
+	readonly defaulted: readonly FieldPath[]
 }
 
 /** Represents the `Formatter` stage's output: the refined natural-language prompt. */
@@ -273,9 +303,12 @@ export interface GenerateResult {
  *
  * @remarks
  * `subject` / `definition` are absent on an incomplete `NO_RECIPE` /
- * `LOW_CONFIDENCE` result — there is never a fabricated fallback recipe. An
- * interpretation is complete when `ambiguities` and `failures` are both empty;
- * no stored flag repeats that fact. `stages` always holds one record per
+ * `LOW_CONFIDENCE` result — there is never a fabricated fallback recipe. `subject`
+ * is also absent while a required ambiguity is open, because a subject the door refused
+ * is no subject. An interpretation is complete when `ambiguities` and `failures` are
+ * both empty; no stored flag repeats that fact. `repairs` and `defaulted` are what
+ * the door accepted and filled. `recipe` and `recipeVersion` name the recipe matched, since a
+ * `definition`'s id is independent of it. `stages` always holds one record per
  * phase, `[normalize, extract, clarify, format, generate]`,
  * in order. `digest` is `digestValue` over `{text, recipeId,
  * recipeVersion, subject, definition}` — re-running the same original text
@@ -286,11 +319,15 @@ export interface Interpretation {
 	readonly text: string
 	readonly normalized: string
 	readonly intent: Intent
+	readonly recipe?: string
+	readonly recipeVersion?: number
 	readonly entities: readonly Entity[]
 	readonly subject?: Subject
 	readonly definition?: Definition
 	readonly mappings: readonly FieldMapping[]
 	readonly ambiguities: readonly Ambiguity[]
+	readonly repairs: readonly AuditFault[]
+	readonly defaulted: readonly FieldPath[]
 	readonly prompt: string
 	readonly stages: readonly StageRecord[]
 	readonly failures: readonly StageFailure[]
@@ -727,18 +764,21 @@ export interface ExtractorInterface {
  */
 export interface ClarifierInterface {
 	/**
-	 * Resolves carry-over, recipe defaults, and computed fields, and surfaces an
-	 * {@link Ambiguity} for every unresolved required field, worded through the narrator's
-	 * `ambiguity.entity` line.
+	 * Resolves carry-over and computed fields, admits the result through the recipe's shape,
+	 * and surfaces an {@link Ambiguity} for everything the door refused, every value read below
+	 * the floor, and every mapped field left to a default or a prior turn while a number nobody
+	 * claimed could be its value, with its question from the shape's `description` or the
+	 * narrator's `ambiguity.entity` line.
 	 *
 	 * @remarks
 	 * A computation addresses one numeric element of an array-valued field as
 	 * `{field}.{index}`, so only a collection of known length has a declarable aggregate.
 	 *
 	 * @param entities - The entities extraction already assigned
-	 * @param recipe - The matched recipe supplying the mappings, defaults, and computations
+	 * @param recipe - The matched recipe supplying the mappings, computations, and shape
 	 * @param context - The cross-turn context carry-over reads from, or `undefined` for none
 	 * @param intent - The classified intent, whose domain gates carry-over
+	 * @param unclaimed - The numbers read that no mapping's anchor claimed, none when omitted
 	 * @returns The resolved entities plus every remaining ambiguity
 	 */
 	clarify(
@@ -746,6 +786,7 @@ export interface ClarifierInterface {
 		recipe: Recipe,
 		context: InterpretContextInterface | undefined,
 		intent: Intent,
+		unclaimed?: readonly number[],
 	): ClarifyResult
 }
 

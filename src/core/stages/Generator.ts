@@ -1,20 +1,16 @@
-import type { Subject } from '@orkestrel/reason'
 import type { Entity, FieldMapping, GenerateResult, GeneratorInterface, Recipe } from '../types.js'
-import { isArray } from '@orkestrel/contract'
-import { setField } from '../helpers.js'
+import { buildSubject, findEntityField } from '../helpers.js'
 
 /**
  * Implements the generate stage: builds the final `Subject` from a fully resolved
  * entity set, plus its complete field audit.
  *
  * @remarks
- * `entity → field` through `recipe.mappings` (an `EntityMapping.entity` name
- * lookup); an entity whose name matches no mapping lands on the field named
- * by its own `name` — the shape `Clarifier` uses for its synthesized
- * default/computed entities, so one lookup rule serves both extraction-
- * mapped and recipe-data-derived fields. A single-element array value
- * unwraps to its scalar; every other value lands as it stands, so a
- * multi-element array stays an array. The stage derives no field of its own:
+ * `entity → field` through the entity's own `field`, then `recipe.mappings` (an
+ * `EntityMapping.entity` name lookup), then the entity's own `name` — `Clarifier`
+ * sets `field` on the defaults and computed fields no mapping names. Every value
+ * lands as it stands, because the door has already read it against the recipe's
+ * shape. The stage derives no field of its own:
  * an aggregate over an array-valued entity is a `ComputedField` the recipe
  * author declares, resolved by `Clarifier` before this stage runs.
  * `confidence` is the mean of the input entities' own confidences (`0` for
@@ -24,6 +20,7 @@ import { setField } from '../helpers.js'
  *
  * @example
  * ```ts
+ * import { numberShape, objectShape } from '@orkestrel/contract'
  * import { Generator } from '@orkestrel/interpret'
  *
  * const generator = new Generator()
@@ -42,7 +39,7 @@ import { setField } from '../helpers.js'
  * 		domain: 'arithmetic',
  * 		intents: ['calculate'],
  * 		mappings: [{ entity: 'value', aliases: [], field: 'value' }],
- * 		defaults: [],
+ * 		shape: objectShape({ value: numberShape() }),
  * 		computations: [],
  * 		definition: { reasoning: 'symbolic', id: 't1', name: 'Arithmetic', equations: [], variables: {} },
  * 	},
@@ -51,42 +48,24 @@ import { setField } from '../helpers.js'
  */
 export class Generator implements GeneratorInterface {
 	generate(entities: readonly Entity[], recipe: Recipe): GenerateResult {
-		const mappings: FieldMapping[] = []
-
-		const subject = Iterator.from(entities).reduce<Subject>((prior, entity) => {
-			const mapping = recipe.mappings.find((candidate) => candidate.entity === entity.name)
-			const field = mapping === undefined ? entity.name : mapping.field
-			const value = entity.value
-
-			if (isArray(value) && value.length === 1) {
-				const scalar = value[0]
-				const next = setField(prior, field, scalar)
-				mappings.push({
-					field,
-					entity: entity.name,
-					value: scalar,
-					provenance: entity.provenance,
-					confidence: entity.confidence,
-				})
-				return next
-			}
-
-			const next = setField(prior, field, value)
-			mappings.push({
-				field,
-				entity: entity.name,
-				value,
-				provenance: entity.provenance,
-				confidence: entity.confidence,
-			})
-			return next
-		}, {})
+		const mappings = entities.map<FieldMapping>((entity) => ({
+			field: findEntityField(entity, recipe.mappings),
+			entity: entity.name,
+			value: entity.value,
+			provenance: entity.provenance,
+			confidence: entity.confidence,
+		}))
 
 		const confidence =
 			entities.length === 0
 				? 0
 				: entities.reduce((total, entity) => total + entity.confidence, 0) / entities.length
 
-		return { subject, definition: recipe.definition, mappings, confidence }
+		return {
+			subject: buildSubject(entities, recipe.mappings),
+			definition: recipe.definition,
+			mappings,
+			confidence,
+		}
 	}
 }

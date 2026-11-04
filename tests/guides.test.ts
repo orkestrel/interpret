@@ -36,7 +36,8 @@ await new GuideCommand({
 	reader: readInventory,
 	runner: createVitest,
 }).execute(async ({ files, report, rows }) => {
-	const { isRecord, parseJSON } = await import('@orkestrel/contract')
+	const { arrayShape, isRecord, numberShape, objectShape, parseJSON } =
+		await import('@orkestrel/contract')
 	const {
 		computeSymbolKey,
 		createSourceManager,
@@ -59,7 +60,6 @@ await new GuideCommand({
 		CONFIDENCE_COMPUTED,
 		CONFIDENCE_DEFAULT,
 		CONFIDENCE_EXACT,
-		CONFIDENCE_POSITIONAL,
 		collapseWhitespace,
 		createClarifier,
 		createDefinitionManager,
@@ -84,7 +84,6 @@ await new GuideCommand({
 		isComputedField,
 		isEntity,
 		isEntityMapping,
-		isFieldDefault,
 		isFieldMapping,
 		isIntent,
 		isInterpretation,
@@ -269,7 +268,7 @@ await new GuideCommand({
 		domain: 'arithmetic',
 		intents: ['calculate'],
 		mappings: [{ entity: 'value', aliases: [], field: 'value' }],
-		defaults: [],
+		shape: objectShape({ value: numberShape() }),
 		computations: [],
 		definition: createQuantitativeDefinition('t1', 'Arithmetic', [
 			createFactorGroup('total', 'sum', [createFieldFactor('value', 'value')]),
@@ -290,7 +289,7 @@ await new GuideCommand({
 				}),
 				recipes: [ARITHMETIC],
 			})
-			const result = interpret.interpret('calculate arithmetic 42')
+			const result = interpret.interpret('calculate arithmetic value 42')
 
 			expect(result.subject).toEqual({ value: 42 })
 			expect(result.ambiguities).toEqual([])
@@ -305,7 +304,6 @@ await new GuideCommand({
 			expect(CONFIDENCE_EXACT).toBe(1)
 			expect(CONFIDENCE_ALIAS).toBe(0.9)
 			expect(CONFIDENCE_COLLECT).toBe(0.9)
-			expect(CONFIDENCE_POSITIONAL).toBe(0.7)
 			expect(CONFIDENCE_CARRIED).toBe(0.7)
 			expect(CONFIDENCE_DEFAULT).toBe(1)
 			expect(CONFIDENCE_COMPUTED).toBe(0.9)
@@ -327,7 +325,6 @@ await new GuideCommand({
 
 		it('Validators: every guard accepts the record the fence hands it', () => {
 			expect(isEntityMapping({ entity: 'age', aliases: ['years old'], field: 'age' })).toBe(true)
-			expect(isFieldDefault({ field: 'term', value: 12 })).toBe(true)
 			expect(
 				isComputedField({
 					field: 'monthly',
@@ -346,7 +343,7 @@ await new GuideCommand({
 					domain: 'arithmetic',
 					intents: ['calculate'],
 					mappings: [],
-					defaults: [],
+					shape: objectShape({}),
 					computations: [],
 					definition: createQuantitativeDefinition('t1', 'Arithmetic', [
 						createFactorGroup('total', 'sum', [createFieldFactor('value', 'value')]),
@@ -404,8 +401,9 @@ await new GuideCommand({
 					{ entity: 'age', aliases: ['years old'], field: 'age' },
 					{ entity: 'score', aliases: ['credit score'], field: 'score' },
 				],
-				'25 year old with score 720',
+				'age 25 with score 720',
 				0.8,
+				objectShape({ age: numberShape(), score: numberShape() }),
 			)
 			expect(assigned.find((entity) => entity.name === 'age')?.value).toBe(25)
 			expect(assigned.find((entity) => entity.name === 'score')?.value).toBe(720)
@@ -447,7 +445,7 @@ await new GuideCommand({
 						domain: 'rating',
 						intents: ['compute'],
 						mappings: [],
-						defaults: [],
+						shape: objectShape({}),
 						computations: [],
 						definition: {
 							reasoning: 'symbolic',
@@ -515,8 +513,8 @@ await new GuideCommand({
 				name: 'Arithmetic',
 				domain: 'arithmetic',
 				intents: ['calculate'],
-				mappings: [{ entity: 'value', aliases: [], field: 'value', required: true }],
-				defaults: [],
+				mappings: [{ entity: 'value', aliases: [], field: 'value' }],
+				shape: objectShape({ value: numberShape() }),
 				computations: [],
 				definition: {
 					reasoning: 'symbolic',
@@ -536,8 +534,16 @@ await new GuideCommand({
 			).toEqual({
 				entities: [],
 				ambiguities: [
-					{ field: 'value', question: 'What is your value?', candidates: [], required: true },
+					{
+						field: 'value',
+						question: 'What is your value?',
+						candidates: [],
+						required: true,
+						fault: { reason: 'missing', path: ['value'], expected: 'number' },
+					},
 				],
+				repairs: [],
+				defaulted: [],
 			})
 		})
 
@@ -549,7 +555,7 @@ await new GuideCommand({
 				domain: 'arithmetic',
 				intents: ['calculate'],
 				mappings: [{ entity: 'value', aliases: [], field: 'value' }],
-				defaults: [],
+				shape: objectShape({ value: arrayShape(numberShape()), total: numberShape() }),
 				computations: [
 					{
 						field: 'total',
@@ -590,7 +596,7 @@ await new GuideCommand({
 				domain: 'arithmetic',
 				intents: ['calculate'],
 				mappings: [],
-				defaults: [],
+				shape: objectShape({}),
 				computations: [],
 				definition: {
 					reasoning: 'symbolic',
@@ -619,7 +625,7 @@ await new GuideCommand({
 				domain: 'arithmetic',
 				intents: ['calculate'],
 				mappings: [{ entity: 'value', aliases: [], field: 'value' }],
-				defaults: [],
+				shape: objectShape({ value: numberShape() }),
 				computations: [],
 				definition: {
 					reasoning: 'symbolic',
@@ -728,6 +734,8 @@ await new GuideCommand({
 				entities: [],
 				mappings: [],
 				ambiguities: [],
+				repairs: [],
+				defaulted: [],
 				prompt: '',
 				stages: [],
 				failures: [],
@@ -748,7 +756,7 @@ await new GuideCommand({
 				}),
 			})
 			interpret.add(ARITHMETIC)
-			const result = interpret.interpret('calculate arithmetic 42')
+			const result = interpret.interpret('calculate arithmetic value 42')
 
 			expect(result.subject).toEqual({ value: 42 })
 			expect(interpret.recipe('t1')).toEqual(ARITHMETIC)

@@ -81,7 +81,7 @@ describe('createInterpret', () => {
 			recipes: [buildInterpretRecipe()],
 			extractor: createExtractor({ actions: INTERPRET_ACTIONS, domains: INTERPRET_DOMAINS }),
 		})
-		const result = interpret.interpret('calculate arithmetic 42')
+		const result = interpret.interpret('calculate arithmetic value 42')
 		expect(result.ambiguities).toEqual([])
 		expect(result.failures).toEqual([])
 		expect(result.subject).toEqual({ value: 42 })
@@ -99,7 +99,7 @@ describe('createInterpret', () => {
 			interpret.emitter,
 			['interpret', 'add', 'destroy'],
 		)
-		interpret.interpret('calculate arithmetic 42')
+		interpret.interpret('calculate arithmetic value 42')
 		expect(interpretEvents.count).toBe(1)
 		expect(events.interpret.count).toBe(1)
 		interpret.destroy()

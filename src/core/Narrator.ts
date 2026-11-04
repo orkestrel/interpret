@@ -125,7 +125,7 @@ export class Narrator implements NarratorInterface {
 			}
 			case 'logical':
 				return this.line('result.logical', {
-					status: result.conclusion ? 'met' : 'unmet',
+					status: result.conclusion,
 					count: result.count,
 				})
 			case 'symbolic': {

@@ -3,7 +3,7 @@ import { Generator } from '@src/core'
 import { describe, expect, it } from 'vitest'
 import { buildInterpretRecipe, TRICKY_KEYS } from '../../../setup.js'
 
-// The `Generator` stage — entity → field, single-element array unwrap, mean
+// The `Generator` stage — entity → field, every value as it stands, mean
 // confidence, and a `FieldMapping` for EVERY subject field.
 
 describe('Generator', () => {
@@ -39,7 +39,7 @@ describe('Generator', () => {
 		expect(result.mappings[0]?.field).toBe('term')
 	})
 
-	it('unwraps a single-element array value to its scalar', () => {
+	it('keeps a single-element array, because the door has read it against the shape', () => {
 		const recipe = buildInterpretRecipe()
 		const entities: readonly Entity[] = [
 			{
@@ -50,7 +50,7 @@ describe('Generator', () => {
 			},
 		]
 		const result = generator.generate(entities, recipe)
-		expect(result.subject.value).toBe(42)
+		expect(result.subject.value).toEqual([42])
 	})
 
 	it('keeps a multi-element numeric array as it stands, deriving no sibling field', () => {
@@ -120,6 +120,22 @@ describe('Generator', () => {
 			'term',
 			'value',
 		])
+	})
+
+	it('lands an entity on its own field before any mapping or its name', () => {
+		const recipe = buildInterpretRecipe()
+		const entities: readonly Entity[] = [
+			{
+				name: 'value',
+				field: ['terms', 'rate'],
+				value: 3,
+				provenance: { category: 'default' },
+				confidence: 1,
+			},
+		]
+		const result = generator.generate(entities, recipe)
+		expect(result.subject).toEqual({ terms: { rate: 3 } })
+		expect(result.mappings[0]?.field).toEqual(['terms', 'rate'])
 	})
 
 	it('confidence is the mean of the input entities, 0 for an empty set', () => {

@@ -31,6 +31,7 @@ import { Narrator } from '../Narrator.js'
  *
  * @example
  * ```ts
+ * import { objectShape } from '@orkestrel/contract'
  * import { Formatter } from '@orkestrel/interpret'
  *
  * const formatter = new Formatter({ verbs: { calculate: 'Calculate' } })
@@ -42,7 +43,7 @@ import { Narrator } from '../Narrator.js'
  * 		domain: 'arithmetic',
  * 		intents: ['calculate'],
  * 		mappings: [],
- * 		defaults: [],
+ * 		shape: objectShape({}),
  * 		computations: [],
  * 		definition: { reasoning: 'symbolic', id: 't1', name: 'Arithmetic', equations: [], variables: {} },
  * 	},

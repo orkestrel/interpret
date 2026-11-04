@@ -13,9 +13,10 @@
 // What the package DOES with these fixtures is proved by the suites that consume them. This
 // file drives no stage, no manager, and no narrator: it asserts only what the fixtures are.
 
-import { Extractor } from '@src/core'
-import { resolveField } from '@orkestrel/contract'
+import { collectShapeDefaults, Extractor } from '@src/core'
+import { createContract as contractOf, resolveField } from '@orkestrel/contract'
 import {
+	formatField,
 	createLogicalDefinition,
 	createLogicalReasoner,
 	createReason,
@@ -183,7 +184,7 @@ describe('the interprets corpus builders', () => {
 
 		expect(first).not.toBe(second)
 		expect(first.mappings).not.toBe(second.mappings)
-		expect(first.defaults).not.toBe(second.defaults)
+		expect(first.shape).not.toBe(second.shape)
 		expect(first).toEqual(second)
 	})
 
@@ -194,7 +195,7 @@ describe('the interprets corpus builders', () => {
 		expect(overridden.intents).toEqual(['check'])
 		expect(overridden.mappings).toEqual([])
 		expect(overridden.id).toBe(base.id)
-		expect(overridden.defaults).toEqual(base.defaults)
+		expect(overridden.shape).toEqual(base.shape)
 		expect(overridden.definition).toEqual(base.definition)
 	})
 
@@ -207,11 +208,10 @@ describe('the interprets corpus builders', () => {
 
 	it('give the insurance recipe a default no mapping can supply', () => {
 		const recipe = buildInsuranceRecipe()
-		const mapped = new Set(recipe.mappings.map((mapping) => mapping.field))
+		const mapped = new Set(recipe.mappings.map((mapping) => formatField(mapping.field)))
+		const filled = collectShapeDefaults(recipe.shape).map((entry) => formatField(entry.field))
 
-		expect(
-			recipe.defaults.filter((entry) => !mapped.has(entry.field)).map((entry) => entry.field),
-		).toContain('deductible')
+		expect(filled.filter((field) => !mapped.has(field))).toContain('deductible')
 		expect(recipe.computations.map((computation) => computation.field)).toContain('monthly')
 	})
 
@@ -220,9 +220,11 @@ describe('the interprets corpus builders', () => {
 		const eligibility = buildEligibilityRecipe()
 
 		expect(
-			insurance.mappings.filter((mapping) => mapping.required === true).map((m) => m.entity),
-		).toEqual(['age'])
-		expect(eligibility.mappings.filter((mapping) => mapping.required === true)).toEqual([])
+			contractOf(insurance.shape)
+				.explain({})
+				.map((fault) => fault.path),
+		).toEqual([['age']])
+		expect(contractOf(eligibility.shape).explain({})).toEqual([])
 	})
 
 	it('give the eligibility recipe multi-word aliases, so proximity has something to score', () => {

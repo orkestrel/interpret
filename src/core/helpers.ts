@@ -1,11 +1,34 @@
-import type { FieldPath } from '@orkestrel/contract'
-import type { Subject, SymbolicExpression } from '@orkestrel/reason'
-import type { Intent, NarratorInterface, Recipe } from './types.js'
-import { escapeRegExp, isArray, isFiniteNumber, isRecord } from '@orkestrel/contract'
-import { applyOperation } from '@orkestrel/reason'
+import type { ContractShape, FieldPath, JSONValue } from '@orkestrel/contract'
+import type { Subject, SubjectAdmission, SymbolicExpression } from '@orkestrel/reason'
+import type {
+	Entity,
+	EntityMapping,
+	Intent,
+	Interpretation,
+	NarratorInterface,
+	Recipe,
+	ShapeDefault,
+	TextSpan,
+} from './types.js'
+import { escapeRegExp, isArray, isFiniteNumber, isRecord, resolveField } from '@orkestrel/contract'
+import {
+	applyOperation,
+	findFieldShape,
+	formatField,
+	projectValue,
+	scanShape,
+	scanSymbolicExpression,
+} from '@orkestrel/reason'
 import { UNSAFE_FIELD_SEGMENTS } from '@orkestrel/template'
 import { BigramCounter } from './BigramCounter.js'
-import { CONFIDENCE_EXACT, NUMBER_PATTERN } from './constants.js'
+import {
+	CLAUSE_BREAK_PATTERN,
+	CONFIDENCE_DEFAULT,
+	CONFIDENCE_EXACT,
+	NUMBER_PATTERN,
+} from './constants.js'
+import { InterpretError } from './errors.js'
+import { isRecipe } from './validators.js'
 
 // The interprets pure-leaf inventory — every function here is
 // a referentially-transparent computation with no instance state, exported
@@ -165,6 +188,54 @@ export function extractNumbers(text: string): readonly number[] {
 		.toArray()
 }
 
+/**
+ * Finds the one number an anchor can claim: the nearest in its clause, when no other sits as close.
+ *
+ * @remarks
+ * Closeness is the gap between the two spans, so a number before an anchor and one after it are
+ * measured alike. Distance across a clause is a guess, and so is a tie, so either leaves the
+ * anchor with no number and its field to ask.
+ *
+ * @param text - The text
+ * @param anchor - Where the anchor sits
+ * @param numbers - Where each number sits
+ * @returns The index into `numbers` of the number claimed, or `undefined`
+ *
+ * @example
+ * ```ts
+ * import { findAnchoredNumber } from '@orkestrel/interpret'
+ *
+ * const five = { start: 5, end: 6 }
+ * findAnchoredNumber('rate 5, term 7', { start: 0, end: 4 }, [five, { start: 13, end: 14 }]) // 0
+ * findAnchoredNumber('5 rate 7', { start: 2, end: 6 }, [{ start: 0, end: 1 }, { start: 7, end: 8 }]) // undefined, a tie
+ * findAnchoredNumber('rate, term 7', { start: 0, end: 4 }, [{ start: 11, end: 12 }]) // undefined, another clause
+ * ```
+ */
+export function findAnchoredNumber(
+	text: string,
+	anchor: TextSpan,
+	numbers: readonly TextSpan[],
+): number | undefined {
+	const breaks = [
+		...text.matchAll(new RegExp(CLAUSE_BREAK_PATTERN.source, CLAUSE_BREAK_PATTERN.flags)),
+	]
+	const start = breaks.reduce(
+		(at, found) => (found.index < anchor.start ? found.index + found[0].length : at),
+		0,
+	)
+	const end = breaks.find((found) => found.index >= anchor.end)?.index ?? text.length
+	const gaps = [...numbers.entries()]
+		.filter(([, number]) => number.start >= start && number.start < end)
+		.map(([index, number]) => ({
+			index,
+			gap: Math.max(number.start - anchor.end, anchor.start - number.end, 0),
+		}))
+		.sort((left, right) => left.gap - right.gap)
+	const [nearest, next] = gaps
+	if (nearest === undefined || next?.gap === nearest.gap) return undefined
+	return nearest.index
+}
+
 // === Intent classification
 
 /**
@@ -172,10 +243,10 @@ export function extractNumbers(text: string): readonly number[] {
  * vocabularies.
  *
  * @remarks
- * `actions` maps a token to an action name — the first matching token in
- * `text` (left to right) wins, at `CONFIDENCE_EXACT`. `domains` maps a domain
+ * `actions` maps a token to an action name — the one action the text's tokens
+ * name wins, at `CONFIDENCE_EXACT`, and two different actions name none. `domains` maps a domain
  * name to its keyword list — the domain with the most matching tokens wins
- * (ties keep the earliest-declared domain), also at `CONFIDENCE_EXACT`. An
+ * (a tie names no domain), also at `CONFIDENCE_EXACT`. An
  * unmatched axis is left `undefined` rather than an empty string, so an
  * unclassified intent is visibly absent. Combined confidence (pinned): the
  * action and the domain both fire → their average; exactly one fires → its
@@ -206,25 +277,23 @@ export function classifyIntent(
 ): Intent {
 	const tokens = tokenize(text)
 
-	const action = Iterator.from(tokens)
-		.map((token) => actions[token])
-		.find((mapped) => mapped !== undefined)
-	const actionConfidence = action === undefined ? 0 : CONFIDENCE_EXACT
-	const selected = Object.entries(domains).reduce<{
-		readonly domain: string | undefined
-		readonly matches: number
-	}>(
-		(best, [name, keywords]) => {
-			const lowerKeywords = keywords.map((keyword) => keyword.toLowerCase())
-			const matches = tokens.reduce(
-				(count, token) => count + Number(lowerKeywords.includes(token)),
-				0,
-			)
-			return matches > best.matches ? { domain: name, matches } : best
-		},
-		{ domain: undefined, matches: 0 },
+	// Two words naming two things name neither, so a tie on either axis leaves that axis out.
+	const named = new Set(
+		tokens.flatMap((token) => (Object.hasOwn(actions, token) ? [actions[token]] : [])),
 	)
-	const domain = selected.domain
+	const [action] = named.size === 1 ? named : []
+	const actionConfidence = action === undefined ? 0 : CONFIDENCE_EXACT
+	const counts = Object.entries(domains).map(([name, keywords]) => {
+		const lowerKeywords = keywords.map((keyword) => keyword.toLowerCase())
+		const matches = tokens.reduce(
+			(count, token) => count + Number(lowerKeywords.includes(token)),
+			0,
+		)
+		return { name, matches }
+	})
+	const most = Math.max(0, ...counts.map((count) => count.matches))
+	const leaders = counts.filter((count) => count.matches === most)
+	const domain = most > 0 && leaders.length === 1 ? leaders[0]?.name : undefined
 	const domainConfidence = domain === undefined ? 0 : CONFIDENCE_EXACT
 
 	const confidence =
@@ -411,11 +480,12 @@ export function digestValue(value: unknown): string {
  *
  * @example
  * ```ts
+ * import { objectShape } from '@orkestrel/contract'
  * import { scoreRecipe } from '@orkestrel/interpret'
  *
  * scoreRecipe(
  * 	{ action: 'compute', domain: 'rating', confidence: 1 },
- * 	{ id: 't1', name: 'T', domain: 'rating', intents: ['compute'], mappings: [], defaults: [], computations: [], definition: { reasoning: 'symbolic', id: 't1', name: 'T', equations: [], variables: {} } },
+ * 	{ id: 't1', name: 'T', domain: 'rating', intents: ['compute'], mappings: [], shape: objectShape({}), computations: [], definition: { reasoning: 'symbolic', id: 't1', name: 'T', equations: [], variables: {} } },
  * ) // 1
  * ```
  */
@@ -437,8 +507,9 @@ export function scoreRecipe(intent: Intent, recipe: Recipe): number {
  * confidence floor.
  *
  * @remarks
- * Explicit no-match, never an arbitrary fallback recipe: an empty registry,
- * and a best score strictly below `floor`, each return `undefined`.
+ * Explicit no-match, never an arbitrary fallback recipe: an empty registry, an intent with no
+ * domain, a tie for the best score, and a best score strictly below `floor` each return
+ * `undefined`, because a wrong recipe is the worst path: everything after it can look clean.
  *
  * @param intent - The classified intent
  * @param recipes - The added recipes to score
@@ -457,17 +528,12 @@ export function matchRecipe(
 	recipes: readonly Recipe[],
 	floor: number,
 ): Recipe | undefined {
-	const best = Iterator.from(recipes).reduce<{
-		readonly recipe: Recipe | undefined
-		readonly score: number
-	}>(
-		(current, recipe) => {
-			const score = scoreRecipe(intent, recipe)
-			return score > current.score ? { recipe, score } : current
-		},
-		{ recipe: undefined, score: -1 },
-	)
-	return best.recipe !== undefined && best.score >= floor ? best.recipe : undefined
+	// An action alone names no recipe, however few answer it today.
+	if (intent.domain === undefined) return undefined
+	const scored = recipes.map((recipe) => ({ recipe, score: scoreRecipe(intent, recipe) }))
+	const best = Math.max(-1, ...scored.map((entry) => entry.score))
+	const leaders = scored.filter((entry) => entry.score === best)
+	return leaders.length === 1 && best >= floor ? leaders[0]?.recipe : undefined
 }
 
 // === Computed fields
@@ -514,10 +580,9 @@ export function variablesOf(expression: SymbolicExpression): readonly string[] {
  *
  * @remarks
  * The critical leaf (design-pinned, engine-parity semantics): an absent
- * `right` operand on a binary operation defaults to `0` — matching
- * `SymbolicReasoner`'s internal `#evaluate` — and is always passed as an
- * explicit numeric operand, so the same tree evaluates identically here and
- * inside the engine. Each arithmetic step delegates to the reasons
+ * `right` operand on a binary operation has no answer, as the engine refuses it, and a
+ * unary operation takes `0`, which it ignores. So a tree evaluates here only where it
+ * evaluates inside the engine. Each arithmetic step delegates to the reasons
  * `applyOperation` pure function, mapping the node's `.operator` field onto
  * its `operator` parameter. An unresolved input variable, or a non-finite
  * result (`NaN` from a divide-by-zero, or an overflowing `±Infinity`),
@@ -548,6 +613,10 @@ export function resolveExpression(
 	const left = resolveExpression(expression.left, bindings)
 	if (left === undefined) return undefined
 
+	// An absent right side has an answer only on a unary operation, as the engine's own scan says.
+	if (expression.right === undefined && scanSymbolicExpression(expression).length > 0) {
+		return undefined
+	}
 	const right = expression.right === undefined ? 0 : resolveExpression(expression.right, bindings)
 	if (right === undefined) return undefined
 
@@ -589,4 +658,338 @@ export function renderSubject(subject: Subject, narrator: NarratorInterface): st
 		return `${narrator.label(key)}: ${narrator.value(unit, subject[key])}`
 	})
 	return narrator.line('subject.fields', { fields: parts.join(', ') })
+}
+
+// === The recipe's shape
+
+/**
+ * Finds the field an entity lands on.
+ *
+ * @remarks
+ * An entity's own `field` wins, then the mapping that names it, then its name as one key.
+ *
+ * @param entity - The entity
+ * @param mappings - The recipe's mappings
+ * @returns The field path the entity's value lands on
+ *
+ * @example
+ * ```ts
+ * import { findEntityField } from '@orkestrel/interpret'
+ *
+ * const entity = { name: 'age', value: 25, provenance: { category: 'extracted' }, confidence: 1 }
+ * findEntityField(entity, [{ entity: 'age', aliases: [], field: ['person', 'age'] }]) // ['person', 'age']
+ * findEntityField(entity, []) // 'age'
+ * ```
+ */
+export function findEntityField(entity: Entity, mappings: readonly EntityMapping[]): FieldPath {
+	if (entity.field !== undefined) return entity.field
+	const mapping = mappings.find((candidate) => candidate.entity === entity.name)
+	return mapping === undefined ? entity.name : mapping.field
+}
+
+/**
+ * Determines whether a field path descends, so an entity's name cannot say where it lands.
+ *
+ * @param field - The field path
+ * @returns True if the path holds more than one key
+ *
+ * @example
+ * ```ts
+ * import { isNestedField } from '@orkestrel/interpret'
+ *
+ * isNestedField(['terms', 'rate']) // true
+ * isNestedField(['term'])          // false
+ * isNestedField('terms.rate')      // false, because a string is one key
+ * ```
+ */
+export function isNestedField(field: FieldPath): boolean {
+	return isArray(field) && field.length > 1
+}
+
+/**
+ * Builds a subject from entities, each on the field it lands on.
+ *
+ * @param entities - The entities
+ * @param mappings - The recipe's mappings
+ * @returns The subject
+ *
+ * @example
+ * ```ts
+ * import { buildSubject } from '@orkestrel/interpret'
+ *
+ * const entity = { name: 'age', value: 25, provenance: { category: 'extracted' }, confidence: 1 }
+ * buildSubject([entity], []) // { age: 25 }
+ * ```
+ */
+export function buildSubject(
+	entities: readonly Entity[],
+	mappings: readonly EntityMapping[],
+): Subject {
+	return entities.reduce<Subject>(
+		(subject, entity) => setField(subject, findEntityField(entity, mappings), entity.value),
+		{},
+	)
+}
+
+/**
+ * Determines whether a shape's field holds an array, so a mapping onto it collects many.
+ *
+ * @param shape - The recipe's shape
+ * @param field - The field path
+ * @returns True if the field's shape is an array, or a nullable array
+ *
+ * @example
+ * ```ts
+ * import { arrayShape, numberShape, objectShape } from '@orkestrel/contract'
+ * import { isArrayField } from '@orkestrel/interpret'
+ *
+ * const shape = objectShape({ values: arrayShape(numberShape()), age: numberShape() })
+ * isArrayField(shape, 'values') // true
+ * isArrayField(shape, 'age')    // false
+ * ```
+ */
+export function isArrayField(shape: ContractShape, field: FieldPath): boolean {
+	const read = findFieldShape(shape, field).shape
+	return read?.category === 'nullable'
+		? read.inner.category === 'array'
+		: read?.category === 'array'
+}
+
+/**
+ * Finds the numbers no entity claimed.
+ *
+ * @remarks
+ * Each number claims one entity's value, so a number stated twice and read once leaves one
+ * behind. An entity holding an array claims each of its elements.
+ *
+ * @param numbers - The numbers read from the text
+ * @param entities - The entities assigned from them
+ * @returns The numbers left over, in the order read
+ *
+ * @example
+ * ```ts
+ * import { findUnclaimedNumbers } from '@orkestrel/interpret'
+ *
+ * const entity = { name: 'age', value: 25, provenance: { category: 'extracted' }, confidence: 1 }
+ * findUnclaimedNumbers([25, 700], [entity]) // [700]
+ * ```
+ */
+export function findUnclaimedNumbers(
+	numbers: readonly number[],
+	entities: readonly Entity[],
+): readonly number[] {
+	const claimed = entities.flatMap<unknown>((entity) =>
+		isArray(entity.value) ? [...entity.value] : [entity.value],
+	)
+	return numbers.filter((number) => {
+		const at = claimed.indexOf(number)
+		if (at < 0) return true
+		claimed.splice(at, 1)
+		return false
+	})
+}
+
+/**
+ * Finds the description a shape gives a field, which words the question for it.
+ *
+ * @param shape - The recipe's shape
+ * @param field - The field path
+ * @returns The field's description, or `undefined` when it has none
+ *
+ * @example
+ * ```ts
+ * import { numberShape, objectShape } from '@orkestrel/contract'
+ * import { findFieldDescription } from '@orkestrel/interpret'
+ *
+ * const shape = objectShape({ age: numberShape({ description: 'How old are you?' }) })
+ * findFieldDescription(shape, 'age') // 'How old are you?'
+ * ```
+ */
+export function findFieldDescription(shape: ContractShape, field: FieldPath): string | undefined {
+	const read = findFieldShape(shape, field).shape
+	const leaf = read?.category === 'nullable' ? read.inner : read
+	return leaf !== undefined && 'description' in leaf ? leaf.description : undefined
+}
+
+/**
+ * Collects each default a shape holds, keyed by its field.
+ *
+ * @remarks
+ * A computation may read a defaulted field and the door runs after computations, so a
+ * computation reads the default here. What the door filled is its own `defaulted`, never this.
+ *
+ * @param shape - The recipe's shape
+ * @param path - The path walked so far
+ * @returns Every default, outermost first
+ *
+ * @example
+ * ```ts
+ * import { numberShape, objectShape, optionalShape } from '@orkestrel/contract'
+ * import { collectShapeDefaults } from '@orkestrel/interpret'
+ *
+ * const shape = objectShape({ term: optionalShape(numberShape(), { default: 12 }) })
+ * collectShapeDefaults(shape) // [{ field: ['term'], value: 12 }]
+ * ```
+ */
+export function collectShapeDefaults(
+	shape: ContractShape,
+	path: readonly string[] = [],
+): readonly ShapeDefault[] {
+	switch (shape.category) {
+		case 'optional':
+			return shape.default === undefined
+				? collectShapeDefaults(shape.inner, path)
+				: [{ field: path, value: shape.default }]
+		case 'nullable':
+			return collectShapeDefaults(shape.inner, path)
+		case 'object':
+			return Object.entries(shape.properties).flatMap(([key, property]) =>
+				collectShapeDefaults(property, [...path, key]),
+			)
+		default:
+			return []
+	}
+}
+
+/**
+ * Settles entities against what the door admitted.
+ *
+ * @remarks
+ * A repaired value replaces the one read, and each filled default becomes an entity with
+ * provenance `default`, so the entities and the subject say the same. A refusal changes nothing.
+ *
+ * @param entities - The resolved entities
+ * @param mappings - The recipe's mappings
+ * @param admission - What the door said
+ * @returns The entities the subject is built from
+ *
+ * @example
+ * ```ts
+ * import { settleEntities } from '@orkestrel/interpret'
+ *
+ * settleEntities([], [], {
+ * 	subject: { term: 12 },
+ * 	faults: [],
+ * 	repairs: [],
+ * 	defaulted: ['term'],
+ * 	errors: [],
+ * })[0]?.provenance // { category: 'default' }
+ * ```
+ */
+export function settleEntities(
+	entities: readonly Entity[],
+	mappings: readonly EntityMapping[],
+	admission: SubjectAdmission,
+): readonly Entity[] {
+	const { subject } = admission
+	if (subject === undefined) return entities
+	const read = entities.map((entity) => {
+		const value = resolveField(subject, findEntityField(entity, mappings))
+		return value === entity.value ? entity : { ...entity, value }
+	})
+	const filled = admission.defaulted.map<Entity>((field) => {
+		const key = formatField(field)
+		const mapping = mappings.find((candidate) => formatField(candidate.field) === key)
+		return {
+			name: mapping?.entity ?? key,
+			...(mapping === undefined && isNestedField(field) ? { field } : {}),
+			value: resolveField(subject, field),
+			provenance: { category: 'default' },
+			confidence: CONFIDENCE_DEFAULT,
+		}
+	})
+	return [...read, ...filled]
+}
+
+/**
+ * Describes what is wrong with a recipe's shape, against the recipe itself.
+ *
+ * @remarks
+ * The shape must stand, and it must declare every field a mapping or a computation lands on,
+ * because the door would otherwise put that authoring error to the user as a question.
+ *
+ * @param recipe - The recipe
+ * @returns One string per problem, empty when the recipe's shape stands
+ *
+ * @example
+ * ```ts
+ * import { numberShape, objectShape } from '@orkestrel/contract'
+ * import { createLogicalDefinition } from '@orkestrel/reason'
+ * import { describeRecipeShape } from '@orkestrel/interpret'
+ *
+ * describeRecipeShape({
+ * 	id: 'r',
+ * 	name: 'R',
+ * 	domain: 'd',
+ * 	intents: [],
+ * 	mappings: [{ entity: 'agee', aliases: [], field: 'agee' }],
+ * 	computations: [],
+ * 	definition: createLogicalDefinition('r', 'R', []),
+ * 	shape: objectShape({ age: numberShape() }),
+ * }) // ['Field "agee" is mapped, and the shape does not declare it']
+ * ```
+ */
+export function describeRecipeShape(recipe: Recipe): readonly string[] {
+	const { shape } = recipe
+	const mapped = recipe.mappings
+		.filter((mapping) => !findFieldShape(shape, mapping.field).declared)
+		.map(
+			(mapping) =>
+				`Field "${formatField(mapping.field)}" is mapped, and the shape does not declare it`,
+		)
+	const computed = recipe.computations
+		.filter((computation) => !findFieldShape(shape, computation.field).declared)
+		.map(
+			(computation) =>
+				`Field "${formatField(computation.field)}" is computed, and the shape does not declare it`,
+		)
+	return [...scanShape(shape), ...mapped, ...computed]
+}
+
+/**
+ * Asserts a value is a recipe that stands.
+ *
+ * @param recipe - The value to check
+ * @throws {@link InterpretError} `'DEFINITION'` on a malformed recipe or one whose shape does not stand
+ *
+ * @example
+ * ```ts
+ * import { assertRecipe } from '@orkestrel/interpret'
+ *
+ * assertRecipe({ id: 'r' }) // throws InterpretError('DEFINITION')
+ * ```
+ */
+export function assertRecipe(recipe: unknown): asserts recipe is Recipe {
+	if (!isRecipe(recipe)) throw new InterpretError('DEFINITION', 'Recipe is malformed')
+	const errors = describeRecipeShape(recipe)
+	if (errors.length > 0) {
+		throw new InterpretError(
+			'DEFINITION',
+			`Recipe "${recipe.id}" is invalid: ${errors.join(', ')}`,
+			{ errors },
+		)
+	}
+}
+
+/**
+ * Projects an interpretation to JSON, so it can cross a boundary.
+ *
+ * @remarks
+ * A stage record holds live values and a subject may hold a non-finite number, so what crosses
+ * is this projection: non-finite as `null`, `undefined` omitted.
+ *
+ * @param result - The interpretation
+ * @returns Its JSON projection, which `interpretationContract` admits
+ *
+ * @example
+ * ```ts
+ * import { createInterpret, interpretationContract, projectInterpretation } from '@orkestrel/interpret'
+ *
+ * const interpret = createInterpret()
+ * interpretationContract.is(projectInterpretation(interpret.interpret('hello'))) // true
+ * interpret.destroy()
+ * ```
+ */
+export function projectInterpretation(result: Interpretation): JSONValue | undefined {
+	return projectValue(result, new Set(), { left: Number.POSITIVE_INFINITY })
 }

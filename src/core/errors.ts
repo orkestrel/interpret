@@ -10,7 +10,8 @@ import { holds, INTRINSICS, isError, isFunction, isObject } from '@orkestrel/con
  *
  * @remarks
  * `DESTROYED` is the code that throws, on any use of a destroyed `Interpret`
- * / manager / context. Every other {@link InterpretErrorCode} reaches a caller
+ * / manager / context, and `DEFINITION` throws when `Interpret` is handed a recipe
+ * that does not stand. Every other {@link InterpretErrorCode} reaches a caller
  * as data rather than as a throw — `NO_RECIPE` and `LOW_CONFIDENCE` on a
  * visible incomplete {@link Interpretation}, and the per-stage `*_FAILED`
  * codes on that result's `failures`, beside the raw thrown value re-emitted
@@ -68,6 +69,7 @@ export function isInterpretError(value: unknown): value is InterpretError {
 			code !== 'GENERATE_FAILED' &&
 			code !== 'NO_RECIPE' &&
 			code !== 'LOW_CONFIDENCE' &&
+			code !== 'DEFINITION' &&
 			code !== 'DESTROYED'
 		)
 			return false

@@ -1,3 +1,4 @@
+import type { ContractInterface } from '@orkestrel/contract'
 import type {
 	ClarifierInterface,
 	ClarifierOptions,
@@ -21,6 +22,7 @@ import type {
 	RecipeManagerInterface,
 	RecipeManagerOptions,
 } from './types.js'
+import { createContract } from '@orkestrel/contract'
 import { Interpret } from './Interpret.js'
 import { Narrator } from './Narrator.js'
 import { InterpretContext } from './InterpretContext.js'
@@ -32,6 +34,7 @@ import { Extractor } from './stages/Extractor.js'
 import { Formatter } from './stages/Formatter.js'
 import { Generator } from './stages/Generator.js'
 import { Normalizer } from './stages/Normalizer.js'
+import { createRecipeShape } from './shapers.js'
 
 /**
  * Creates an interpretation orchestrator, returning an {@link InterpretInterface}
@@ -53,6 +56,7 @@ import { Normalizer } from './stages/Normalizer.js'
  *
  * @example Interpret text against an added recipe
  * ```ts
+ * import { numberShape, objectShape } from '@orkestrel/contract'
  * import { createExtractor, createInterpret } from '@orkestrel/interpret'
  * import {
  * 	createFactorGroup,
@@ -72,7 +76,7 @@ import { Normalizer } from './stages/Normalizer.js'
  * 			domain: 'arithmetic',
  * 			intents: ['calculate'],
  * 			mappings: [{ entity: 'value', aliases: [], field: 'value' }],
- * 			defaults: [],
+ * 			shape: objectShape({ value: numberShape() }),
  * 			computations: [],
  * 			definition: createQuantitativeDefinition('t1', 'Arithmetic', [
  * 				createFactorGroup('total', 'sum', [createFieldFactor('value', 'value')]),
@@ -81,7 +85,7 @@ import { Normalizer } from './stages/Normalizer.js'
  * 	],
  * })
  *
- * const result = interpret.interpret('calculate arithmetic 42')
+ * const result = interpret.interpret('calculate arithmetic value 42')
  * result.subject // { value: 42 }
  * result.ambiguities // []
  * result.failures // []
@@ -136,8 +140,8 @@ export function createExtractor(options?: ExtractorOptions): ExtractorInterface 
 }
 
 /**
- * Creates a clarifier — carry-over, defaults, and computed-field resolution
- * against an assigned entity set — returning a stateless {@link ClarifierInterface}.
+ * Creates a clarifier — carry-over, computed-field resolution, and the door's reading of
+ * the recipe's shape against an assigned entity set — returning a {@link ClarifierInterface}.
  *
  * @param options - Optional confidence `floor` for raised ambiguities
  * @returns A stateless {@link ClarifierInterface}
@@ -195,13 +199,14 @@ export function createGenerator(): GeneratorInterface {
  *
  * @example
  * ```ts
+ * import { numberShape, objectShape } from '@orkestrel/contract'
  * import { createFactorGroup, createFieldFactor, createQuantitativeDefinition } from '@orkestrel/reason'
  * import { createRecipeManager } from '@orkestrel/interpret'
  *
  * const recipes = createRecipeManager({
  * 	recipes: [{
  * 		id: 't1', name: 'Arithmetic', domain: 'arithmetic', intents: ['calculate'],
- * 		mappings: [{ entity: 'value', aliases: [], field: 'value' }], defaults: [], computations: [],
+ * 		mappings: [{ entity: 'value', aliases: [], field: 'value' }], shape: objectShape({ value: numberShape() }), computations: [],
  * 		definition: createQuantitativeDefinition('t1', 'Arithmetic', [createFactorGroup('total', 'sum', [createFieldFactor('value', 'value')])]),
  * 	}],
  * })
@@ -301,4 +306,23 @@ export function createInterpretContext(
  */
 export function createNarrator(options?: NarratorOptions): NarratorInterface {
 	return new Narrator(options)
+}
+
+/**
+ * Creates a `Recipe` as a contract. Cross it on `is`, never `parse`.
+ *
+ * @remarks
+ * A function because a definition's shape is recursive and costs at import.
+ *
+ * @returns The recipe's contract
+ *
+ * @example
+ * ```ts
+ * import { createRecipeContract } from '@orkestrel/interpret'
+ *
+ * createRecipeContract().is({ id: 'r' }) // false
+ * ```
+ */
+export function createRecipeContract(): ContractInterface<unknown> {
+	return createContract(createRecipeShape())
 }
