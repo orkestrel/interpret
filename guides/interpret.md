@@ -146,9 +146,18 @@ an anchor. An unreadable occurrence asks instead of supplying digit fragments or
 
 A tied anchor still contests both adjacent numbers, so another anchor cannot take one
 merely because the tied anchor could not choose. A directly following word that starts no
-declared anchor and is not `is`, `of`, `at`, `to`, `a`, `an`, or `the` makes the number ask.
+declared anchor and is not a following-word link makes the number ask.
 This applies to scalar claims and array collection. A declared anchor head, a link,
 punctuation, or the end of the text does not cause that refusal.
+The links `is`, `of`, `at`, `to`, `a`, `an`, and `the` hold unconditionally. The links
+`and` and `with` require a declared anchor head or a numeric occurrence next, allowing
+one article (`a`, `an`, or `the`) between. Number words count as numeric occurrences.
+Thus `amount 50000 and income 120000` holds both fields, while `amount 50000 and up`
+asks for amount and retains no amount value. `or`, `but`, `plus`, `then`, and `now`
+remain outside the following-word links.
+
+Known limit: punctuation interrupts this check. `amount 50000, and up` still claims
+50000 because the comma separates the number from the following word.
 
 The reader keeps a whole numeric form or marks it `unreadable` and omits `value`.
 Digit groups separated by spaces or apostrophes are unreadable, as are unsupported scales
@@ -156,6 +165,9 @@ such as `trillion`, `quadrillion`, `tn`, `mln`, `lakh`, and `crore`, in digit or
 Their span and `raw` text cover the consumed form. Numeric dates retain their `foreign`
 classification and also carry an unreadable mark. The standing `WHOLE_NUMBER_FORMS` table
 in `tests/setup.ts`, exercised by `NumberReader.test.ts`, pins exact readings and refusals.
+`3 and a half` reads exactly 3.5, and `six and a half` reads exactly 6.5.
+The numeric phrase in `3 and a half months` still reads 3.5. In `years 3 and a half months`,
+the following-word test refuses the assignment because `months` is neither an anchor nor a link.
 
 An explicit correction in the text makes occurrences marked `suspect` or `changed` ask:
 `sorry` (except `sorry to/for`), `hang on`, `used to be`, `was/were going to be`, and `wait` (except `wait to`).
@@ -488,7 +500,7 @@ const mappings = [
 ]
 const shape = objectShape({ age: numberShape(), score: numberShape() })
 assignEntities(scanNumbers('age 25 with score 720'), mappings, 'age 25 with score 720', shape)
-// Only score 720 is assigned; the unbound word `with` leaves age to ask.
+// Both values are assigned; `with` keeps age because the declared score anchor follows it.
 classifyIntent('calculate my rate', { calculate: 'compute' }, { rating: ['rate'] })
 ```
 

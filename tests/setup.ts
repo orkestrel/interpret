@@ -54,11 +54,59 @@ export const DEFAULT_RENDERINGS = [
 	{ value: null, rendered: 'null' },
 ]
 
+/** Holds the reviewer messages that must keep asking without an unstated value. */
+export const REVIEWER_LOAN_READINGS = [
+	...[
+		'3 000 000',
+		"3'000'000",
+		'1 trillion',
+		'three trillion',
+		'1 quadrillion',
+		'1 tn',
+		'3 mln',
+		'30 lakh',
+		'3 crore',
+	].map((amount) => ({
+		text: `loan: amount ${amount}, income 120000, years 3, collateral 50000`,
+		field: 'amount',
+	})),
+	{ text: 'loan: amount 50000, income 120000, years 3 months, collateral 50000', field: 'years' },
+	{ text: 'loan: amount 50000, income 120000, years 3 weeks, collateral 50000', field: 'years' },
+	{
+		text: 'loan: amount 50000 per month, income 120000, years 3, collateral 50000',
+		field: 'amount',
+	},
+	{ text: 'loan: amount 50000 income 120000 years', field: 'years' },
+]
+
 /** Pins the reviewer messages whose unit must not disappear from a claimed value. */
 export const UNSTATED_UNITS = [
+	{ entity: 'years', text: 'years 3 and a half months' },
 	{ entity: 'years', text: 'years 3 months' },
 	{ entity: 'years', text: 'years 3 weeks' },
 	{ entity: 'amount', text: 'amount 50000 per month' },
+]
+
+/** Refuses conjunctions whose next target is neither an anchor nor a number. */
+export const UNBOUND_LINK_READINGS = [
+	{ entity: 'amount', text: 'amount 50000 and up' },
+	{ entity: 'amount', text: 'amount 50000 and more' },
+	{ entity: 'amount', text: 'amount 50000 and change' },
+	{ entity: 'amount', text: 'amount 50000 with interest' },
+	{ entity: 'income', text: 'income 120000 and rising' },
+	{ entity: 'term', text: 'rate term 7 and more 900' },
+	{ entity: 'years', text: 'years 3 and' },
+	{ entity: 'years', text: 'years 3 with' },
+	{ entity: 'years', text: 'years 3 and the' },
+	{ entity: 'amount', text: 'amount 50000 and a the income 120000' },
+]
+
+/** Keeps the first claim while exposing the following numeric occurrence. */
+export const NUMBER_LINK_READINGS = [
+	{ entity: 'amount', text: 'amount 50000 and 60000', value: 50000, unclaimed: 60000 },
+	{ entity: 'amount', text: 'amount 50000 with a 20000 deposit', value: 50000, unclaimed: 20000 },
+	{ entity: 'years', text: 'years 3 and 6 months', value: 3, unclaimed: 6 },
+	{ entity: 'amount', text: 'amount 50000 with six', value: 50000, unclaimed: 6 },
 ]
 
 /** Holds one fixture value that a tested callback replaces. */
@@ -530,6 +578,8 @@ export const WHOLE_NUMBER_FORMS: ReadonlyArray<readonly [string, number | undefi
 		['three hundred and five', 305],
 		['three point five', 3.5],
 		['six and a half', 6.5],
+		['3 and a half', 3.5],
+		['3 and a half months', 3.5],
 		['0', 0],
 		['3 000 000', undefined],
 		["3'000'000", undefined],

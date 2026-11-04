@@ -45,6 +45,8 @@ import {
 	LOAN_HISTORIES,
 	WAIT_READINGS,
 	UNSTATED_UNITS,
+	UNBOUND_LINK_READINGS,
+	REVIEWER_LOAN_READINGS,
 	buildInterpretRecipe,
 	createCorpusExtractor,
 	asRecord,
@@ -60,23 +62,74 @@ import {
 // reverse passthroughs, emitter, and DESTROYED teardown.
 
 describe('Interpret', () => {
-	it.each(UNSTATED_UNITS)('asks and holds no value for $text', ({ entity, text }) => {
+	it.each(REVIEWER_LOAN_READINGS)('keeps the reviewer refusal for $text', ({ text, field }) => {
+		const interpret = new Interpret({
+			extractor: createExtractor({ actions: { loan: 'apply' }, domains: { lending: ['loan'] } }),
+			recipes: [
+				buildInterpretRecipe({
+					domain: 'lending',
+					intents: ['apply'],
+					computations: [],
+					mappings: ['amount', 'income', 'years', 'collateral'].map((entity) => ({
+						entity,
+						aliases: [],
+						field: entity,
+					})),
+					shape: objectShape({
+						amount: numberShape(),
+						income: numberShape(),
+						years: numberShape(),
+						collateral: optionalShape(numberShape()),
+					}),
+				}),
+			],
+		})
+		const result = interpret.interpret(text)
+		expect(result.failures).toEqual([])
+		expect(result.subject).toBeUndefined()
+		expect(result.ambiguities.map((ambiguity) => ambiguity.field)).toContain(field)
+		expect(result.entities.find((entity) => entity.name === field)).toBeUndefined()
+		interpret.destroy()
+	})
+	it.each(['and', 'with'])('holds both amounts across the %s link', (link) => {
 		const interpret = new Interpret({
 			extractor: createCorpusExtractor(),
 			recipes: [
 				buildInterpretRecipe({
-					mappings: [{ entity, aliases: [], field: 'value' }],
-					shape: objectShape({ value: numberShape() }),
+					mappings: [
+						{ entity: 'amount', aliases: [], field: 'amount' },
+						{ entity: 'income', aliases: [], field: 'income' },
+					],
+					shape: objectShape({ amount: numberShape(), income: numberShape() }),
 					computations: [],
 				}),
 			],
 		})
-		const result = interpret.interpret(`calculate arithmetic ${text}`)
-		expect(result.subject).toBeUndefined()
-		expect(result.entities).toEqual([])
-		expect(result.ambiguities.map((ambiguity) => ambiguity.field)).toContain('value')
+		const result = interpret.interpret(`calculate arithmetic amount 50000 ${link} income 120000`)
+		expect(result.subject).toEqual({ amount: 50000, income: 120000 })
+		expect(result.ambiguities).toEqual([])
 		interpret.destroy()
 	})
+	it.each([...UNSTATED_UNITS, ...UNBOUND_LINK_READINGS])(
+		'asks and holds no value for $text',
+		({ entity, text }) => {
+			const interpret = new Interpret({
+				extractor: createCorpusExtractor(),
+				recipes: [
+					buildInterpretRecipe({
+						mappings: [{ entity, aliases: [], field: 'value' }],
+						shape: objectShape({ value: numberShape() }),
+						computations: [],
+					}),
+				],
+			})
+			const result = interpret.interpret(`calculate arithmetic ${text}`)
+			expect(result.subject).toBeUndefined()
+			expect(result.entities).toEqual([])
+			expect(result.ambiguities.map((ambiguity) => ambiguity.field)).toContain('value')
+			interpret.destroy()
+		},
+	)
 	it('refuses oversized text at normalization with a coded failure and no subject', () => {
 		const interpret = new Interpret()
 		const result = interpret.interpret(' '.repeat(65_537))

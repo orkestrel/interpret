@@ -406,7 +406,7 @@ await new GuideCommand({
 				'age 25 with score 720',
 				objectShape({ age: numberShape(), score: numberShape() }),
 			)
-			expect(assigned.find((entity) => entity.name === 'age')).toBeUndefined()
+			expect(assigned.find((entity) => entity.name === 'age')?.value).toBe(25)
 			expect(assigned.find((entity) => entity.name === 'score')?.value).toBe(720)
 		})
 

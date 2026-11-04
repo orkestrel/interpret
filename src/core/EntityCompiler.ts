@@ -11,6 +11,8 @@ import { findAnchoredNumber, matchesArrayField, tokenize } from './helpers.js'
  * Aliases match exact token sequences; overlapping anchors keep the later start.
  * Tied anchors still contest their adjacent numbers. A directly following word that
  * starts no declared anchor and is no link refuses scalar claims and array collection.
+ * Following-word links `and` and `with` require an anchor head or numeric occurrence next,
+ * allowing one intervening article (`a`, `an`, or `the`). `or`, `but`, `plus`, `then`, and `now` stay out.
  * Explicit corrections, including `wait` except `wait to`, refuse occurrences
  * marked suspect or changed without substituting a rival value.
  */
@@ -26,14 +28,25 @@ export class EntityCompiler {
 		if (mappings.length === 0 || numbers.length === 0) return []
 		const tokens = tokenize(text)
 		const spans = numbers
+		const numberStarts = new Set(numbers.map((number) => number.start))
 		const unbound = new Set(
 			numbers.filter((number) => {
-				const word = /^\s+([a-z]+)\b/i.exec(text.slice(number.end))?.[1]?.toLowerCase()
+				const following = /^\s+([a-z]+)\b/i.exec(text.slice(number.end))
+				const word = following?.[1]?.toLowerCase()
+				if (word === undefined || ['is', 'of', 'at', 'to', 'a', 'an', 'the'].includes(word))
+					return false
+				const link = word === 'and' || word === 'with'
+				const gap = link
+					? /^\s+(?:and|with)\s+(?:(?:a|an|the)\s+)?/i.exec(text.slice(number.end))
+					: null
+				if (link && gap === null) return true
+				const start = number.end + (gap?.[0].length ?? 0)
+				if (link && numberStarts.has(start)) return false
+				const head = link ? /^([a-z]+)\b/i.exec(text.slice(start))?.[1]?.toLowerCase() : word
 				return (
-					word !== undefined &&
-					!['is', 'of', 'at', 'to', 'a', 'an', 'the'].includes(word) &&
+					head === undefined ||
 					!mappings.some((mapping) =>
-						[mapping.entity, ...mapping.aliases].some((anchor) => tokenize(anchor)[0] === word),
+						[mapping.entity, ...mapping.aliases].some((anchor) => tokenize(anchor)[0] === head),
 					)
 				)
 			}),

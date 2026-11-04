@@ -54,6 +54,8 @@ import {
 	EXTREME_NUMBERS,
 	InterpretFixtureValue,
 	OPEN_SHAPE,
+	UNBOUND_LINK_READINGS,
+	NUMBER_LINK_READINGS,
 	UNCOMPILABLE_SHAPE,
 	UNSTATED_UNITS,
 } from '../../setup.js'
@@ -113,6 +115,80 @@ describe('extractNumbers', () => {
 })
 
 describe('assignEntities', () => {
+	it.each(UNBOUND_LINK_READINGS)('refuses an unbound link in $text', ({ entity, text }) => {
+		expect(
+			assignEntities(scanNumbers(text), [{ entity, aliases: [], field: entity }], text, OPEN_SHAPE),
+		).toEqual([])
+	})
+	it.each(NUMBER_LINK_READINGS)(
+		'claims before a numeric target and exposes its value in $text',
+		({ entity, text, value, unclaimed }) => {
+			const numbers = scanNumbers(text)
+			const entities = assignEntities(
+				numbers,
+				[{ entity, aliases: [], field: entity }],
+				text,
+				OPEN_SHAPE,
+			)
+			expect(entities.map((found) => found.value)).toEqual([value])
+			expect(findUnclaimedNumbers(numbers, entities)).toEqual([unclaimed])
+		},
+	)
+	it.each(['a', 'an', 'the'])('allows one %s article before an anchor head', (article) => {
+		const text = `amount 50000 with ${article} annual income 120000`
+		const mappings = [
+			{ entity: 'amount', aliases: [], field: 'amount' },
+			{ entity: 'income', aliases: ['annual income'], field: 'income' },
+		]
+		expect(
+			assignEntities(scanNumbers(text), mappings, text, OPEN_SHAPE).map((found) => found.value),
+		).toEqual([50000, 120000])
+	})
+	it('pins the known punctuation limit: a comma hides and up from the following-word test', () => {
+		const text = 'amount 50000, and up'
+		expect(
+			assignEntities(
+				scanNumbers(text),
+				[{ entity: 'amount', aliases: [], field: 'amount' }],
+				text,
+				OPEN_SHAPE,
+			).map((found) => found.value),
+		).toEqual([50000])
+	})
+	it('keeps and inside the reader whole-number form', () => {
+		const text = 'amount 50000 and a half'
+		expect(
+			assignEntities(
+				scanNumbers(text),
+				[{ entity: 'amount', aliases: [], field: 'amount' }],
+				text,
+				OPEN_SHAPE,
+			).map((found) => found.value),
+		).toEqual([50000.5])
+	})
+	it('asks because months follows the whole 3.5 reading', () => {
+		const text = 'years 3 and a half months'
+		const numbers = scanNumbers(text)
+		expect(numbers.map((number) => number.value)).toEqual([3.5])
+		expect(numbers.map((number) => number.unreadable)).toEqual([undefined])
+		expect(
+			assignEntities(numbers, [{ entity: 'years', aliases: [], field: 'years' }], text, OPEN_SHAPE),
+		).toEqual([])
+	})
+	it.each(['or', 'but', 'plus', 'then', 'now'])(
+		'keeps %s outside the following-word links',
+		(word) => {
+			const text = `amount 50000 ${word} 60000`
+			expect(
+				assignEntities(
+					scanNumbers(text),
+					[{ entity: 'amount', aliases: [], field: 'amount' }],
+					text,
+					OPEN_SHAPE,
+				),
+			).toEqual([])
+		},
+	)
 	it.each(UNSTATED_UNITS)('refuses an unstated unit in $text', ({ entity, text }) => {
 		expect(
 			assignEntities(scanNumbers(text), [{ entity, aliases: [], field: entity }], text, OPEN_SHAPE),
@@ -188,13 +264,13 @@ describe('assignEntities', () => {
 		])
 	})
 
-	it('single scalar mapping asks when an unbound word follows its number', () => {
+	it('single scalar mapping claims its number before the and link', () => {
 		const mappings = [{ entity: 'age', aliases: [], field: 'age' }]
 		const shape = objectShape({ age: numberShape() })
 		expect(assignEntities(scanNumbers('one 1 two 2'), mappings, 'one 1 two 2', shape)).toEqual([])
 		expect(
 			assignEntities(scanNumbers('age 25 and one 1'), mappings, 'age 25 and one 1', shape),
-		).toEqual([])
+		).toMatchObject([{ name: 'age', value: 25 }])
 	})
 
 	it('a number on an array field among many mappings lands as an array of one', () => {
@@ -260,7 +336,7 @@ describe('assignEntities', () => {
 		).toEqual([])
 	})
 
-	it('asks over the unbound and while the later score remains stated', () => {
+	it('claims both rate and score across the and link', () => {
 		const mappings = [
 			{ entity: 'rate', aliases: ['value'], field: 'rate' },
 			{ entity: 'score', aliases: ['credit score'], field: 'score' },
@@ -272,7 +348,7 @@ describe('assignEntities', () => {
 			OPEN_SHAPE,
 		)
 		const rate = entities.find((entity) => entity.name === 'rate')
-		expect(rate).toBeUndefined()
+		expect(rate?.value).toBe(0.85)
 		expect(entities.find((entity) => entity.name === 'score')?.value).toBe(720)
 	})
 
@@ -355,7 +431,7 @@ describe('assignEntities', () => {
 		).toEqual([7])
 	})
 
-	it('an unbound and refuses the nearest claim without handing it to a farther anchor', () => {
+	it('an unbound and link refuses the nearest claim and the farther anchor', () => {
 		const mappings = [
 			{ entity: 'rate', aliases: [], field: 'rate' },
 			{ entity: 'term', aliases: [], field: 'term' },
