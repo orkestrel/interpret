@@ -12,6 +12,9 @@ import { NumberReader } from './NumberReader.js'
  * or `:` between them. An article also links when the number follows the anchor.
  * Negation in the clause refuses every claim there. Equal-distance numbers or competing
  * anchors tied for a number leave it unclaimed. An unreadable occurrence never fills a field.
+ * An anchor tied between numbers still contests both. A number directly followed by a word
+ * that starts no declared anchor and is not `is`, `of`, `at`, `to`, `a`, `an`, or `the` asks,
+ * both in scalar assignment and array collection; punctuation or the text's end does not refuse it.
  * When the text contains `sorry` (except `sorry to/for`), `hang on`, `used to be`, or
  * `was/were going to be`, suspect or changed occurrences ask without substituting a rival.
  * A sole array mapping collects values only after an anchor claims a number, and refuses
@@ -36,8 +39,8 @@ import { NumberReader } from './NumberReader.js'
  * 	{ entity: 'score', aliases: ['credit score'], field: 'score' },
  * ]
  * assignEntities(scanNumbers('age 25 with score 720'), mappings, 'age 25 with score 720', shape)
- * // [{ name: 'age', value: 25, ... }, { name: 'score', value: 720, ... }]
- * // Each anchor claims its directly linked number.
+ * // [{ name: 'score', value: 720, ... }]
+ * // The unbound word `with` leaves age to ask.
  * ```
  */
 export function assignEntities(

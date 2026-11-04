@@ -9,6 +9,8 @@ import { findAnchoredNumber, matchesArrayField, tokenize } from './helpers.js'
  *
  * @remarks
  * Aliases match exact token sequences; overlapping anchors keep the later start.
+ * Tied anchors still contest their adjacent numbers. A directly following word that
+ * starts no declared anchor and is no link refuses scalar claims and array collection.
  * Explicit corrections, including `wait` except `wait to`, refuse occurrences
  * marked suspect or changed without substituting a rival value.
  */
@@ -24,6 +26,18 @@ export class EntityCompiler {
 		if (mappings.length === 0 || numbers.length === 0) return []
 		const tokens = tokenize(text)
 		const spans = numbers
+		const unbound = new Set(
+			numbers.filter((number) => {
+				const word = /^\s+([a-z]+)\b/i.exec(text.slice(number.end))?.[1]?.toLowerCase()
+				return (
+					word !== undefined &&
+					!['is', 'of', 'at', 'to', 'a', 'an', 'the'].includes(word) &&
+					!mappings.some((mapping) =>
+						[mapping.entity, ...mapping.aliases].some((anchor) => tokenize(anchor)[0] === word),
+					)
+				)
+			}),
+		)
 		const correction =
 			/\b(?:wait(?!\s+to\b)|sorry(?!\s+(?:to|for)\b)|hang\s+on|used\s+to\s+be|(?:was|were)\s+going\s+to\s+be)\b/i.test(
 				text,
@@ -79,6 +93,7 @@ export class EntityCompiler {
 			if (
 				numbers.some(
 					(number) =>
+						unbound.has(number) ||
 						number.unreadable !== undefined ||
 						(correction && (number.suspect === true || number.changed === true)),
 				)
@@ -96,14 +111,25 @@ export class EntityCompiler {
 			]
 		}
 		for (const claim of claims) {
+			const number = spans[claim.index]
+			if (number === undefined) continue
 			// A number goes to the anchor nearest it, so a farther one cannot take it by coming first.
-			const rivals = claims.filter((other) => other.index === claim.index)
+			const rivals = matches.flatMap((other) => {
+				const assigned = claims.find((candidate) => candidate.match === other)
+				if (assigned !== undefined) return assigned.index === claim.index ? [assigned] : []
+				const contested = findAnchoredNumber(text, { start: other.position, end: other.end }, [
+					number,
+				])
+				return contested === undefined
+					? []
+					: [{ match: other, index: claim.index, gap: contested.gap }]
+			})
 			const nearest = Math.min(...rivals.map((other) => other.gap))
 			const held = rivals.filter((other) => other.gap === nearest)
 			if (held.length !== 1 || held[0] !== claim) continue
-			const number = spans[claim.index]
 			if (
 				number?.value === undefined ||
+				unbound.has(number) ||
 				number.unreadable !== undefined ||
 				(correction && (number.suspect === true || number.changed === true))
 			)

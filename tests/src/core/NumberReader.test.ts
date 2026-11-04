@@ -1,5 +1,16 @@
 import { scanNumbers, readNumbersContract } from '@src/core'
 import { describe, expect, it } from 'vitest'
+import { WHOLE_NUMBER_FORMS } from '../../setup.js'
+
+describe('scanNumbers — whole numeric forms', () => {
+	it.each(WHOLE_NUMBER_FORMS)('%s reads whole or unreadable', (text, value) => {
+		const numbers = scanNumbers(text)
+		expect(numbers.length).toBeGreaterThan(0)
+		expect(numbers.map((number) => number.value)).toEqual(numbers.map(() => value))
+		expect(numbers.every((number) => number.unreadable !== undefined)).toBe(value === undefined)
+		expect(numbers.length === 1 || value === undefined).toBe(true)
+	})
+})
 
 // The number reader: every number with its span and what the words around it say, read exactly
 // or not at all. It assigns nothing to a field, so these read the number and nothing further.

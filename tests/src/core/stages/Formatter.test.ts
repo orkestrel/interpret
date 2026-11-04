@@ -1,12 +1,32 @@
 import type { Entity } from '@src/core'
-import { Formatter, Narrator } from '@src/core'
+import { Formatter, Narrator, Interpret } from '@src/core'
+import { objectShape, optionalShape, rawShape } from '@orkestrel/contract'
 import { describe, expect, it } from 'vitest'
-import { buildInterpretRecipe } from '../../../setup.js'
+import { buildInterpretRecipe, createCorpusExtractor, DEFAULT_RENDERINGS } from '../../../setup.js'
 
 // The `Formatter` stage — prose shape: `{verb} {name}` + `with …` (non-
 // default entities) + `(defaults: …)` + `needed: …` (ambiguities).
 
 describe('Formatter', () => {
+	it.each(DEFAULT_RENDERINGS)(
+		'renders a real shape default as $rendered without a format failure',
+		({ value, rendered }) => {
+			const interpret = new Interpret({
+				extractor: createCorpusExtractor(),
+				recipes: [
+					buildInterpretRecipe({
+						shape: objectShape({ value: optionalShape(rawShape({}), { default: value }) }),
+						computations: [],
+					}),
+				],
+			})
+			const result = interpret.interpret('calculate arithmetic')
+			expect(result.failures).toEqual([])
+			expect(result.subject?.value).toEqual(value)
+			expect(result.prompt).toContain(`value: ${rendered}`)
+			interpret.destroy()
+		},
+	)
 	const intent = { action: 'calculate', domain: 'arithmetic', confidence: 1 }
 
 	it('renders `{verb} {name}` alone when there is nothing else to say', () => {

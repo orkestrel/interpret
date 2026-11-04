@@ -54,8 +54,10 @@ export type InterpretStage = 'normalize' | 'extract' | 'clarify' | 'format' | 'g
  * recipe matched but the classified {@link Intent}'s confidence fell below
  * the floor. `DEFINITION` — a {@link Recipe} is malformed, or its `shape` does not stand or
  * does not declare a field it maps or computes. `DESTROYED` — any use of a destroyed entity.
+ * `TEXT_LIMIT` — raw text exceeds {@link INTERPRET_TEXT_LIMIT} UTF-16 units.
  */
 export type InterpretErrorCode =
+	| 'TEXT_LIMIT'
 	| 'NORMALIZE_FAILED'
 	| 'EXTRACT_FAILED'
 	| 'CLARIFY_FAILED'
@@ -265,8 +267,8 @@ export type NumberForeign =
  * Represents one number read from a text, with its span and what the words around it say.
  *
  * @remarks
- * `value` is present when digits or words read to a number; read it with `unreadable`, which
- * says the reading is not exact, and `foreign`, which says it is no quantity. `money`, `percent`,
+ * `value` is present only when digits or words read exactly; `unreadable` omits the value
+ * instead of exposing a partial reading. `foreign` says it is no quantity. `money`, `percent`,
  * and `unit` say what it measures, `scaled` that a suffix multiplied it, and `word` that it was
  * written out. `hedged` says the writer marks it inexact, `suspect` that the sentence dates, corrects,
  * or negates it, `changed` that the sentence holds a change word, and `composite` that it needs
@@ -864,6 +866,7 @@ export interface NormalizerInterface {
 	 *
 	 * @param text - The raw text to clean
 	 * @returns The cleaned text plus every substitution applied
+	 * @throws {@link InterpretError} with `TEXT_LIMIT` from the built-in normalizer when raw text exceeds {@link INTERPRET_TEXT_LIMIT} UTF-16 units.
 	 */
 	normalize(text: string): NormalizeResult
 }

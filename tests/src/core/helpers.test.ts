@@ -55,6 +55,7 @@ import {
 	InterpretFixtureValue,
 	OPEN_SHAPE,
 	UNCOMPILABLE_SHAPE,
+	UNSTATED_UNITS,
 } from '../../setup.js'
 
 // The interprets pure leaves — every function is referentially transparent
@@ -112,6 +113,43 @@ describe('extractNumbers', () => {
 })
 
 describe('assignEntities', () => {
+	it.each(UNSTATED_UNITS)('refuses an unstated unit in $text', ({ entity, text }) => {
+		expect(
+			assignEntities(scanNumbers(text), [{ entity, aliases: [], field: entity }], text, OPEN_SHAPE),
+		).toEqual([])
+	})
+	it('keeps declared anchor heads, links, punctuation and the end eligible', () => {
+		const mappings = [{ entity: 'years', aliases: ['year term'], field: 'years' }]
+		for (const text of [
+			'3 years',
+			'3 year term',
+			'years 3 is',
+			'years 3 of',
+			'years 3 at',
+			'years 3 to',
+			'years 3 a',
+			'years 3 an',
+			'years 3 the',
+			'years 3, months',
+			'years 3',
+		]) {
+			expect(
+				assignEntities(scanNumbers(text), mappings, text, OPEN_SHAPE).map((entity) => entity.value),
+			).toEqual([3])
+		}
+	})
+	it('refuses array collection when any number carries an undeclared unit', () => {
+		const mappings = [{ entity: 'values', aliases: [], field: 'values' }]
+		const text = 'values 10, 20 months'
+		expect(
+			assignEntities(
+				scanNumbers(text),
+				mappings,
+				text,
+				objectShape({ values: arrayShape(numberShape()) }),
+			),
+		).toEqual([])
+	})
 	it.each(['a', 'an', 'the'])('links the article %s only after the anchor', (article) => {
 		const mappings = [{ entity: 'term', aliases: ['year'], field: 'term' }]
 		const before = `125000 ${article} year`
@@ -150,20 +188,13 @@ describe('assignEntities', () => {
 		])
 	})
 
-	it('single mapping onto a scalar field takes an anchored number and collects none', () => {
+	it('single scalar mapping asks when an unbound word follows its number', () => {
 		const mappings = [{ entity: 'age', aliases: [], field: 'age' }]
 		const shape = objectShape({ age: numberShape() })
 		expect(assignEntities(scanNumbers('one 1 two 2'), mappings, 'one 1 two 2', shape)).toEqual([])
 		expect(
 			assignEntities(scanNumbers('age 25 and one 1'), mappings, 'age 25 and one 1', shape),
-		).toEqual([
-			{
-				name: 'age',
-				value: 25,
-				provenance: { category: 'extracted', detail: 'keyword' },
-				confidence: 1,
-			},
-		])
+		).toEqual([])
 	})
 
 	it('a number on an array field among many mappings lands as an array of one', () => {
@@ -180,6 +211,16 @@ describe('assignEntities', () => {
 		)
 		expect(entities.find((entity) => entity.name === 'scores')?.value).toEqual([7])
 		expect(entities.find((entity) => entity.name === 'age')?.value).toBe(25)
+	})
+
+	it('a tied anchor still contests both adjacent numbers', () => {
+		const text = 'loan: amount 50000 income 120000 years'
+		const mappings = [
+			{ entity: 'amount', aliases: [], field: 'amount' },
+			{ entity: 'income', aliases: [], field: 'income' },
+			{ entity: 'years', aliases: [], field: 'years' },
+		]
+		expect(assignEntities(scanNumbers(text), mappings, text, OPEN_SHAPE)).toEqual([])
 	})
 
 	it('claims a multi-word alias only as an exact token sequence', () => {
@@ -219,7 +260,7 @@ describe('assignEntities', () => {
 		).toEqual([])
 	})
 
-	it('keyword-proximity: exact entity-name token wins at CONFIDENCE_EXACT', () => {
+	it('asks over the unbound and while the later score remains stated', () => {
 		const mappings = [
 			{ entity: 'rate', aliases: ['value'], field: 'rate' },
 			{ entity: 'score', aliases: ['credit score'], field: 'score' },
@@ -231,9 +272,8 @@ describe('assignEntities', () => {
 			OPEN_SHAPE,
 		)
 		const rate = entities.find((entity) => entity.name === 'rate')
-		expect(rate?.value).toBe(0.85)
-		expect(rate?.confidence).toBe(1)
-		expect(rate?.provenance).toEqual({ category: 'extracted', detail: 'keyword' })
+		expect(rate).toBeUndefined()
+		expect(entities.find((entity) => entity.name === 'score')?.value).toBe(720)
 	})
 
 	it('load-bearing corpus pin: "score 85 near \'score\'" assigns to the score field', () => {
@@ -269,7 +309,7 @@ describe('assignEntities', () => {
 		expect(entities.find((entity) => entity.name === 'income')).toBeUndefined()
 	})
 
-	it('locates an entity token holding a regex metacharacter literally', () => {
+	it('the unbound then refuses the number beside a literal metacharacter anchor', () => {
 		const mappings = [
 			{ entity: 'net.pay', aliases: [], field: 'pay' },
 			{ entity: 'other', aliases: [], field: 'other' },
@@ -280,12 +320,8 @@ describe('assignEntities', () => {
 			'net.pay 100 then netxpay 200 other 5',
 			OPEN_SHAPE,
 		)
-		expect(entities.find((entity) => entity.name === 'net.pay')).toEqual({
-			name: 'net.pay',
-			value: 100,
-			provenance: { category: 'extracted', detail: 'keyword' },
-			confidence: 1,
-		})
+		expect(entities.find((entity) => entity.name === 'net.pay')).toBeUndefined()
+		expect(entities).toEqual([])
 	})
 
 	it('no anchor fills no field, because position is a guess', () => {
@@ -319,7 +355,7 @@ describe('assignEntities', () => {
 		).toEqual([7])
 	})
 
-	it('a number goes to the anchor nearest it, and a farther one takes no other', () => {
+	it('an unbound and refuses the nearest claim without handing it to a farther anchor', () => {
 		const mappings = [
 			{ entity: 'rate', aliases: [], field: 'rate' },
 			{ entity: 'term', aliases: [], field: 'term' },
@@ -330,8 +366,7 @@ describe('assignEntities', () => {
 			'rate term 7 and more 900',
 			OPEN_SHAPE,
 		)
-		expect(entities.map((entity) => entity.name)).toEqual(['term'])
-		expect(entities[0]?.value).toBe(7)
+		expect(entities).toEqual([])
 	})
 
 	it('a number two anchors sit equally close to goes to neither', () => {
@@ -817,7 +852,7 @@ describe("the recipe's shape", () => {
 	})
 
 	it('findUnclaimedNumbers takes one number per claim, and reads an array by element', () => {
-		expect(findUnclaimedNumbers(scanNumbers('25 700'), [entity])).toEqual([700])
+		expect(findUnclaimedNumbers(scanNumbers('25, 700'), [entity])).toEqual([700])
 		expect(findUnclaimedNumbers(scanNumbers('25 25'), [entity])).toEqual([25])
 		expect(findUnclaimedNumbers(scanNumbers('1 2 3'), [{ ...entity, value: [1, 3] }])).toEqual([2])
 		expect(findUnclaimedNumbers([], [entity])).toEqual([])

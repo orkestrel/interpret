@@ -44,6 +44,23 @@ import {
 } from '@orkestrel/reason'
 import { Extractor, Interpret, InterpretContext, RecordManager } from '@src/core'
 
+/** Covers the JSON kinds a shape default can hold, including nested cloned objects. */
+export const DEFAULT_RENDERINGS = [
+	{ value: { nested: { enabled: true } }, rendered: 'object' },
+	{ value: [{ enabled: true }], rendered: 'array' },
+	{ value: 'plain text', rendered: 'plain text' },
+	{ value: 42, rendered: '42' },
+	{ value: true, rendered: 'true' },
+	{ value: null, rendered: 'null' },
+]
+
+/** Pins the reviewer messages whose unit must not disappear from a claimed value. */
+export const UNSTATED_UNITS = [
+	{ entity: 'years', text: 'years 3 months' },
+	{ entity: 'years', text: 'years 3 weeks' },
+	{ entity: 'amount', text: 'amount 50000 per month' },
+]
+
 /** Holds one fixture value that a tested callback replaces. */
 export class InterpretFixtureValue<T> {
 	#value: T
@@ -494,6 +511,65 @@ export function seedInterpretContext(previous: readonly Interpretation[]): Inter
 	for (const interpretation of previous) context.add(interpretation)
 	return context
 }
+
+/** Pins whole numeric forms: an exact value or an unreadable result, never a part. */
+export const WHOLE_NUMBER_FORMS: ReadonlyArray<readonly [string, number | undefined]> =
+	Object.freeze([
+		['3', 3],
+		['3,000,000', 3000000],
+		['3.5', 3.5],
+		['.5', 0.5],
+		['3k', 3000],
+		['$3m', 3000000],
+		['~3', 3],
+		['3+', 3],
+		['3 thousand', 3000],
+		['three thousand', 3000],
+		['3 million', 3000000],
+		['three million', 3000000],
+		['three hundred and five', 305],
+		['three point five', 3.5],
+		['six and a half', 6.5],
+		['0', 0],
+		['3 000 000', undefined],
+		["3'000'000", undefined],
+		['3 000 000', undefined],
+		['3 000 000', undefined],
+		['3,00,000', undefined],
+		['3.000.000', undefined],
+		['1 trillion', undefined],
+		['three trillion', undefined],
+		['1 quadrillion', undefined],
+		['three quadrillion', undefined],
+		['1 tn', undefined],
+		['3 mln', undefined],
+		['30 lakh', undefined],
+		['three lakh', undefined],
+		['3 crore', undefined],
+		['three crore', undefined],
+		['3trillion', undefined],
+		['3mln', undefined],
+		['1 quintillion', undefined],
+		['three sextillion', undefined],
+		['1/2', undefined],
+		['3/4', undefined],
+		['2½', undefined],
+		['3-4', undefined],
+		['3 to 4', undefined],
+		['3 or 4', undefined],
+		['v1.2.3', undefined],
+		['2024-01-02', undefined],
+		['3/14/2024', undefined],
+		['3m', undefined],
+		['1e3', undefined],
+		['1e-3', undefined],
+		['-3', undefined],
+		['+3', undefined],
+		['−3', undefined],
+		['9007199254740993', undefined],
+		['one thousand million', undefined],
+		['3.4.5', undefined],
+	])
 
 /** Distinguishes correction waits from anticipation before an ordinary quantity. */
 export const WAIT_READINGS = Object.freeze([

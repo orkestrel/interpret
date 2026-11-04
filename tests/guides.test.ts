@@ -80,6 +80,7 @@ await new GuideCommand({
 		DEFAULT_CONTRACTIONS,
 		DEFAULT_INTERPRET_FLOOR,
 		DEFAULT_INTERPRET_HISTORY,
+		INTERPRET_TEXT_LIMIT,
 		DEFAULT_LEXICON,
 		digestValue,
 		extractNumbers,
@@ -302,6 +303,7 @@ await new GuideCommand({
 		it('Constants: every pinned default and lexicon line', () => {
 			expect(DEFAULT_INTERPRET_FLOOR).toBe(0.3)
 			expect(DEFAULT_INTERPRET_HISTORY).toBe(0)
+			expect(INTERPRET_TEXT_LIMIT).toBe(65_536)
 			expect(CONFIDENCE_EXACT).toBe(1)
 			expect(CONFIDENCE_ALIAS).toBe(0.9)
 			expect(CONFIDENCE_COLLECT).toBe(0.9)
@@ -404,7 +406,7 @@ await new GuideCommand({
 				'age 25 with score 720',
 				objectShape({ age: numberShape(), score: numberShape() }),
 			)
-			expect(assigned.find((entity) => entity.name === 'age')?.value).toBe(25)
+			expect(assigned.find((entity) => entity.name === 'age')).toBeUndefined()
 			expect(assigned.find((entity) => entity.name === 'score')?.value).toBe(720)
 		})
 

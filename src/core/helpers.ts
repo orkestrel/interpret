@@ -241,15 +241,16 @@ export function findAnchoredNumber(
 		.filter(([, number]) => number.start >= start && number.start < end)
 		// A digit inside the anchor's own word, the 401 of `401k`, is no number beside it.
 		.filter(([, number]) => number.end <= anchor.start || number.start >= anchor.end)
-		.filter(
-			([, number]) =>
-				number.start >= anchor.end ||
-				!/\b(?:a|an|the)\b/i.test(text.slice(number.end, anchor.start)),
-		)
+		// Reject unlinked spans before scanning their whole backward gap for an article.
 		.filter(([, number]) =>
 			/^(?:\s|=|:|\b(?:is|of|at|to|a|an|the)\b)*$/i.test(
 				text.slice(Math.min(anchor.end, number.end), Math.max(anchor.start, number.start)),
 			),
+		)
+		.filter(
+			([, number]) =>
+				number.start >= anchor.end ||
+				!/\b(?:a|an|the)\b/i.test(text.slice(number.end, anchor.start)),
 		)
 		.map(([index, number]) => ({
 			index,

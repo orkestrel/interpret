@@ -44,6 +44,7 @@ import {
 	buildInsuranceRecipe,
 	LOAN_HISTORIES,
 	WAIT_READINGS,
+	UNSTATED_UNITS,
 	buildInterpretRecipe,
 	createCorpusExtractor,
 	asRecord,
@@ -59,6 +60,31 @@ import {
 // reverse passthroughs, emitter, and DESTROYED teardown.
 
 describe('Interpret', () => {
+	it.each(UNSTATED_UNITS)('asks and holds no value for $text', ({ entity, text }) => {
+		const interpret = new Interpret({
+			extractor: createCorpusExtractor(),
+			recipes: [
+				buildInterpretRecipe({
+					mappings: [{ entity, aliases: [], field: 'value' }],
+					shape: objectShape({ value: numberShape() }),
+					computations: [],
+				}),
+			],
+		})
+		const result = interpret.interpret(`calculate arithmetic ${text}`)
+		expect(result.subject).toBeUndefined()
+		expect(result.entities).toEqual([])
+		expect(result.ambiguities.map((ambiguity) => ambiguity.field)).toContain('value')
+		interpret.destroy()
+	})
+	it('refuses oversized text at normalization with a coded failure and no subject', () => {
+		const interpret = new Interpret()
+		const result = interpret.interpret(' '.repeat(65_537))
+		expect(result.subject).toBeUndefined()
+		expect(result.failures.map((failure) => failure.code)).toEqual(['TEXT_LIMIT'])
+		expect(result.stages[0]?.failed).toBe(true)
+		interpret.destroy()
+	})
 	it.each(WAIT_READINGS)('reads the wait cue in $text', ({ text, entity, value }) => {
 		const interpret = new Interpret({
 			recipes: [
@@ -157,15 +183,21 @@ describe('Interpret', () => {
 	})
 
 	it.each(['value 25 now', 'Sorry to ask, value 25 now'])(
-		'keeps an ordinary current statement: %s',
+		'asks over a trailing now, while punctuation keeps it an ordinary statement: %s',
 		(text) => {
 			const interpret = new Interpret({
 				recipes: [buildInterpretRecipe({ shape: objectShape({ value: numberShape() }) })],
 				extractor: createCorpusExtractor(),
 			})
 			const result = interpret.interpret(`calculate arithmetic ${text}`)
-			expect(result.subject).toEqual({ value: 25 })
-			expect(result.ambiguities).toEqual([])
+			expect(result.subject).toBeUndefined()
+			expect(result.entities).toEqual([])
+			expect(result.ambiguities.map((ambiguity) => ambiguity.field)).toContain('value')
+			const separated = interpret.interpret(
+				`calculate arithmetic ${text.replace('25 now', '25, now')}`,
+			)
+			expect(separated.subject).toEqual({ value: 25 })
+			expect(separated.ambiguities).toEqual([])
 			interpret.destroy()
 		},
 	)

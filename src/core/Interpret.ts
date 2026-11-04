@@ -30,7 +30,7 @@ import { attempt, isError, isString } from '@orkestrel/contract'
 import { Emitter } from '@orkestrel/emitter'
 import { assignEntities, scanNumbers } from './compilers.js'
 import { DEFAULT_INTERPRET_FLOOR } from './constants.js'
-import { InterpretError } from './errors.js'
+import { InterpretError, isInterpretError } from './errors.js'
 import { assertRecipe, digestValue, findUnclaimedNumbers, matchRecipe } from './helpers.js'
 import { InterpretContext } from './InterpretContext.js'
 import { RecipeManager } from './managers/RecipeManager.js'
@@ -154,7 +154,7 @@ export class Interpret implements InterpretInterface {
 				[],
 				stages,
 				'normalize',
-				'NORMALIZE_FAILED',
+				isInterpretError(error) && error.code === 'TEXT_LIMIT' ? 'TEXT_LIMIT' : 'NORMALIZE_FAILED',
 				text,
 				error,
 				['extract', 'clarify', 'format', 'generate'],

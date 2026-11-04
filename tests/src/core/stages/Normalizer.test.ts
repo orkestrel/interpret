@@ -1,4 +1,5 @@
-import { Normalizer } from '@src/core'
+import { Normalizer, isInterpretError, INTERPRET_TEXT_LIMIT } from '@src/core'
+import { captureError } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 
 // The `Normalizer` stage — `.claude/rules/tests.md` § Test contract: same
@@ -6,6 +7,15 @@ import { describe, expect, it } from 'vitest'
 // scenario double-invokes to pin run-twice determinism directly.
 
 describe('Normalizer', () => {
+	it('accepts the UTF-16 boundary and refuses one unit beyond before whitespace cleanup', () => {
+		const normalizer = new Normalizer()
+		expect(INTERPRET_TEXT_LIMIT).toBe(65_536)
+		const boundary = '😀'.repeat(32_768)
+		expect(normalizer.normalize(boundary).text).toBe(boundary)
+		const error = captureError(() => normalizer.normalize(`${boundary} `))
+		expect(isInterpretError(error)).toBe(true)
+		expect(error).toMatchObject({ code: 'TEXT_LIMIT' })
+	})
 	it('merges caller maps OVER the neutral built-in defaults', () => {
 		const normalizer = new Normalizer({ corrections: { teh: 'the' } })
 		const result = normalizer.normalize("can't teh stop")

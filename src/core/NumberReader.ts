@@ -16,7 +16,9 @@ import { ReaderToken } from './ReaderToken.js'
  * Digits, shorthand, and word forms each read to a value, and what cannot be read exactly reads
  * as `unreadable` with no guess: a range, spoken "twelve fifty", foreign currency, European
  * grouping. A number that belongs to no quantity is marked `foreign`: a year, a date, a time, a
- * phone number, a reference. The words around a number add `hedged`, `suspect`, `changed`, and
+ * phone number, a reference. Space- and apostrophe-grouped digits and unsupported scale words
+ * are consumed as unreadable, with no partial value. Numeric dates also carry an unreadable mark.
+ * The words around a number add `hedged`, `suspect`, `changed`, and
  * `composite`. It never assigns a number to a field, because that is a recipe's question.
  * Spans index the text as given: every normalization replaces one character with one.
  */
@@ -31,7 +33,7 @@ export class NumberReader {
 		const tokens = this.#annotate(this.#markPairs(this.#mergeNumbers(this.#scan(text))))
 		return tokens
 			.filter((token) => token.form === 'number')
-			.map((token) => this.#project(token, tokens))
+			.map((token) => this.#project(token, tokens, text))
 	}
 
 	// === Scanner: text to raw tokens
@@ -159,6 +161,9 @@ export class NumberReader {
 		if (digits === undefined) return undefined
 		const token = this.#numberToken(digits, index, start + digits.length)
 		token.mark({ value: Number(digits.replace(/,/g, '')) })
+		const grouped = /^(?:[ '\u202f]+\d{3})+(?!\d)/.exec(source.slice(token.marks.end))
+		if (grouped !== null)
+			token.mark({ unreadable: 'grouping', end: token.marks.end + grouped[0].length })
 		if (currency !== undefined) {
 			if (/^(?:us\$|usd|\$)/i.test(currency)) token.mark({ money: true })
 			else token.mark({ unreadable: 'foreign currency' })
@@ -202,7 +207,8 @@ export class NumberReader {
 		const suffix = letters.toLowerCase()
 		const start = token.marks.end
 		token.mark({ end: start + letters.length })
-		if (['st', 'nd', 'rd', 'th'].includes(suffix)) token.mark({ foreign: 'ordinal' })
+		if (READER_WORDS.unscaled.has(this.#canon(suffix))) token.mark({ unreadable: 'shorthand' })
+		else if (['st', 'nd', 'rd', 'th'].includes(suffix)) token.mark({ foreign: 'ordinal' })
 		else if (suffix === 'am' || suffix === 'pm') token.mark({ foreign: 'time' })
 		else if (suffix === 'ish') token.mark({ hedged: true })
 		else if (READER_WORDS.gluedScales.has(suffix)) {
@@ -470,7 +476,9 @@ export class NumberReader {
 		const written = token.marks.word === true
 		const scale = this.#own(READER_SCALES.digit, word)
 		const follow = raw[this.#cursor + 2]?.lower
-		if (!written && scale !== undefined) {
+		if (READER_WORDS.unscaled.has(next.canon)) {
+			token.mark({ unreadable: 'shorthand' })
+		} else if (!written && scale !== undefined) {
 			this.#scale(token, scale)
 			if (word === 'grand') token.mark({ money: true })
 		} else if (written && (word === 'k' || word === 'grand')) {
@@ -797,16 +805,22 @@ export class NumberReader {
 
 	// === Leaves
 
-	#project(token: ReaderTokenInterface, tokens: readonly ReaderTokenInterface[]): ReadNumber {
+	#project(
+		token: ReaderTokenInterface,
+		tokens: readonly ReaderTokenInterface[],
+		text: string,
+	): ReadNumber {
 		const { marks } = token
 		const unit = tokens[marks.index + 1]
 		// A value past what a number holds exactly is not read, whatever its digits say.
 		const exact = marks.value !== undefined && Number.isSafeInteger(Math.trunc(marks.value))
 		return {
-			raw: token.raw,
+			raw: text.slice(token.start, marks.end),
 			start: token.start,
 			end: marks.end,
-			...(exact && marks.value !== undefined ? { value: marks.value } : {}),
+			...(exact && marks.value !== undefined && marks.unreadable === undefined
+				? { value: marks.value }
+				: {}),
 			...(marks.unreadable !== undefined
 				? { unreadable: marks.unreadable }
 				: marks.value !== undefined && !exact
@@ -844,6 +858,7 @@ export class NumberReader {
 	#foreignToken(raw: string, index: number, foreign: NumberForeign): ReaderTokenInterface {
 		const token = this.#numberToken(raw, index, index + raw.length)
 		token.mark({ foreign })
+		if (foreign === 'date') token.mark({ unreadable: 'joined' })
 		return token
 	}
 

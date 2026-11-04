@@ -5,7 +5,8 @@ import type {
 	TextChange,
 } from '../types.js'
 import { escapeRegExp } from '@orkestrel/contract'
-import { DEFAULT_CONTRACTIONS } from '../constants.js'
+import { DEFAULT_CONTRACTIONS, INTERPRET_TEXT_LIMIT } from '../constants.js'
+import { InterpretError } from '../errors.js'
 import { applyReplacements, collapseWhitespace } from '../helpers.js'
 
 /**
@@ -13,6 +14,9 @@ import { applyReplacements, collapseWhitespace } from '../helpers.js'
  * substitutions in order, then collapses whitespace.
  *
  * @remarks
+ * Raw input longer than {@link INTERPRET_TEXT_LIMIT} UTF-16 units throws
+ * `InterpretError('TEXT_LIMIT')` before substitutions or whitespace cleanup.
+ * The bound has no option to raise it and also applies when composing public stages.
  * The caller's `contractions` map is merged over `DEFAULT_CONTRACTIONS`;
  * `abbreviations` and `corrections` carry no built-in vocabulary, so each is
  * exactly what the caller supplied. `text` is never mutated, and every
@@ -44,6 +48,8 @@ export class Normalizer implements NormalizerInterface {
 	}
 
 	normalize(text: string): NormalizeResult {
+		if (text.length > INTERPRET_TEXT_LIMIT)
+			throw new InterpretError('TEXT_LIMIT', `Text exceeds ${INTERPRET_TEXT_LIMIT} UTF-16 units`)
 		const changes: TextChange[] = []
 		const working = [this.#contractions, this.#abbreviations, this.#corrections].reduce(
 			(prior, map) => {

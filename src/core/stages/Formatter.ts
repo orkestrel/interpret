@@ -9,6 +9,7 @@ import type {
 	Recipe,
 } from '../types.js'
 import { formatField } from '@orkestrel/reason'
+import { isString, preview } from '@orkestrel/contract'
 import { Narrator } from '../Narrator.js'
 
 /**
@@ -16,6 +17,8 @@ import { Narrator } from '../Narrator.js'
  * matched recipe.
  *
  * @remarks
+ * Primitive strings retain their text; other values use the contract's total `preview`
+ * renderer. Composite defaults render as `object` or `array` without coercion or traversal.
  * Shape: the `prompt.base` line (`{verb} {recipe.name}`), then the
  * `prompt.entities` clause for every non-default entity (each rendered
  * `{label}: {value}` through the core-root `formatField`), then the
@@ -73,7 +76,7 @@ export class Formatter implements FormatterInterface {
 		const resolved: string[] = []
 		const defaults: string[] = []
 		for (const entity of entities) {
-			const rendered = `${formatField(entity.name)}: ${String(entity.value)}`
+			const rendered = `${formatField(entity.name)}: ${isString(entity.value) ? entity.value : preview(entity.value)}`
 			if (entity.provenance.category === 'default') defaults.push(rendered)
 			else resolved.push(rendered)
 		}

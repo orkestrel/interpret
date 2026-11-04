@@ -143,11 +143,15 @@ export const INTERPRET_STAGES: readonly InterpretStage[] = Object.freeze([
 	'generate',
 ])
 
+/** Caps raw text accepted by the built-in normalizer at 65,536 UTF-16 units. */
+export const INTERPRET_TEXT_LIMIT = 65_536
+
 /**
  * Lists every `InterpretErrorCode` literal, frozen — the one home the result guards
  * check the union from.
  */
 export const INTERPRET_ERROR_CODES: readonly InterpretErrorCode[] = Object.freeze([
+	'TEXT_LIMIT',
 	'NORMALIZE_FAILED',
 	'EXTRACT_FAILED',
 	'CLARIFY_FAILED',
@@ -238,6 +242,13 @@ export const READER_SCALES = Object.freeze({
 
 /** Holds the word lists `NumberReader` reads a number's surroundings by. */
 export const READER_WORDS = Object.freeze({
+	unscaled: Object.freeze(
+		new Set(
+			'trillion quadrillion quintillion sextillion septillion octillion nonillion decillion undecillion duodecillion googol tn mln lakh lac crore arab kharab'.split(
+				' ',
+			),
+		),
+	),
 	synonyms: Object.freeze<Record<string, string>>({
 		hr: 'hour',
 		hrs: 'hour',
