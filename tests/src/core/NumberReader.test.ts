@@ -1,8 +1,14 @@
-import { scanNumbers, readNumbersContract } from '@src/core'
+import { scanNumbers, readNumbersContract, INTERPRET_TEXT_LIMIT, InterpretError } from '@src/core'
 import { describe, expect, it } from 'vitest'
 import { ADMITTED_NUMBERS, UNDECLARED_TOKENS, WHOLE_NUMBER_FORMS } from '../../setup.js'
 
 describe('scanNumbers — declared digit tokens', () => {
+	it('enforces the published UTF-16 text limit at the reader', () => {
+		expect(scanNumbers(' '.repeat(INTERPRET_TEXT_LIMIT - 1) + '3')[0]?.value).toBe(3)
+		expect(() => scanNumbers(' '.repeat(INTERPRET_TEXT_LIMIT) + '3')).toThrow(
+			new InterpretError('TEXT_LIMIT', `Text exceeds ${INTERPRET_TEXT_LIMIT} UTF-16 units`),
+		)
+	})
 	it('checks a long run whole, including a digit after another script', () => {
 		const word = 'ж'.repeat(65535)
 		expect(scanNumbers(word)).toEqual([])
@@ -320,17 +326,19 @@ describe('scanNumbers — total on anything', () => {
 	)
 
 	it('reads a long text of number words without walking it again for each', () => {
-		const numbers = scanNumbers('one x '.repeat(20000))
-		expect(numbers).toHaveLength(20000)
+		const count = Math.floor(INTERPRET_TEXT_LIMIT / 'one x '.length)
+		const numbers = scanNumbers('one x '.repeat(count))
+		expect(numbers).toHaveLength(count)
 	})
 
 	it('reads a long run of counted periods without comparing each to all', () => {
-		const numbers = scanNumbers('5 hours a week for 2 weeks '.repeat(5000))
-		expect(numbers.filter((number) => number.composite === true)).toHaveLength(5000)
+		const count = Math.floor(INTERPRET_TEXT_LIMIT / '5 hours a week for 2 weeks '.length)
+		const numbers = scanNumbers('5 hours a week for 2 weeks '.repeat(count))
+		expect(numbers.filter((number) => number.composite === true)).toHaveLength(count)
 	})
 
 	it('reads a long single cardinal', () => {
-		const numbers = scanNumbers('one '.repeat(20000))
+		const numbers = scanNumbers('one '.repeat(Math.floor(INTERPRET_TEXT_LIMIT / 'one '.length)))
 		expect(numbers).toHaveLength(1)
 		expect(numbers[0]?.unreadable).toBe('spoken')
 	})

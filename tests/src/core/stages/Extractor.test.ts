@@ -1,10 +1,17 @@
-import { Extractor } from '@src/core'
+import { Extractor, INTERPRET_TEXT_LIMIT, InterpretError } from '@src/core'
 import { describe, expect, it } from 'vitest'
 
 // The `Extractor` stage — recipe-agnostic: intent classification + raw
 // number mining only, never entity assignment.
 
 describe('Extractor', () => {
+	it('meets the reader limit even without a normalizer', () => {
+		const extractor = new Extractor()
+		expect(extractor.extract(' '.repeat(INTERPRET_TEXT_LIMIT - 1) + '3').numbers).toEqual([3])
+		expect(() => extractor.extract(' '.repeat(INTERPRET_TEXT_LIMIT) + '3')).toThrow(
+			new InterpretError('TEXT_LIMIT', `Text exceeds ${INTERPRET_TEXT_LIMIT} UTF-16 units`),
+		)
+	})
 	it('records no fragments from unreadable grouping', () => {
 		expect(new Extractor().extract('amount 3 000 000').numbers).toEqual([])
 	})

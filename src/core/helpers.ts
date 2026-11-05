@@ -205,7 +205,8 @@ export function extractNumbers(text: string): readonly number[] {
  * Closeness is the gap between the two spans, so a number before an anchor and one after it are
  * measured alike. Only whitespace, `is`, `of`, `at`, `to`, `=`, and `:` may link the spans.
  * Articles also link when the number follows the anchor. Negation in the clause, other
- * intervening text, and ties leave the field to ask.
+ * intervening text, and ties leave the field to ask. A colon immediately after the anchor
+ * permits only a number following it, never a backward claim.
  *
  * @param text - The text
  * @param anchor - Where the anchor sits
@@ -248,6 +249,7 @@ export function findAnchoredNumber(
 	}
 	const gaps = [...numbers.entries()]
 		.filter(([, number]) => number.start >= start && number.start < end)
+		.filter(([, number]) => text[anchor.end] !== ':' || number.start >= anchor.end)
 		// A digit inside the anchor's own word, the 401 of `401k`, is no number beside it.
 		.filter(([, number]) => number.end <= anchor.start || number.start >= anchor.end)
 		// Reject unlinked spans before scanning their whole backward gap for an article.

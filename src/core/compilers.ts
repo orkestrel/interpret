@@ -12,10 +12,13 @@ import { NumberReader } from './NumberReader.js'
  * or `:` between them. An article also links when the number follows the anchor.
  * Negation in the clause refuses every claim there. Equal-distance numbers or competing
  * anchors tied for a number leave it unclaimed. An unreadable occurrence never fills a field.
- * An anchor tied between numbers still contests both. A number's neighbor must be the text's
- * end, a sentence end, an anchor head, or a conditional link; otherwise scalar assignment and
+ * An anchor tied between numbers still contests both. A trailing colon permits only forward
+ * claims. A backward claim refuses a preceding lone punctuation token, another number, or
+ * the reader's hedge flag; `preceding-word` records that neighbor. Trailing sentence punctuation
+ * on the previous number forms a boundary. A number's following neighbor must be the text's
+ * end, a sentence end, a whole anchor, or a conditional link; otherwise scalar assignment and
  * array collection ask. A comma admits unless followed by a number. The links `is`, `of`, `at`,
- * `to`, `a`, `an`, `the`, `and`, and `with` require a declared anchor head next, allowing one
+ * `to`, `a`, `an`, `the`, `and`, and `with` require a declared whole anchor next, allowing one
  * article (`a`, `an`, or `the`); a numeric target refuses. Sentence punctuation must touch the
  * number and precede whitespace or the text's end. Other words, scripts, punctuation, and
  * adjacent numbers refuse with `following-word` and the immediate neighbor's preview in `word`.
@@ -64,7 +67,7 @@ export function assignEntities(
  * Each unclaimed occurrence keeps its first recorded decision; a claimed occurrence keeps none.
  * Records follow input occurrence order. Only `NUMBER_REFUSAL_LIMIT` records are constructed,
  * with the rest counted in `omitted`; `refusals` is absent when there are none.
- * Text and following words use the contract's `preview`. Positions address normalized text:
+ * Text and neighboring words use the contract's `preview`. Positions address normalized text:
  * callers composing stages obtain it through `createNormalizer().normalize(text).text`.
  * No diagnosis beyond the decisions made by assignment is inferred.
  *
@@ -104,9 +107,11 @@ export function compileEntities(
  * Declared digits, shorthand, and word forms read to a value, and each number carries its span and what
  * the words around it say. It never assigns a number to a field: read this beside a recipe, and a
  * check that a proposed value appears here is exact where `extractNumbers` reads digits only.
+ * Fractions join plain numbers only; a fraction after a scaled number is unreadable.
  *
  * @param text - The text to read
  * @returns Every number, in the order written
+ * @throws {@link InterpretError} with `TEXT_LIMIT` above {@link INTERPRET_TEXT_LIMIT} UTF-16 units.
  *
  * @example
  * ```ts

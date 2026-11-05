@@ -21,7 +21,10 @@ or digest. See the guide's [refusal evidence](guides/interpret.md#refusal-eviden
 A digit-holding token must match a declared numeric form whole. For example,
 `amount 3_000_000` asks with `unreadable: 'undeclared'` and holds no partial amount.
 After a number, only a text or sentence end, an anchor, or a link with its required
-continuation admits assignment. Other neighbors ask, in any script. The guide
+continuation admits assignment. An alias must match its whole token sequence.
+Before a number claimed backward, lone punctuation, another number, or the reader's
+hedge flag asks; a previous number's sentence punctuation forms a boundary.
+Colon anchors claim only forward. Other neighbors ask, in any script. The guide
 states the declared forms and the retained comma exception.
 
 ## Install

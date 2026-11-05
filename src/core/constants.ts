@@ -145,7 +145,7 @@ export const INTERPRET_STAGES: readonly InterpretStage[] = Object.freeze([
 	'generate',
 ])
 
-/** Caps raw text accepted by the built-in normalizer at 65,536 UTF-16 units. */
+/** Caps text accepted by the built-in normalizer and number reader at 65,536 UTF-16 units. */
 export const INTERPRET_TEXT_LIMIT = 65_536
 
 /**
@@ -418,6 +418,7 @@ export const NUMBER_REFUSAL_LIMIT = 32
 
 /** Lists the frozen vocabulary of first refusal decisions described by `NumberRefusalReason`. */
 export const NUMBER_REFUSAL_REASONS: readonly NumberRefusalReason[] = Object.freeze([
+	'preceding-word',
 	'following-word',
 	'unreadable',
 	'anchor-tie',

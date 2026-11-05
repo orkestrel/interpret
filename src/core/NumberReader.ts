@@ -5,7 +5,8 @@ import type {
 	ReadNumber,
 	WordNumberResult,
 } from './types.js'
-import { READER_SCALES, READER_SHAPES, READER_WORDS } from './constants.js'
+import { INTERPRET_TEXT_LIMIT, READER_SCALES, READER_SHAPES, READER_WORDS } from './constants.js'
+import { InterpretError } from './errors.js'
 import { ReaderToken } from './ReaderToken.js'
 
 /**
@@ -21,6 +22,8 @@ import { ReaderToken } from './ReaderToken.js'
  * The words around a number add `hedged`, `suspect`, `changed`, and
  * `composite`. It never assigns a number to a field, because that is a recipe's question.
  * Spans index the text as given: every normalization replaces one character with one.
+ * A fraction joins only a plain number; a scaled cardinal or literal with a fraction refuses.
+ * Input beyond `INTERPRET_TEXT_LIMIT` UTF-16 units throws `InterpretError('TEXT_LIMIT')`.
  */
 export class NumberReader {
 	// A scanner's cursors: pass, checked nonspace boundary, unit absorption, and cardinal.
@@ -30,6 +33,8 @@ export class NumberReader {
 	#cardinal: CardinalResult = { value: 0, part: 0, next: 0, last: '', money: false }
 
 	read(text: string): readonly ReadNumber[] {
+		if (text.length > INTERPRET_TEXT_LIMIT)
+			throw new InterpretError('TEXT_LIMIT', `Text exceeds ${INTERPRET_TEXT_LIMIT} UTF-16 units`)
 		const tokens = this.#annotate(this.#markPairs(this.#mergeNumbers(this.#scan(text))))
 		return tokens
 			.filter((token) => token.form === 'number')
@@ -130,6 +135,11 @@ export class NumberReader {
 		if (grouped !== null)
 			token.mark({ unreadable: 'grouping', end: token.marks.end + grouped[0].length })
 		if (currency !== undefined) token.mark({ money: true })
+		if (
+			currency !== undefined &&
+			!READER_SHAPES.admitted.test(source.slice(index, start + digits.length))
+		)
+			token.mark({ unreadable: 'undeclared' })
 		if (/^\d{1,3}\.\d{3}$/.test(digits)) token.mark({ unreadable: 'grouping' })
 		const percent = /^\s?%(?=\s|[.,!?;]*(?:\s|$))/.exec(source.slice(token.marks.end))
 		if (percent !== null) token.mark({ percent: true, end: token.marks.end + percent[0].length })
@@ -324,10 +334,17 @@ export class NumberReader {
 		const cardinal = this.#readCardinal(raw, index)
 		const fraction = this.#readWordFraction(raw, cardinal.next)
 		const end = fraction?.next ?? cardinal.next
+		const scaled = raw
+			.slice(index, cardinal.next)
+			.some(
+				(part) =>
+					this.#own(READER_SCALES.word, part.lower) !== undefined || part.lower === 'hundred',
+			)
 		return {
 			token: this.#spanToken(raw, index, end, {
 				value: cardinal.value + (fraction?.amount ?? 0),
 				...(cardinal.unreadable === undefined ? {} : { unreadable: cardinal.unreadable }),
+				...(fraction !== undefined && scaled ? { unreadable: 'joined' as const } : {}),
 				...(cardinal.money ? { money: true, scaled: true } : {}),
 				...(end - index === 1 && lower === 'one' ? { weak: true } : {}),
 			}),
@@ -428,6 +445,7 @@ export class NumberReader {
 			(follow === 'half' || follow === 'quarter')
 		) {
 			const { value } = token.marks
+			if (token.marks.scaled === true) token.mark({ unreadable: 'joined' })
 			if (value !== undefined) token.mark({ value: value + (follow === 'half' ? 0.5 : 0.25) })
 			this.#cursor += 2
 		} else if (

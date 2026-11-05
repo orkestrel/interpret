@@ -151,13 +151,14 @@ an anchor. An unreadable occurrence asks instead of supplying digit fragments or
 
 A tied anchor still contests both adjacent numbers, so another anchor cannot take one
 merely because the tied anchor could not choose. A number's next neighbor must be the end
-of the text, an attached sentence end (`.`, `!`, `?`, or `;`), a declared anchor head, or a
+of the text, an attached sentence end (`.`, `!`, `?`, or `;`), a whole declared anchor, or a
 conditional link. Sentence punctuation must touch the number and precede whitespace or the
 text's end: `years 3.` and `years 3. Next` claim, while `amount 3 . 000 . 000` asks.
 A newline alone does not end a sentence. Every other neighbor asks, including words in any script, punctuation,
 and adjacent numbers. This applies to scalar claims and array collection.
 The links `is`, `of`, `at`, `to`, `a`, `an`, `the`, `and`, and `with` all require a declared
-anchor head next, allowing one article (`a`, `an`, or `the`) between. A numeric target asks,
+anchor next, allowing one article (`a`, `an`, or `the`) between. An alias must match its
+whole token sequence: `monthly payments` does not stand for `monthly income`. A numeric target asks,
 whether written in digits or words: `amount 5 of 3000000`, `amount 3 and 5`,
 `amount 50000 and 60000`, `years 3 and 6 months`, and `amount 50000 with a 20000 deposit`
 hold no value for that field. `3 and a half` remains one numeric form, so it meets no link check.
@@ -166,6 +167,17 @@ Array collection follows the same rule: `value 10 and 20 and 30` asks, while
 Thus `amount 50000 and income 120000` holds both fields, while `amount 50000 and up`
 asks for amount and retains no amount value. `amount 50000 income 120000` asks for both
 fields with no entity: the unchanged tie rule records `anchor-tie` for each occurrence.
+
+Both sides are read when a number precedes its anchor. A preceding lone punctuation token,
+another number, or the reader's existing `hedged` flag refuses that backward claim with
+`preceding-word` and the immediate predecessor in `word`. Thus `1 – 3 years`, `150 90000 amount`,
+and `under 2 years` ask without holding a value for that field. The preceding-number check
+stops at trailing sentence punctuation: `income 120000, 3 years` keeps years 3.
+`3 years`, `for 3 years`, and `have 3 years` also keep 3. No hedge vocabulary is added.
+An anchor's trailing colon permits only a forward claim. Consequently
+`amount: 50000 income: 120000 years: 3` holds those three values, including when written
+on separate lines before normalization. Its comma-separated form reads the same.
+The glued `amount:50000` remains an undeclared numeric token.
 
 A comma admits unless a number follows it: `value 25, now` and
 `amount 50000, income 120000` still claim, whereas `amount 3, 000, 000` asks.
@@ -178,6 +190,8 @@ with a decimal fraction, or a leading-dot decimal; an optional dollar prefix (`$
 or `USD`, allowing one space); and an optional `%`, `k`, `mil`, `mill`, `million`, `thousand`,
 `grand`, or `ish` suffix. With a dollar prefix, `m`, `mm`, `b`, and `bn` also admit.
 Letters match without case. A currency prefix can include its one separating space.
+That prefix must pass the same admission even inside an earlier token: `amount:€ 50000`
+and `amount=€ 50000` refuse the currency-prefixed number.
 Other digit-holding forms, including `3_000_000`, `3+`, `~3`, ordinals, numeric dates,
 times, and hyphenated phone numbers, carry `unreadable: 'undeclared'` with no `value`.
 Their span and `raw` cover the whole rejected token. `401k` is the declared `k` suffix and
@@ -190,6 +204,8 @@ word is left after the numeric span and refuses assignment by neighbor admission
 no scale refusal list. `WHOLE_NUMBER_FORMS` in `tests/setup.ts` pins exact readings and
 refusals, beside seeded tables of admitted tokens, undeclared tokens, and neighbors.
 `3 and a half` reads exactly 3.5, and `six and a half` reads exactly 6.5.
+A fraction joins only a plain number. `3 million and a half`, `$3m and a half`,
+`three million and a half`, `3 million and a quarter`, and `3k and a half` are unreadable.
 The numeric phrase in `3 and a half months` still reads 3.5. In `years 3 and a half months`,
 the following-word test refuses the assignment because `months` is neither an anchor nor a link.
 
@@ -250,14 +266,15 @@ and pass it to both `scanNumbers` and `compileEntities`. No original-input offse
 provided. The compiler produces ordered spans. The shape and guard validate nonnegative
 integer positions structurally and accept reversed pairs.
 
-The reasons record existing decisions: `following-word` for a failed following-word
+The reasons record existing decisions: `preceding-word` for a backward claim refused by
+preceding punctuation, another number, or a hedge flag; `following-word` for a failed following-word
 anchor/link check; `unreadable` for a selected occurrence without an exact value or with
 an unreadable mark; `anchor-tie` for equally near numbers or competing nearest anchors;
 `correction` for a suspect or changed occurrence under an explicit correction cue;
 `negation` for occurrences in a negated anchor clause; `unanchored` when compilation
 ends with neither a claim nor an earlier refusal; and `collection` for the other members
 of a sole array mapping withheld after one member fails. The unreadable check carries
-its existing `unreadable` detail; the following-word check carries `word`.
+its existing `unreadable` detail; both neighbor checks carry `word`.
 A decision carries `field` only when its mapping is available. Competing anchors and
 unanchored occurrences have no unique field. No intended field or deeper linguistic
 explanation is inferred.
@@ -268,21 +285,21 @@ The extraction stage now returns exact reader values, including word forms, and 
 unreadable occurrences: `3 000 000` contributes no fragments. This also changes direct
 `Extractor.extract` callers. The separately published `extractNumbers` remains digit-only.
 
-| Name                     | Kind      | Signature                                                                                                                       | Summary                                                                                        |
-| ------------------------ | --------- | ------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `NumberRefusalReason`    | type      | `'following-word' \| 'unreadable' \| 'anchor-tie' \| 'correction' \| 'negation' \| 'unanchored' \| 'collection'`                | Names the decision that first prevented a numeric occurrence from being assigned.              |
-| `NumberRefusal`          | interface | `{ text, reason, unreadable?, word?, field? }`                                                                                  | Represents one refused numeric occurrence, its normalized position, and its first decision.    |
-| `NumberRefusals`         | interface | `{ items, omitted }`                                                                                                            | Represents bounded refusal records and the count omitted after the published cap.              |
-| `EntityCompilation`      | interface | `{ entities, refusals? }`                                                                                                       | Represents assigned entities and any bounded evidence of refused numeric occurrences.          |
-| `NumberRefusalDecision`  | interface | `{ reason, word?, field? }`                                                                                                     | Represents the first refusal decision retained before bounded record construction.             |
-| `AnchorRefusalHandler`   | type      | `(index: number, reason: 'negation' \| 'anchor-tie') => void`                                                                   | Observes the input occurrence index and the refusal decided by an anchor check.                |
-| `NUMBER_REFUSAL_LIMIT`   | const     | `32`                                                                                                                            | Limits the refusal records carried by one compilation or interpretation to 32.                 |
-| `NUMBER_REFUSAL_REASONS` | const     | `readonly NumberRefusalReason[]`                                                                                                | Lists the frozen vocabulary of first refusal decisions described by `NumberRefusalReason`.     |
-| `compileEntities`        | function  | `(numbers: readonly ReadNumber[], mappings: readonly EntityMapping[], text: string, shape: ContractShape) => EntityCompilation` | Compiles exact reader occurrences into entities and bounded refusal evidence.                  |
-| `isNumberRefusal`        | function  | `(value: unknown) => value is NumberRefusal`                                                                                    | Determines whether a value is a structurally valid refusal record.                             |
-| `isNumberRefusals`       | function  | `(value: unknown) => value is NumberRefusals`                                                                                   | Determines whether a value holds bounded refusal items and a valid omitted count.              |
-| `numberRefusalShape`     | const     | `ContractShape`                                                                                                                 | Describes one refusal record with structurally valid, unordered nonnegative integer positions. |
-| `numberRefusalsShape`    | const     | `ContractShape`                                                                                                                 | Describes bounded refusal items and a nonnegative integer omitted count.                       |
+| Name                     | Kind      | Signature                                                                                                                            | Summary                                                                                        |
+| ------------------------ | --------- | ------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| `NumberRefusalReason`    | type      | `'preceding-word' \| 'following-word' \| 'unreadable' \| 'anchor-tie' \| 'correction' \| 'negation' \| 'unanchored' \| 'collection'` | Names the decision that first prevented a numeric occurrence from being assigned.              |
+| `NumberRefusal`          | interface | `{ text, reason, unreadable?, word?, field? }`                                                                                       | Represents one refused numeric occurrence, its normalized position, and its first decision.    |
+| `NumberRefusals`         | interface | `{ items, omitted }`                                                                                                                 | Represents bounded refusal records and the count omitted after the published cap.              |
+| `EntityCompilation`      | interface | `{ entities, refusals? }`                                                                                                            | Represents assigned entities and any bounded evidence of refused numeric occurrences.          |
+| `NumberRefusalDecision`  | interface | `{ reason, word?, field? }`                                                                                                          | Represents the first refusal decision retained before bounded record construction.             |
+| `AnchorRefusalHandler`   | type      | `(index: number, reason: 'negation' \| 'anchor-tie') => void`                                                                        | Observes the input occurrence index and the refusal decided by an anchor check.                |
+| `NUMBER_REFUSAL_LIMIT`   | const     | `32`                                                                                                                                 | Limits the refusal records carried by one compilation or interpretation to 32.                 |
+| `NUMBER_REFUSAL_REASONS` | const     | `readonly NumberRefusalReason[]`                                                                                                     | Lists the frozen vocabulary of first refusal decisions described by `NumberRefusalReason`.     |
+| `compileEntities`        | function  | `(numbers: readonly ReadNumber[], mappings: readonly EntityMapping[], text: string, shape: ContractShape) => EntityCompilation`      | Compiles exact reader occurrences into entities and bounded refusal evidence.                  |
+| `isNumberRefusal`        | function  | `(value: unknown) => value is NumberRefusal`                                                                                         | Determines whether a value is a structurally valid refusal record.                             |
+| `isNumberRefusals`       | function  | `(value: unknown) => value is NumberRefusals`                                                                                        | Determines whether a value holds bounded refusal items and a valid omitted count.              |
+| `numberRefusalShape`     | const     | `ContractShape`                                                                                                                      | Describes one refusal record with structurally valid, unordered nonnegative integer positions. |
+| `numberRefusalsShape`    | const     | `ContractShape`                                                                                                                      | Describes bounded refusal items and a nonnegative integer omitted count.                       |
 
 ```ts
 import { numberShape, objectShape } from '@orkestrel/contract'
@@ -298,6 +315,17 @@ const result = compileEntities(
 result.entities // []
 result.refusals?.items[0]?.reason // 'following-word'
 result.refusals?.items[0]?.start // 6
+
+const range = '1 – 3 years'
+const refused = compileEntities(
+	scanNumbers(range),
+	[{ entity: 'years', aliases: [], field: 'years' }],
+	range,
+	objectShape({ years: numberShape() }),
+)
+refused.entities // []
+refused.refusals?.items[1]?.reason // 'preceding-word'
+refused.refusals?.items[1]?.word // '"–"'
 ```
 
 ### Types
@@ -386,7 +414,7 @@ result.refusals?.items[0]?.start // 6
 | `DEFAULT_INTERPRET_HISTORY` | const | `0`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Names the default `history` cap for an `InterpretContext`'s `previous()` ring buffer, 0 (carry is opt-in).                                                                                                   |
 | `PROVENANCE_CATEGORIES`     | const | `readonly ProvenanceCategory[]`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Lists every `ProvenanceCategory` literal, frozen — the one home the result guards check the union from, so a new category added to `types.ts` is added here rather than silently rejected by `isProvenance`. |
 | `INTERPRET_STAGES`          | const | `readonly InterpretStage[]`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Lists every `InterpretStage` literal in pipeline order, frozen — the one home the result guards check the union from.                                                                                        |
-| `INTERPRET_TEXT_LIMIT`      | const | `65536`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Caps raw text accepted by the built-in normalizer at 65,536 UTF-16 units.                                                                                                                                    |
+| `INTERPRET_TEXT_LIMIT`      | const | `65536`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Caps text accepted by the built-in normalizer and number reader at 65,536 UTF-16 units.                                                                                                                      |
 | `INTERPRET_ERROR_CODES`     | const | `readonly InterpretErrorCode[]`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Lists every `InterpretErrorCode` literal, frozen — the one home the result guards check the union from.                                                                                                      |
 | `CONFIDENCE_EXACT`          | const | `1`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Names the confidence assigned to an exact keyword-proximity entity match, 1.                                                                                                                                 |
 | `CONFIDENCE_ALIAS`          | const | `0.9`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Names the confidence assigned to an exact alias-phrase entity match, 0.9.                                                                                                                                    |
@@ -1280,9 +1308,9 @@ interpret.destroy()
 
 `INTERPRET_TEXT_LIMIT` is 65,536 UTF-16 units, measured by the raw string's `length`.
 The built-in `Normalizer.normalize` throws `InterpretError('TEXT_LIMIT')` above that
-limit, before substitutions or whitespace cleanup. There is no option to raise it.
-Compositions of the public stages meet the same check when they call the normalizer;
-custom normalizer implementations must honor the same input bound.
+limit, before substitutions or whitespace cleanup. `scanNumbers` and direct
+`Extractor.extract` calls meet the same limit. There is no option to raise it.
+Custom normalizer implementations must honor the same input bound.
 
 `Interpret.interpret` captures this refusal as a `TEXT_LIMIT` stage failure, emits the
 original error, and returns an incomplete interpretation with no subject. A direct stage

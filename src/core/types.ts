@@ -231,6 +231,7 @@ export interface TextSpan {
  *
  * @remarks
  * `following-word`: the next word, punctuation, or number fails neighbor admission.
+ * `preceding-word`: a backward claim has preceding punctuation, another number, or a hedge flag.
  * `unreadable`: the selected occurrence has no exact value or has an unreadable mark.
  * `anchor-tie`: an anchor has equally near numbers, or a number has competing nearest anchors.
  * `correction`: an explicit correction cue refuses a suspect or changed occurrence.
@@ -239,6 +240,7 @@ export interface TextSpan {
  * `collection`: a sole array mapping refuses its entire collection after one member fails.
  */
 export type NumberRefusalReason =
+	| 'preceding-word'
 	| 'following-word'
 	| 'unreadable'
 	| 'anchor-tie'

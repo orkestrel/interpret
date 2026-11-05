@@ -179,6 +179,14 @@ export const DEFAULT_RENDERINGS = [
 /** Holds the reviewer messages that must keep asking without an unstated value. */
 export const REFUSAL_READINGS = [
 	{
+		text: '1 – 3 years',
+		names: ['years'],
+		items: [
+			{ text: '"1"', start: 0, end: 1, reason: 'unanchored' },
+			{ text: '"3"', start: 4, end: 5, reason: 'preceding-word', word: '"–"', field: 'years' },
+		],
+	},
+	{
 		text: 'amount 50000 income 120000',
 		names: ['amount', 'income'],
 		items: [
@@ -848,6 +856,11 @@ export const WHOLE_NUMBER_FORMS: ReadonlyArray<readonly [string, number | undefi
 		['six and a half', 6.5],
 		['3 and a half', 3.5],
 		['3 and a half months', 3.5],
+		['3 million and a half', undefined],
+		['$3m and a half', undefined],
+		['three million and a half', undefined],
+		['3 million and a quarter', undefined],
+		['3k and a half', undefined],
 		['0', 0],
 		['3 000 000', undefined],
 		["3'000'000", undefined],
@@ -902,6 +915,8 @@ export class InterpretContextFixture {
 
 /** Pins the undeclared forms from the reader re-audit. */
 export const UNDECLARED_TOKENS = Object.freeze([
+	'3lakh',
+	'3z',
 	'3mn',
 	'3T',
 	'3_000_000',
@@ -935,6 +950,12 @@ export const UNDECLARED_TOKENS = Object.freeze([
 
 /** Pins neighbors outside the declared ends, anchors, and conditional links. */
 export const UNDECLARED_NEIGHBORS = Object.freeze([
+	'valuers',
+	'revalue',
+	'for income',
+	'per income',
+	'with values',
+	'and valuable',
 	'.',
 	'!',
 	'?',
@@ -978,6 +999,29 @@ export const UNDECLARED_NEIGHBORS = Object.freeze([
 		const seed = Math.floor(seededRandom(index + 13)() * 0x100000000)
 		return String.fromCodePoint(0x400 + (seed % 0x400))
 	}),
+])
+
+/** Crosses the neighbor law with literal, spoken, money, scaled, and percent readings. */
+export const NEIGHBOR_FORMS = Object.freeze(['3', 'three', '$3', '3k', '3%', '3 million'])
+
+/** Pins lone punctuation and numeric predecessors before an anchored number. */
+export const PRECEDING_NEIGHBORS = Object.freeze([
+	'1 –',
+	'1 -',
+	'1 —',
+	'1 ~',
+	'1',
+	'1 /',
+	'<',
+	'-',
+	'10 ^',
+	'150',
+	'150\t',
+	'150\uFEFF',
+	'150\u2009',
+	'2 *',
+	'500 +',
+	'$190,000 –',
 ])
 
 /** Pins exact numeric readings the admission laws must retain. */

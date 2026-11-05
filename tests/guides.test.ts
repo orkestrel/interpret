@@ -141,6 +141,16 @@ await new GuideCommand({
 		expect(result.entities).toEqual([])
 		expect(result.refusals?.items[0]?.reason).toBe('following-word')
 		expect(result.refusals?.items[0]?.start).toBe(6)
+		const range = '1 – 3 years'
+		const refused = compileEntities(
+			scanNumbers(range),
+			[{ entity: 'years', aliases: [], field: 'years' }],
+			range,
+			objectShape({ years: numberShape() }),
+		)
+		expect(refused.entities).toEqual([])
+		expect(refused.refusals?.items[1]?.reason).toBe('preceding-word')
+		expect(refused.refusals?.items[1]?.word).toBe('"–"')
 	})
 	it('manifest lists at least one guide', () => {
 		expect(report.input).toEqual([])

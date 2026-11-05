@@ -22,9 +22,12 @@ import { findAnchoredNumber, matchesArrayField, tokenize } from './helpers.js'
  *
  * @remarks
  * Aliases match exact token sequences; overlapping anchors keep the later start.
- * Tied anchors still contest their adjacent numbers. A number's neighbor must be the text's
- * end, a sentence end, an anchor head, or a conditional link. The links `is`, `of`, `at`, `to`,
- * `a`, `an`, `the`, `and`, and `with` require an anchor head next, allowing one intervening
+ * Tied anchors still contest their adjacent numbers; a trailing colon claims only forward.
+ * A backward claim refuses preceding lone punctuation, another number, or the reader's hedge
+ * flag, with `preceding-word` evidence. A previous number's trailing sentence punctuation is
+ * a boundary. The following neighbor must be the text's end, a sentence end, a whole anchor,
+ * or a conditional link. The links `is`, `of`, `at`, `to`,
+ * `a`, `an`, `the`, `and`, and `with` require a whole anchor next, allowing one intervening
  * article. A numeric target refuses. Sentence punctuation must touch the number and be
  * followed by whitespace or the text's end; detached punctuation refuses.
  * A comma admits unless a number follows it.
@@ -50,10 +53,34 @@ export class EntityCompiler {
 		const spans = numbers
 		const numberStarts = new Set(numbers.map((number) => number.start))
 		const followingWords = new Map<ReadNumber, string>()
-		const heads = new Set(
-			mappings.flatMap((mapping) =>
-				[mapping.entity, ...mapping.aliases].flatMap((anchor) => tokenize(anchor).slice(0, 1)),
-			),
+		const precedingWords = new Map<ReadNumber, string>()
+		const neighbors = [...text.matchAll(/\S+/g)]
+		const cursor = { index: 0 }
+		const numberEnds = new Set(numbers.map((number) => number.end))
+		for (const number of numbers) {
+			while (cursor.index < neighbors.length) {
+				const word = neighbors[cursor.index]
+				if (word === undefined || word.index + word[0].length > number.start) break
+				cursor.index += 1
+			}
+			const prior = neighbors[cursor.index - 1]
+			if (prior === undefined) continue
+			const end = prior.index + prior[0].length
+			const boundary = /[.,!?;]+$/.exec(prior[0])
+			if (boundary !== null && numberEnds.has(end - boundary[0].length)) continue
+			if (/^[\p{P}\p{S}]+$/u.test(prior[0]) || numberEnds.has(end) || number.hedged === true)
+				precedingWords.set(number, prior[0])
+		}
+		const heads = new RegExp(
+			`^\\s*(?:${mappings
+				.flatMap((mapping) =>
+					[mapping.entity, ...mapping.aliases]
+						.map((anchor) => tokenize(anchor))
+						.filter((anchor) => anchor.length > 0)
+						.map((anchor) => anchor.map((word) => escapeRegExp(word)).join("[^a-z0-9./%$'-]+")),
+				)
+				.join('|')})[.,!?;:]*(?=\\s|$)`,
+			'i',
 		)
 		const unbound = new Set(
 			numbers.filter((number) => {
@@ -65,15 +92,10 @@ export class EntityCompiler {
 				const comma = /^\s*,\s*/.exec(tail)
 				if (!adjacent && comma !== null && !numberStarts.has(number.end + comma[0].length))
 					return false
-				const head = word.replace(/[.,!?;]+$/, '').toLowerCase()
-				if (heads.has(head)) return false
+				if (heads.test(tail)) return false
 				const link = /^\s*(?:is|of|at|to|a|an|the|and|with)\s+(?:(?:a|an|the)\s+)?/i.exec(tail)
 				const start = number.end + (link?.[0].length ?? 0)
-				const target = /^\S+/
-					.exec(text.slice(start))?.[0]
-					?.replace(/[.,!?;]+$/, '')
-					.toLowerCase()
-				if (link !== null && target !== undefined && heads.has(target)) return false
+				if (link !== null && heads.test(text.slice(start))) return false
 				followingWords.set(number, word)
 				return true
 			}),
@@ -140,6 +162,11 @@ export class EntityCompiler {
 		if (lone !== undefined && matchesArrayField(shape, lone.field) && claims.length > 0) {
 			if (
 				numbers.some((number) => {
+					const before = precedingWords.get(number)
+					if (before !== undefined && claims.some((claim) => number.end <= claim.match.position)) {
+						this.#refuse(number, 'preceding-word', lone.field, before)
+						return true
+					}
 					if (unbound.has(number)) {
 						this.#refuse(number, 'following-word', lone.field, followingWords.get(number))
 						return true
@@ -192,6 +219,11 @@ export class EntityCompiler {
 				continue
 			}
 			if (held[0] !== claim) continue
+			const before = precedingWords.get(number)
+			if (before !== undefined && number.end <= claim.match.position) {
+				this.#refuse(number, 'preceding-word', claim.match.mapping.field, before)
+				continue
+			}
 			if (number.value === undefined) {
 				this.#refuse(number, 'unreadable', claim.match.mapping.field)
 				continue
