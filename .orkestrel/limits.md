@@ -4,9 +4,34 @@ Carried here on 2026-11-06 from `@orkestrel/learn`, which the user retired unpub
 
 ## Open, each on the user's word
 
-**Law G, a real defect, being read.** 0.0.22 holds `years` 5 on "for 5 years and 3 months" and `hours` 40 on "for 40 hours and 20 minutes", while "years 3 and 6 months" asks. Its statement, reach, and cost are in § Part of a group below. It was chosen on the rows that prompted it, so it needs one sealed read on a corpus that didn't, before anyone trusts it.
+**Law G, a real defect, not landed: it failed its sealed cost cap, and the ruling on what comes next is the user's.** 0.0.22 holds `years` 5 on "for 5 years and 3 months" and `hours` 40 on "for 40 hours and 20 minutes", while "years 3 and 6 months" asks. Its statement, reach, and cost are in § Part of a group below.
 
-The user gave the word on 2026-11-06, and this is that read's bar, written before the law. It refuses with a new reason, `joined-number`, and a sole array field stays outside it. It counts a second number equal to the first, so the replay's figures below don't describe it. **The read:** a differential of `compileEntities` in the compiler itself, published 0.0.22 against the frozen build, on Taskmaster-2's user turns, under seven field sets. **All four must hold:** it adds and changes no binding; a turn with no joiner reads byte-identically; on each set with at least 200 bindings it removes at most 0.5 percent of them; and of the removed rows two blind readers, the Orchestrator and a clean `scout`, both mark as part of an amount or fine, at least half are part of an amount, with no marked rows counting as a fail. Real compound durations such as "2 hours and 30 minutes" report on their own line, because that gain rests only on handwritten sentences so far. If it fails on cost or worth, it doesn't land and this section records why.
+The user gave the word on 2026-11-06, and `5176ceb` committed the read's bar before the law was written. The law refuses with a new reason, `joined-number`, and a sole array field stays outside it. It counts a second number equal to the first, so the replay's figures below don't describe it. **The read:** a differential of `compileEntities` in the compiler itself, published 0.0.22 against the candidate's build, on Taskmaster-2's 157,516 user turns, under seven field sets, run twice with identical output. All four conditions had to hold, and a failure on cost or worth meant it doesn't land.
+
+| Condition | Result |
+| --- | --- |
+| It adds and changes no binding | Held: 0 |
+| A turn with no joiner reads byte-identically | Held: 0 differ, and 0 differ on any turn where the law didn't fire |
+| On each set with at least 200 bindings, it removes at most 0.5 percent | **Failed:** booking 10 of 1,107, 0.903 percent; hotel 85 of 1,468, 5.790 percent. Tickets 0 of 365 and days 1 of 707 held |
+| Of the removed rows both blind readers mark, at least half are part of an amount | Held: 66 of 73 distinct rows, 90.4 percent. The Orchestrator and a clean `scout` split on none, and the scout marked the other row `unclear` |
+
+**It didn't fail the way the bar expected.** The cap counted every removal as a cost, and the prediction was under 0.2 percent. Most of what it removed was a wrong value. These figures come after the read, and they move nothing in its ruling:
+
+| Set | Bindings | Removed | Part of an amount | Fine, asking loses it | Unclear |
+| --- | --- | --- | --- | --- | --- |
+| booking | 1,107 | 10 | 3 | 6, 0.542 percent of bindings | 1 |
+| hotel | 1,468 | 85 | 78 | 6, 0.409 percent | 1 |
+| hours | 26 | 2 | 2 | 0 | 0 |
+| days | 707 | 1 | 0 | 1, 0.141 percent | 0 |
+| tickets, years, minutes | 466 | 0 | 0 | 0 | 0 |
+
+So **a cap on `fine` removals alone wouldn't have passed it either,** since booking stands at 0.542 percent, and this read can't judge a bar written after it. The `part` rows are nearly all "two adults and two children" and its like, holding `people` 2, on hotel, where this read declared `adults` as an alias. Many repeat one party, children aged 10 and 13, which looks like a shared task instruction, so 5.3 percent is that task's rate and not a general one. The `fine` rows are mostly a person count followed by beds, such as "Two people and one bed".
+
+**Real compound durations do fire.** There are two, both on `hours`, and both readers mark them `part`: "American for 7 hours and 7 minutes" and "it is for 16 hours and 5 minutes". `days` lost one `fine` row, "2 days and 2 nights", and `years` and `minutes` lost none. The gain no longer rests only on handwritten sentences, though `hours` has just 26 bindings here.
+
+**What limits this:** the Orchestrator marked knowing the cap had already failed, while the `scout` didn't know. The `scout` is a smaller model, and both worked from the same handwritten examples. The corpus's writers were following tasks, and it was read once before, for `nights`.
+
+**Where the candidate is:** `tmp/lawg/law-g.patch`, git-ignored, which applies on `5176ceb`. It holds `findJoinedWord`, `NUMBER_LINKS`, the reason, the guide, and the tests. All 26 mutations were caught, and on its last version the four core test files that cover it pass. The type check and the whole source suite passed one small edit earlier, and it has had no independent review and no full gate run. **What I'd do, on the user's word:** seal a second read on a corpus that hasn't seen this law, capping `fine` removals rather than all removals, and land it only if that passes. A false refusal costs one question and a missed one holds a wrong value, so the cap should count only false refusals, but the number belongs in a seal written before that read.
 
 **Which number belongs to which field when they share a unit.** A word binds one number that isn't its own: "Need one hour on the lab microscope. Training on this microscope is 42.5 hours." holds `hours` 42.5, and "3.5 hours of training" holds `hours` 3.5. It's the single-number gap: `hours` is one field's name and another field's unit, and the word occurs once. A declared unit alone can't separate them, because booking, training, and supervision are all hours, so it also needs declared ownership. D24 below is where this was headed.
 
@@ -79,9 +104,9 @@ On M3's 1,800 main rows, C refuses 11 of 1,178 right bindings, all list forms su
 
 ### What's not established
 
-- G was chosen on these rows, and the comma came out after reading M3's 11, so **M3 isn't independent evidence for it, and no read here is.** It needs one sealed read on a corpus that didn't prompt it, before anyone relies on these figures.
-- This is a replay of a wrapper, not `interpret`'s compiler. Its anchors and sentence bounds approximate the floor's.
-- Only `people` on booking has marks. Hotel and M3 read cost, not benefit, and the compound-quantity gain rests on handwritten sentences.
+- G was chosen on these rows, and the comma came out after reading M3's 11, so **M3 isn't independent evidence for it, and no read in this section is.** The sealed read in § Open is independent, measures the compiler law, and has no same-value exception, so its figures don't compare with this section's.
+- This section's table is a replay of a wrapper, not `interpret`'s compiler. Its anchors and sentence bounds approximate the floor's.
+- In that replay only `people` on booking has marks, and hotel and M3 read cost, not benefit. § Open's read marks every removed row, and it finds two real compound durations where this section had only handwritten ones.
 - Most rows here are a corpus's own writing, and all three corpora had people following a task.
 
 ### What stays a known limit
