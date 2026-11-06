@@ -372,7 +372,7 @@ describe('assignEntities', () => {
 				'5 rate.',
 				OPEN_SHAPE,
 			).map((entity) => entity.value),
-		).toEqual([])
+		).toEqual([5])
 	})
 
 	it('claims both rate and score across the and link', () => {
@@ -574,6 +574,20 @@ describe('assignEntities', () => {
 })
 
 describe('classifyIntent', () => {
+	it.each(['I need a table.', 'a table...', 'a table. thanks'])(
+		'names a domain by its word before a sentence end in %s',
+		(text) => {
+			expect(classifyIntent(text, {}, { booking: ['table'] }).domain).toBe('booking')
+		},
+	)
+	it('keeps two domains tied when one word carries the period', () => {
+		expect(
+			classifyIntent('a table. a room', {}, { booking: ['table'], hotel: ['room'] }).domain,
+		).toBeUndefined()
+	})
+	it('reads no domain from a period inside a word', () => {
+		expect(classifyIntent('a table.ok', {}, { booking: ['table'] }).domain).toBeUndefined()
+	})
 	it('pinned confidence formula: both fire → average; one fires → half; neither → 0', () => {
 		const actions = { calculate: 'compute' }
 		const domains = { rating: ['rate'] }

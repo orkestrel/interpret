@@ -11,6 +11,26 @@ import {
 	WHOLE_NUMBER_FORMS,
 } from '../../setup.js'
 
+describe('compileEntities — a field word before a sentence end', () => {
+	it.each([
+		['for 2 nights.', { nights: 2 }],
+		['for 2 nights...', { nights: 2 }],
+		['for 2 nights. Thanks', { nights: 2 }],
+		['for 2 nights. 3 people', { nights: 2, people: 3 }],
+		['for 2 nights. 3 people.', { nights: 2, people: 3 }],
+		['for 2 nights and 3 guests.', { nights: 2, people: 3 }],
+		['for 2 nights.ok', {}],
+		['for 2 nights. 3 nights.', {}],
+	])('reads %s', (text, expected) => {
+		const mappings = [
+			{ entity: 'nights', aliases: [], field: 'nights' },
+			{ entity: 'people', aliases: ['guests'], field: 'people' },
+		]
+		const held = compileEntities(scanNumbers(text), mappings, text, OPEN_SHAPE).entities
+		expect(Object.fromEntries(held.map((entity) => [entity.name, entity.value]))).toEqual(expected)
+	})
+})
+
 describe('compileEntities — admitted neighbors', () => {
 	it('refuses the last word of an alias without its first word', () => {
 		const text = 'amount 50000 income'
@@ -902,7 +922,7 @@ describe('compileEntities', () => {
 			'anchor-conflict',
 		])
 	})
-	it('keeps terminal punctuation admission unchanged without a conflict', () => {
+	it('binds the stated number when a sentence-end period follows and the other sentence negates', () => {
 		const text = "I don't need 30 hours. I need 40 hours."
 		const result = compileEntities(
 			scanNumbers(text),
@@ -910,11 +930,8 @@ describe('compileEntities', () => {
 			text,
 			OPEN_SHAPE,
 		)
-		expect(result.entities).toEqual([])
-		expect(result.refusals?.items.map((entry) => entry.reason)).toEqual([
-			'unanchored',
-			'unanchored',
-		])
+		expect(result.entities.map((entity) => entity.value)).toEqual([40])
+		expect(result.refusals?.items.some((entry) => entry.reason === 'anchor-conflict')).toBe(false)
 	})
 	it('records conflicts even when terminal punctuation leaves no selected anchor', () => {
 		const text = '30 hours. 40 hours.'

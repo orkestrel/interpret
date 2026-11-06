@@ -378,7 +378,7 @@ export function classifyIntent(
 	const actionConfidence = action === undefined ? 0 : CONFIDENCE_EXACT
 	const domainsNamed = Object.entries(domains).filter(([, keywords]) => {
 		const lowerKeywords = keywords.map((keyword) => keyword.toLowerCase())
-		return tokens.some((token) => lowerKeywords.includes(token))
+		return tokens.some((token) => lowerKeywords.includes(token.replace(/\.+$/u, '')))
 	})
 	const domain = domainsNamed.length === 1 ? domainsNamed[0]?.[0] : undefined
 	const domainConfidence = domain === undefined ? 0 : CONFIDENCE_EXACT
