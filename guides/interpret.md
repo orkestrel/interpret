@@ -180,9 +180,12 @@ A newline alone does not end a sentence. Every other neighbor asks, including wo
 and adjacent numbers. This applies to scalar claims and array collection.
 The links `is`, `of`, `at`, `to`, `a`, `an`, `the`, `and`, and `with` all require a declared
 anchor next, allowing one article (`a`, `an`, or `the`) between. An alias must match its
-whole token sequence: `monthly payments` does not stand for `monthly income`. A sentence-end period
-doesn't change a word, for a field's anchor or a domain's keyword: `for 2 nights.` binds as `for 2 nights`
-does, and `I need a table.` names the domain `I need a table` names. A numeric target asks,
+whole token sequence: `monthly payments` does not stand for `monthly income`. A token also matches
+a declared word with its trailing periods removed, for a field's anchor and for an intent's action or
+domain keyword: `for 2 nights.` binds nights, and `I need a table.` names the domain `table` names.
+A word declared with its own period, such as `st.`, still matches itself, and `St.` ties a domain
+holding `st.` with one holding `st`. This admits a word and leaves sentences as written, so
+`for 2 nights. 3 people` binds both, where `for 2 nights 3 people` ties. A numeric target asks,
 whether written in digits or words: `amount 5 of 3000000`, `amount 3 and 5`,
 `amount 50000 and 60000`, `years 3 and 6 months`, and `amount 50000 with a 20000 deposit`
 hold no value for that field. `3 and a half` remains one numeric form, so it meets no link check.

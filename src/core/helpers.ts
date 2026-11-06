@@ -372,13 +372,20 @@ export function classifyIntent(
 
 	// Two words naming two things name neither, so a tie on either axis leaves that axis out.
 	const named = new Set(
-		tokens.flatMap((token) => (Object.hasOwn(actions, token) ? [actions[token]] : [])),
+		tokens.flatMap((token) =>
+			[token, token.replace(/\.+$/u, '')].flatMap((word) =>
+				Object.hasOwn(actions, word) ? [actions[word]] : [],
+			),
+		),
 	)
 	const [action] = named.size === 1 ? named : []
 	const actionConfidence = action === undefined ? 0 : CONFIDENCE_EXACT
 	const domainsNamed = Object.entries(domains).filter(([, keywords]) => {
 		const lowerKeywords = keywords.map((keyword) => keyword.toLowerCase())
-		return tokens.some((token) => lowerKeywords.includes(token.replace(/\.+$/u, '')))
+		return tokens.some(
+			(token) =>
+				lowerKeywords.includes(token) || lowerKeywords.includes(token.replace(/\.+$/u, '')),
+		)
 	})
 	const domain = domainsNamed.length === 1 ? domainsNamed[0]?.[0] : undefined
 	const domainConfidence = domain === undefined ? 0 : CONFIDENCE_EXACT

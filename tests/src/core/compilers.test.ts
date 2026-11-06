@@ -29,6 +29,29 @@ describe('compileEntities — a field word before a sentence end', () => {
 		const held = compileEntities(scanNumbers(text), mappings, text, OPEN_SHAPE).entities
 		expect(Object.fromEntries(held.map((entity) => [entity.name, entity.value]))).toEqual(expected)
 	})
+	it.each(['st.', 'p.m.', 'u.s.'])(
+		'keeps a declared word that holds its own period: %s',
+		(word) => {
+			const text = `5 ${word}`
+			const held = compileEntities(
+				scanNumbers(text),
+				[{ entity: word, aliases: [], field: 'value' }],
+				text,
+				OPEN_SHAPE,
+			).entities
+			expect(held.map((entity) => entity.value)).toEqual([5])
+		},
+	)
+	it('keeps a correction in another sentence from refusing a number it does not mark', () => {
+		const text = '5 rate. wait.'
+		const held = compileEntities(
+			scanNumbers(text),
+			[{ entity: 'rate', aliases: [], field: 'rate' }],
+			text,
+			OPEN_SHAPE,
+		).entities
+		expect(held.map((entity) => entity.value)).toEqual([5])
+	})
 })
 
 describe('compileEntities — admitted neighbors', () => {
@@ -931,7 +954,7 @@ describe('compileEntities', () => {
 			OPEN_SHAPE,
 		)
 		expect(result.entities.map((entity) => entity.value)).toEqual([40])
-		expect(result.refusals?.items.some((entry) => entry.reason === 'anchor-conflict')).toBe(false)
+		expect(result.refusals?.items.map((entry) => entry.reason)).toEqual(['unanchored'])
 	})
 	it('records conflicts even when terminal punctuation leaves no selected anchor', () => {
 		const text = '30 hours. 40 hours.'

@@ -588,6 +588,29 @@ describe('classifyIntent', () => {
 	it('reads no domain from a period inside a word', () => {
 		expect(classifyIntent('a table.ok', {}, { booking: ['table'] }).domain).toBeUndefined()
 	})
+	it.each(['st.', 'p.m.', 'u.s.', 'no.'])(
+		'keeps a declared keyword holding its own period: %s',
+		(word) => {
+			expect(classifyIntent(word, {}, { literal: [word] }).domain).toBe('literal')
+		},
+	)
+	it('ties a dotted and an undotted keyword on one dotted word, and chooses neither', () => {
+		const domains = { literal: ['st.'], plain: ['st'] }
+		expect(classifyIntent('St.', {}, domains).domain).toBeUndefined()
+	})
+	it('names an action by its word before a sentence end', () => {
+		expect(classifyIntent('cancel.', { cancel: 'cancel' }, {}).action).toBe('cancel')
+	})
+	it('keeps a declared action holding its own period', () => {
+		expect(classifyIntent('st.', { 'st.': 'street' }, {}).action).toBe('street')
+	})
+	it('keeps two actions tied when one word carries the period', () => {
+		const actions = { book: 'book', cancel: 'cancel' }
+		expect(classifyIntent('book table. cancel.', actions, { booking: ['table'] })).toEqual({
+			domain: 'booking',
+			confidence: 0.5,
+		})
+	})
 	it('pinned confidence formula: both fire → average; one fires → half; neither → 0', () => {
 		const actions = { calculate: 'compute' }
 		const domains = { rating: ['rate'] }

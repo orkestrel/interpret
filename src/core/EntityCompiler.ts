@@ -26,9 +26,10 @@ import { findLinkedNumbers, findSpanOffset, matchesArrayField, tokenize } from '
  * Compiles one text's numeric occurrences into recipe assignments and bounded refusal evidence.
  *
  * @remarks
- * Aliases match exact token sequences, and a sentence-end period doesn't change a token's word;
- * overlapping mentions keep the later start, then the longer span at equal starts. Silent spans
- * hide nothing, and each mapping's selected anchor counts.
+ * Aliases match exact token sequences, and a token also matches with its trailing periods removed,
+ * so a word declared with its own period still matches itself. That admits a token and leaves clause
+ * boundaries as written. Overlapping mentions keep the later start, then the longer span at equal
+ * starts. Silent spans hide nothing, and each mapping's selected anchor counts.
  * Another field's longer anchor owns its words only within one clause.
  * Distinct values beside a field's retained anchors refuse assignment with `anchor-conflict`.
  * Tied anchors still contest their adjacent numbers; a trailing colon claims only forward.
@@ -137,9 +138,10 @@ export class EntityCompiler {
 						]
 						if (
 							!tokens.some((_token, index) =>
-								words.every(
-									(word, offset) => tokens[index + offset]?.replace(/\.+$/u, '') === word,
-								),
+								words.every((word, offset) => {
+									const candidate = tokens[index + offset]
+									return candidate === word || candidate?.replace(/\.+$/u, '') === word
+								}),
 							)
 						)
 							return { ...matched, anchors }
