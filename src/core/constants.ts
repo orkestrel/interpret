@@ -422,6 +422,7 @@ export const NUMBER_REFUSAL_REASONS: readonly NumberRefusalReason[] = Object.fre
 	'following-word',
 	'unreadable',
 	'anchor-tie',
+	'anchor-conflict',
 	'correction',
 	'negation',
 	'unanchored',

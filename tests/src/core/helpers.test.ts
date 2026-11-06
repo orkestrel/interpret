@@ -32,6 +32,8 @@ import {
 	extractNumbers,
 	findEntityField,
 	findAnchoredNumber,
+	findLinkedNumbers,
+	findSpanOffset,
 	findFieldDescription,
 	findUnclaimedNumbers,
 	matchesArrayField,
@@ -66,6 +68,39 @@ import {
 // pin run-twice determinism directly.
 
 describe('applyReplacements / collapseWhitespace / tokenize', () => {
+	it('findSpanOffset locates ordered starts and ends including equal edges', () => {
+		const spans = [
+			{ start: 1, end: 3 },
+			{ start: 4, end: 6 },
+		]
+		expect(findSpanOffset(spans, 4)).toBe(1)
+		expect(findSpanOffset(spans, 6, 'end')).toBe(1)
+		expect(findSpanOffset(spans, 7, 'end')).toBe(2)
+		expect(findSpanOffset([], 0)).toBe(0)
+	})
+	it('findLinkedNumbers preserves tied distances and forward-only colons', () => {
+		const spans = [
+			{ start: 0, end: 1 },
+			{ start: 7, end: 8 },
+		]
+		expect(
+			findLinkedNumbers('5 rate 7', { start: 2, end: 6 }, spans, { start: 0, end: 8 }),
+		).toEqual([
+			{ index: 0, gap: 1 },
+			{ index: 1, gap: 1 },
+		])
+		expect(
+			findLinkedNumbers(
+				'5 rate: 7',
+				{ start: 2, end: 6 },
+				[
+					{ start: 0, end: 1 },
+					{ start: 8, end: 9 },
+				],
+				{ start: 0, end: 9 },
+			),
+		).toEqual([{ index: 1, gap: 2 }])
+	})
 	it('replaces whole-word matches only, case-insensitively', () => {
 		expect(applyReplacements("can't stop", { "can't": 'cannot' })).toBe('cannot stop')
 		expect(applyReplacements('information', { in: 'IN' })).toBe('information')

@@ -29,6 +29,7 @@ import {
 } from '@orkestrel/reason'
 import {
 	createNarrator,
+	createInterpret,
 	createExtractor,
 	createRecipeContract,
 	digestValue,
@@ -66,6 +67,52 @@ import {
 // reverse passthroughs, emitter, and DESTROYED teardown.
 
 describe('Interpret', () => {
+	it('asks for conflicting microscope hours with the stated candidates', () => {
+		const interpret = createInterpret({
+			extractor: createExtractor({
+				actions: { reserve: 'calculate' },
+				domains: { arithmetic: ['laboratory'] },
+			}),
+			recipes: [
+				buildInterpretRecipe({
+					mappings: [{ entity: 'hours', aliases: [], field: 'hours' }],
+					shape: objectShape({ hours: numberShape() }),
+				}),
+			],
+		})
+		const result = interpret.interpret(
+			"Reserve the laboratory microscope for 97 hours. I've completed 38 hours of training on it, a supervisor will be present for 16 hours",
+		)
+		interpret.destroy()
+		expect(result.subject).toBeUndefined()
+		expect(result.ambiguities).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ field: 'hours', candidates: ['97', '38', '16'] }),
+			]),
+		)
+	})
+	it('asks for conflicting hours separated by normalized newlines', () => {
+		const interpret = createInterpret({
+			extractor: createExtractor({
+				actions: { reserve: 'calculate' },
+				domains: { arithmetic: ['lab'] },
+			}),
+			recipes: [
+				buildInterpretRecipe({
+					mappings: [{ entity: 'hours', aliases: [], field: 'hours' }],
+					shape: objectShape({ hours: numberShape() }),
+				}),
+			],
+		})
+		const result = interpret.interpret('reserve lab\n97 hours\n38 hours\n16 hours')
+		interpret.destroy()
+		expect(result.subject).toBeUndefined()
+		expect(result.ambiguities).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ field: 'hours', candidates: ['97', '38', '16'] }),
+			]),
+		)
+	})
 	it.each(REFUSAL_READINGS)(
 		'records the first refusal in $text',
 		({ text, names, items, collection }) => {

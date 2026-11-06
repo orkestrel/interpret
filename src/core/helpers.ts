@@ -1,6 +1,7 @@
 import type { ContractShape, FieldPath, JSONValue } from '@orkestrel/contract'
 import type { Subject, SubjectAdmission, SymbolicExpression } from '@orkestrel/reason'
 import type {
+	AnchorCandidate,
 	AnchorRefusalHandler,
 	Entity,
 	EntityMapping,
@@ -247,12 +248,70 @@ export function findAnchoredNumber(
 		}
 		return undefined
 	}
-	const gaps = [...numbers.entries()]
-		.filter(([, number]) => number.start >= start && number.start < end)
+	const gaps = findLinkedNumbers(text, anchor, numbers, { start, end })
+	const [nearest, next] = gaps
+	if (nearest === undefined) return undefined
+	if (next?.gap === nearest.gap) {
+		if (refused !== undefined) {
+			for (const candidate of gaps) {
+				if (candidate.gap === nearest.gap) refused(candidate.index, 'anchor-tie')
+			}
+		}
+		return undefined
+	}
+	return nearest
+}
+
+/**
+ * Finds the first span whose selected edge is at or beyond a position.
+ *
+ * @remarks
+ * Spans must be ordered by the selected edge. The optional bounds delimit the search.
+ *
+ * @example
+ * ```ts
+ * import { findSpanOffset } from '@orkestrel/interpret'
+ * findSpanOffset([{ start: 2, end: 3 }], 2) // 0
+ * ```
+ */
+export function findSpanOffset(
+	spans: readonly TextSpan[],
+	position: number,
+	edge: 'start' | 'end' = 'start',
+	lower = 0,
+	upper = spans.length,
+): number {
+	if (lower >= upper) return lower
+	const middle = Math.floor((lower + upper) / 2)
+	const span = spans[middle]
+	return span !== undefined && span[edge] < position
+		? findSpanOffset(spans, position, edge, middle + 1, upper)
+		: findSpanOffset(spans, position, edge, lower, middle)
+}
+
+/**
+ * Finds directly linked numeric spans ordered by distance within a supplied clause.
+ *
+ * @remarks
+ * Clause negation and nearest-distance ties are decided by the caller.
+ *
+ * @example
+ * ```ts
+ * import { findLinkedNumbers } from '@orkestrel/interpret'
+ * findLinkedNumbers('hours 5', { start: 0, end: 5 }, [{ start: 6, end: 7 }], { start: 0, end: 7 })
+ * // [{ index: 0, gap: 1 }]
+ * ```
+ */
+export function findLinkedNumbers(
+	text: string,
+	anchor: TextSpan,
+	numbers: readonly TextSpan[],
+	clause: TextSpan,
+): readonly AnchorCandidate[] {
+	return [...numbers.entries()]
+		.filter(([, number]) => number.start >= clause.start && number.start < clause.end)
 		.filter(([, number]) => text[anchor.end] !== ':' || number.start >= anchor.end)
-		// A digit inside the anchor's own word, the 401 of `401k`, is no number beside it.
 		.filter(([, number]) => number.end <= anchor.start || number.start >= anchor.end)
-		// Reject unlinked spans before scanning their whole backward gap for an article.
 		.filter(([, number]) =>
 			/^(?:\s|=|:|\b(?:is|of|at|to|a|an|the)\b)*$/i.test(
 				text.slice(Math.min(anchor.end, number.end), Math.max(anchor.start, number.start)),
@@ -268,17 +327,6 @@ export function findAnchoredNumber(
 			gap: Math.max(number.start - anchor.end, anchor.start - number.end, 0),
 		}))
 		.sort((left, right) => left.gap - right.gap)
-	const [nearest, next] = gaps
-	if (nearest === undefined) return undefined
-	if (next?.gap === nearest.gap) {
-		if (refused !== undefined) {
-			for (const candidate of gaps) {
-				if (candidate.gap === nearest.gap) refused(candidate.index, 'anchor-tie')
-			}
-		}
-		return undefined
-	}
-	return nearest
 }
 
 // === Intent classification

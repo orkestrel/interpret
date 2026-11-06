@@ -226,6 +226,44 @@ export interface TextSpan {
 	readonly end: number
 }
 
+/** Represents a numeric span's input position in a prepared anchor lookup. */
+export interface AnchorPosition extends TextSpan {
+	readonly index: number
+}
+
+/** Represents a linked number and its distance from an anchor. */
+export interface AnchorCandidate {
+	readonly index: number
+	readonly gap: number
+}
+
+/** Holds clause boundaries and ordered numeric spans for one compilation. */
+export interface AnchorLookup {
+	readonly text: string
+	readonly numbers: readonly ReadNumber[]
+	readonly starts: readonly AnchorPosition[]
+	readonly ends: readonly AnchorPosition[]
+	readonly breaks: readonly TextSpan[]
+	readonly negations: readonly TextSpan[]
+}
+
+/** Represents a span's clause and nearest linked candidates, including ties. */
+export interface AnchorProbe {
+	readonly clause: TextSpan
+	readonly negated: boolean
+	readonly candidates: readonly AnchorCandidate[]
+}
+
+/** Holds a mapping's occurrences and its selected assignment anchor. */
+export interface EntityAnchor {
+	readonly mapping: EntityMapping
+	readonly position: number
+	readonly end: number
+	readonly confidence: number
+	readonly detail: 'keyword' | 'alias'
+	readonly anchors: readonly TextSpan[]
+}
+
 /**
  * Names the decision that first prevented a numeric occurrence from being assigned.
  *
@@ -234,6 +272,7 @@ export interface TextSpan {
  * `preceding-word`: a backward claim has preceding punctuation, another number, or a hedge flag.
  * `unreadable`: the selected occurrence has no exact value or has an unreadable mark.
  * `anchor-tie`: an anchor has equally near numbers, or a number has competing nearest anchors.
+ * `anchor-conflict`: a field's retained anchor spans link to distinct numeric values.
  * `correction`: an explicit correction cue refuses a suspect or changed occurrence.
  * `negation`: the anchor's clause is negated, refusing its numeric occurrences.
  * `unanchored`: compilation ends without a claim or an earlier refusal for the occurrence.
@@ -244,6 +283,7 @@ export type NumberRefusalReason =
 	| 'following-word'
 	| 'unreadable'
 	| 'anchor-tie'
+	| 'anchor-conflict'
 	| 'correction'
 	| 'negation'
 	| 'unanchored'

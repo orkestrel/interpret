@@ -8,7 +8,16 @@ import { NumberReader } from './NumberReader.js'
  *
  * @remarks
  * The rightmost exactly matching entity or alias token anchors each mapping; fuzzy aliases
- * claim nothing. A number must sit beside its anchor with only `is`, `of`, `at`, `to`, `=`,
+ * claim nothing. Distinct numbers beside a field's retained anchor spans withhold every mapping
+ * on that field with `anchor-conflict`, keeping earlier refusals and correction reasons.
+ * Each mapping's selected anchor counts. Overlapping mentions keep the later start, then the
+ * longer span at equal starts; a span with no linked number leaves its displaced span eligible.
+ * Another field's longer declared anchor owns its words only within one clause.
+ * Tied numbers are candidates; negated clauses contribute none. Each occurrence counts once,
+ * equal values agree, and separate occurrences without values differ. Foreign numbers remain
+ * candidates. A lone array mapping is exempt, even without a claim. Otherwise the rightmost
+ * anchor remains selected without an earlier fallback. A number must sit beside its anchor
+ * with only `is`, `of`, `at`, `to`, `=`,
  * or `:` between them. An article also links when the number follows the anchor.
  * Negation in the clause refuses every claim there. Equal-distance numbers or competing
  * anchors tied for a number leave it unclaimed. An unreadable occurrence never fills a field.

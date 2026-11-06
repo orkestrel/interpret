@@ -130,7 +130,28 @@ for the best score matches nothing. Each of these reaches the `NO_RECIPE` questi
 the recipe it matched in `recipe` and `version`.
 
 A number fills a field only through an anchor: the mapping's entity name or an alias, matched
-exactly against a token or an in-order sequence of tokens in the same clause. Fuzzy aliases claim nothing. Overlapping anchors keep the later starting span, so `rate` wins over `interest rate`. Only whitespace,
+exactly against a token or an in-order sequence of tokens in the same clause. Fuzzy aliases claim nothing.
+For single-value assignment, conflict detection groups all mappings by their target field.
+Each mapping's selected anchor always counts as a mention. Among overlapping entity and alias
+spans, it keeps the later start, then the longer span at equal starts. If the kept span links
+no number, the overlapping span it displaced speaks instead; a silent span hides nothing.
+A span wholly inside another field's longer declared anchor contributes no mention unless
+it is a selected anchor. That ownership applies only when the longer anchor lies within one
+clause. A declared phrase owns its words: `training hours` does not contribute an `hours`
+mention to another field when that field selects the later `hours` in `training hours 30. hours 40`.
+Every nearest linked number is a candidate, including every number in a tie. A negated clause
+or an unlinked span contributes none. Each numeric occurrence counts once, even when several
+spans reach it. Equal readable values count as one value; an occurrence without a value
+differs from every other occurrence, never from itself.
+Distinct values withhold every mapping on that field and record `anchor-conflict` with the field.
+First-reason-wins still applies: an earlier refusal keeps its reason, and correction-marked
+candidates keep `correction` under an explicit correction cue. Otherwise the last anchor
+remains selected, even when it has no number; an earlier occurrence supplies no fallback.
+A lone array mapping is exempt even without a claim. A non-lone array mapping still receives
+one anchored value and participates in conflict detection. Another field can claim a refused
+candidate through its own anchor; the withheld mapping still participates in rivalry.
+This deliberately costs a question on a revision such as `hours 30. now hours 40`, which
+supplies no value instead of choosing the revision. Only whitespace,
 `is`, `of`, `at`, `to`, `=`, and `:` may link the spans; an article also links when the number
 follows the anchor. A preceding `$125,000 a year` therefore supplies no value for `year`.
 Negation anywhere in the clause blocks its claims. No other number may sit as close, and no
@@ -138,7 +159,8 @@ other anchor may sit closer. Other intervening words and distance across clauses
 they fill nothing. A value read below the floor asks, whether or not the field is required,
 because it is evidence a value was stated. A mapped field left to a default or a prior turn
 asks too while a number nobody claimed could be its value, with those numbers as `candidates`.
-A number `scanNumbers` marks foreign, a year or a phone number, is set aside and asks nothing.
+A number `scanNumbers` marks foreign still participates in anchor-conflict detection; excluding
+it would guess its intended role. The clarifier otherwise sets unclaimed foreign numbers aside.
 A host may supply an entity with provenance `proposed` after checking a reader's proposal.
 The clarifier treats it as stated, like `extracted` and `computed`, so an unclaimed number
 does not by itself cast doubt on that field. Confidence and shape checks still apply.
@@ -212,7 +234,8 @@ the following-word test refuses the assignment because `months` is neither an an
 An explicit correction in the text makes occurrences marked `suspect` or `changed` ask:
 `sorry` (except `sorry to/for`), `hang on`, `used to be`, `was/were going to be`, and `wait` (except `wait to`).
 Assignment never substitutes a rival value. Ordinary `now` statements do not trigger this
-refusal. An array collection refuses when any occurrence meets the correction rule.
+correction refusal; they can still trigger `anchor-conflict` when the same field names distinct
+values. An array collection refuses when any occurrence meets the correction rule.
 
 `add` and the `recipes` option refuse with `InterpretError('DEFINITION')` a recipe that is malformed,
 whose shape does not compile, stand, or declare a field it maps or computes, with a required field
@@ -270,6 +293,7 @@ The reasons record existing decisions: `preceding-word` for a backward claim ref
 preceding punctuation, another number, or a hedge flag; `following-word` for a failed following-word
 anchor/link check; `unreadable` for a selected occurrence without an exact value or with
 an unreadable mark; `anchor-tie` for equally near numbers or competing nearest anchors;
+`anchor-conflict` for distinct values linked to a field's retained anchor spans, ties included;
 `correction` for a suspect or changed occurrence under an explicit correction cue;
 `negation` for occurrences in a negated anchor clause; `unanchored` when compilation
 ends with neither a claim nor an earlier refusal; and `collection` for the other members
@@ -285,21 +309,21 @@ The extraction stage now returns exact reader values, including word forms, and 
 unreadable occurrences: `3 000 000` contributes no fragments. This also changes direct
 `Extractor.extract` callers. The separately published `extractNumbers` remains digit-only.
 
-| Name                     | Kind      | Signature                                                                                                                            | Summary                                                                                        |
-| ------------------------ | --------- | ------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| `NumberRefusalReason`    | type      | `'preceding-word' \| 'following-word' \| 'unreadable' \| 'anchor-tie' \| 'correction' \| 'negation' \| 'unanchored' \| 'collection'` | Names the decision that first prevented a numeric occurrence from being assigned.              |
-| `NumberRefusal`          | interface | `{ text, reason, unreadable?, word?, field? }`                                                                                       | Represents one refused numeric occurrence, its normalized position, and its first decision.    |
-| `NumberRefusals`         | interface | `{ items, omitted }`                                                                                                                 | Represents bounded refusal records and the count omitted after the published cap.              |
-| `EntityCompilation`      | interface | `{ entities, refusals? }`                                                                                                            | Represents assigned entities and any bounded evidence of refused numeric occurrences.          |
-| `NumberRefusalDecision`  | interface | `{ reason, word?, field? }`                                                                                                          | Represents the first refusal decision retained before bounded record construction.             |
-| `AnchorRefusalHandler`   | type      | `(index: number, reason: 'negation' \| 'anchor-tie') => void`                                                                        | Observes the input occurrence index and the refusal decided by an anchor check.                |
-| `NUMBER_REFUSAL_LIMIT`   | const     | `32`                                                                                                                                 | Limits the refusal records carried by one compilation or interpretation to 32.                 |
-| `NUMBER_REFUSAL_REASONS` | const     | `readonly NumberRefusalReason[]`                                                                                                     | Lists the frozen vocabulary of first refusal decisions described by `NumberRefusalReason`.     |
-| `compileEntities`        | function  | `(numbers: readonly ReadNumber[], mappings: readonly EntityMapping[], text: string, shape: ContractShape) => EntityCompilation`      | Compiles exact reader occurrences into entities and bounded refusal evidence.                  |
-| `isNumberRefusal`        | function  | `(value: unknown) => value is NumberRefusal`                                                                                         | Determines whether a value is a structurally valid refusal record.                             |
-| `isNumberRefusals`       | function  | `(value: unknown) => value is NumberRefusals`                                                                                        | Determines whether a value holds bounded refusal items and a valid omitted count.              |
-| `numberRefusalShape`     | const     | `ContractShape`                                                                                                                      | Describes one refusal record with structurally valid, unordered nonnegative integer positions. |
-| `numberRefusalsShape`    | const     | `ContractShape`                                                                                                                      | Describes bounded refusal items and a nonnegative integer omitted count.                       |
+| Name                     | Kind      | Signature                                                                                                                                                 | Summary                                                                                        |
+| ------------------------ | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `NumberRefusalReason`    | type      | `'preceding-word' \| 'following-word' \| 'unreadable' \| 'anchor-tie' \| 'anchor-conflict' \| 'correction' \| 'negation' \| 'unanchored' \| 'collection'` | Names the decision that first prevented a numeric occurrence from being assigned.              |
+| `NumberRefusal`          | interface | `{ text, reason, unreadable?, word?, field? }`                                                                                                            | Represents one refused numeric occurrence, its normalized position, and its first decision.    |
+| `NumberRefusals`         | interface | `{ items, omitted }`                                                                                                                                      | Represents bounded refusal records and the count omitted after the published cap.              |
+| `EntityCompilation`      | interface | `{ entities, refusals? }`                                                                                                                                 | Represents assigned entities and any bounded evidence of refused numeric occurrences.          |
+| `NumberRefusalDecision`  | interface | `{ reason, word?, field? }`                                                                                                                               | Represents the first refusal decision retained before bounded record construction.             |
+| `AnchorRefusalHandler`   | type      | `(index: number, reason: 'negation' \| 'anchor-tie') => void`                                                                                             | Observes the input occurrence index and the refusal decided by an anchor check.                |
+| `NUMBER_REFUSAL_LIMIT`   | const     | `32`                                                                                                                                                      | Limits the refusal records carried by one compilation or interpretation to 32.                 |
+| `NUMBER_REFUSAL_REASONS` | const     | `readonly NumberRefusalReason[]`                                                                                                                          | Lists the frozen vocabulary of first refusal decisions described by `NumberRefusalReason`.     |
+| `compileEntities`        | function  | `(numbers: readonly ReadNumber[], mappings: readonly EntityMapping[], text: string, shape: ContractShape) => EntityCompilation`                           | Compiles exact reader occurrences into entities and bounded refusal evidence.                  |
+| `isNumberRefusal`        | function  | `(value: unknown) => value is NumberRefusal`                                                                                                              | Determines whether a value is a structurally valid refusal record.                             |
+| `isNumberRefusals`       | function  | `(value: unknown) => value is NumberRefusals`                                                                                                             | Determines whether a value holds bounded refusal items and a valid omitted count.              |
+| `numberRefusalShape`     | const     | `ContractShape`                                                                                                                                           | Describes one refusal record with structurally valid, unordered nonnegative integer positions. |
+| `numberRefusalsShape`    | const     | `ContractShape`                                                                                                                                           | Describes bounded refusal items and a nonnegative integer omitted count.                       |
 
 ```ts
 import { numberShape, objectShape } from '@orkestrel/contract'
@@ -341,6 +365,11 @@ refused.refusals?.items[1]?.word // '"–"'
 | `NumberForeign`              | type      | `'plan' \| 'phone' \| 'date' \| 'time' \| 'identifier' \| 'ordinal' \| 'list' \| 'age' \| 'past' \| 'period' \| 'reference' \| 'zip' \| 'address' \| 'year'`                                                  | Names what a number that belongs to no quantity is: a year, a date, a time, a reference, and so on.                                                                                                                                    |
 | `NumberUnreadable`           | type      | `'undeclared' \| 'fraction' \| 'foreign currency' \| 'grouping' \| 'signed' \| 'shorthand' \| 'spoken' \| 'joined' \| 'frequency' \| 'loose' \| 'range' \| 'dimensions' \| 'overflow' \| 'precision'`         | Names why a number's value cannot be read exactly.                                                                                                                                                                                     |
 | `TextSpan`                   | interface | `{ start, end }`                                                                                                                                                                                              | Represents where something sits in a text: `start` inclusive, `end` exclusive.                                                                                                                                                         |
+| `AnchorPosition`             | interface | `{ index }`                                                                                                                                                                                                   | Represents a numeric span's input position in a prepared anchor lookup.                                                                                                                                                                |
+| `AnchorCandidate`            | interface | `{ index, gap }`                                                                                                                                                                                              | Represents a linked number and its distance from an anchor.                                                                                                                                                                            |
+| `AnchorLookup`               | interface | `{ text, numbers, starts, ends, breaks, negations }`                                                                                                                                                          | Holds clause boundaries and ordered numeric spans for one compilation.                                                                                                                                                                 |
+| `AnchorProbe`                | interface | `{ clause, negated, candidates }`                                                                                                                                                                             | Represents a span's clause and nearest linked candidates, including ties.                                                                                                                                                              |
+| `EntityAnchor`               | interface | `{ mapping, position, end, confidence, detail, anchors }`                                                                                                                                                     | Holds a mapping's occurrences and its selected assignment anchor.                                                                                                                                                                      |
 | `ShapeDefault`               | interface | `{ field, value }`                                                                                                                                                                                            | Represents one default a `Recipe`'s `shape` holds, by the field it fills.                                                                                                                                                              |
 | `ProvenanceCategory`         | type      | `'extracted' \| 'proposed' \| 'carried' \| 'default' \| 'computed' \| 'subject'`                                                                                                                              | Names how one `FieldMapping` or `Entity` value was obtained.                                                                                                                                                                           |
 | `InterpretStage`             | type      | `'normalize' \| 'extract' \| 'clarify' \| 'format' \| 'generate'`                                                                                                                                             | Names the fixed pipeline phases an `InterpretInterface#interpret` run produces one `StageRecord` for, in order.                                                                                                                        |
@@ -569,6 +598,8 @@ behind the `Interpret` orchestrator and its stages.
 | `scanNumbers`           | function | `(text: string) => readonly ReadNumber[]`                                                                                                                          | Reads every number in a text exactly, or says why it cannot.                                                                            |
 | `findUnclaimedNumbers`  | function | `(numbers: readonly ReadNumber[], entities: readonly Entity[]) => ReadonlyArray<number \| string>`                                                                 | Finds the numbers no entity claimed.                                                                                                    |
 | `findAnchoredNumber`    | function | `(text: string, anchor: TextSpan, numbers: readonly TextSpan[], refused?: AnchorRefusalHandler) => { readonly index: number; readonly gap: number; } \| undefined` | Finds the nearest directly linked number in an unnegated clause, refusing ties.                                                         |
+| `findSpanOffset`        | function | `(spans: readonly TextSpan[], position: number, edge?: 'start' \| 'end', lower?: number, upper?: number) => number`                                                | Finds the first span whose selected edge is at or beyond a position.                                                                    |
+| `findLinkedNumbers`     | function | `(text: string, anchor: TextSpan, numbers: readonly TextSpan[], clause: TextSpan) => readonly AnchorCandidate[]`                                                   | Finds directly linked numeric spans ordered by distance within a supplied clause.                                                       |
 | `projectInterpretation` | function | `(result: Interpretation) => JSONValue \| undefined`                                                                                                               | Projects an interpretation to JSON, so it can cross a boundary.                                                                         |
 | `assertRecipe`          | function | `(recipe: unknown) => asserts recipe is Recipe`                                                                                                                    | Asserts a value is a recipe that stands.                                                                                                |
 | `scanRecipeShape`       | function | `(recipe: Recipe) => readonly string[]`                                                                                                                            | Describes what is wrong with a recipe's shape, against the recipe itself.                                                               |
