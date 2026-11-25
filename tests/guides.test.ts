@@ -385,12 +385,12 @@ await new GuideCommand({
 			const granted = reasoner.reason({ membership: 'sailor', length: 9, fee: 35 }, definition)
 			const account = narrator.narrate(definition, granted)
 			expect(renderAccount(account, { detail: 'line' })).toBe(
-				'Berth request holds, because Known member applies (membership is sailor, which is one of sailor and captain); Boat size applies (boat length is 9 m, which is at most 12 m); and nightly fee is $35.00, which is at most $40.00',
+				'Berth request holds, because Known member applies (membership is sailor, which is one of sailor or captain); Boat size applies (boat length is 9 m, which is at most 12 m); and nightly fee is $35.00, which is at most $40.00',
 			)
 			const reasons = [
 				'Berth request holds',
 				'  Known member applies',
-				'    membership is sailor, which is one of sailor and captain',
+				'    membership is sailor, which is one of sailor or captain',
 				'  Boat size applies',
 				'    boat length is 9 m, which is at most 12 m',
 				'  nightly fee is $35.00, which is at most $40.00',
@@ -421,7 +421,7 @@ await new GuideCommand({
 			expect(renderAccount(refused, { detail: 'full' }).split('\n')).toEqual([
 				...causes,
 				'Known member applies',
-				'  membership is sailor, which is one of sailor and captain',
+				'  membership is sailor, which is one of sailor or captain',
 				'Boat size cannot be decided',
 				'Grant cannot be decided',
 			])
@@ -429,7 +429,7 @@ await new GuideCommand({
 			expect(renderAccount(narrator.describe(definition)).split('\n')).toEqual([
 				'Berth request',
 				'Known member',
-				'  applies when membership is one of sailor and captain',
+				'  applies when membership is one of sailor or captain',
 				'Boat size',
 				'  applies when boat length is at most 12 m',
 				'Grant',
@@ -584,7 +584,7 @@ await new GuideCommand({
 				].join('\n'),
 			)
 			expect(narrator.describe(gates).lines[1]?.summary).toBe(
-				'Known applies when membership is one of a, b, c, d, and sailor',
+				'Known applies when membership is one of a, b, c, d, or sailor',
 			)
 
 			// A cause only `errors` words is no text of the account, and its faults still are.

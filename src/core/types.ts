@@ -725,6 +725,7 @@ export type FrameName =
 	| 'value.range'
 	| 'value.minimum'
 	| 'value.maximum'
+	| 'value.quoted'
 	| 'condition.when'
 	| 'condition.equal'
 	| 'condition.compared'
@@ -1343,12 +1344,13 @@ export interface GeneratorInterface {
  *
  * @remarks
  * The lookups `phrase`, `label`, `value`, and `line` answer without throwing. Each reads own keys,
- * so a key such as `toString` or `__proto__` misses, and gives a supplied text as it is, its line
- * breaks included. `describe`, `narrate`, and `audit` read a definition and a result as the
- * `isDefinition` and `isReasonResult` guards of `@orkestrel/reason` admit them, and throw nothing
- * of their own; a hostile accessor can throw what it throws. A missing domain word prints the
- * field's path or the part's id and travels as a {@link GlossaryGap}. An account owns what it
- * holds, its `id` and `name` are as authored, and each line's `text` and `summary` are one line.
+ * so a key such as `toString` or `__proto__` misses, and gives a supplied text that is not blank as
+ * it is, its line breaks included. `describe`, `narrate`, and `audit` read a definition and a
+ * result as the `isDefinition` and `isReasonResult` guards of `@orkestrel/reason` admit them, and
+ * throw nothing of their own; an accessor that throws, throws through them. A missing domain word
+ * prints the field's path or the part's id and travels as a {@link GlossaryGap}. An account owns
+ * what it holds, its `id` and `name` are as authored, the id standing for a blank name, and each
+ * line's `text` and `summary` are one line.
  */
 export interface NarratorInterface {
 	/**
@@ -1375,8 +1377,9 @@ export interface NarratorInterface {
 	 *
 	 * @remarks
 	 * A formatter wins over a format, and a glossary format over a shipped one. A list joins by
-	 * the locale, `true`, `false`, and `null` use the lexicon's words, and a string prints as it
-	 * stands unless it is blank. An absent value and `NaN` print the lexicon's `missing` word.
+	 * the locale, each member quoted where one holds a joining text. `true`, `false`, and `null`
+	 * use the lexicon's words, and a string prints as it stands unless it is blank. An absent value
+	 * and `NaN` print the lexicon's `missing` word.
 	 *
 	 * @param field - The field path the value belongs to
 	 * @param raw - The value to render

@@ -54,6 +54,7 @@ import {
 	collectFaultFields,
 	collectFieldGaps,
 	collectGaps,
+	collectListJoins,
 	collectNameGaps,
 	collectReasons,
 	collectUnitGaps,
@@ -142,14 +143,7 @@ export class Narrator implements NarratorInterface {
 	}
 
 	value(field: FieldPath, raw: unknown): string {
-		if (!isArray(raw)) return this.#writeScalar(field, raw)
-		const entries = attempt(() =>
-			Array.from(raw, (entry) =>
-				isArray(entry) ? preview(entry) : this.#writeScalar(field, entry),
-			),
-		)
-		if (!isSuccess(entries) || entries.value.length === 0) return preview(raw)
-		return this.#every.format(entries.value)
+		return isArray(raw) ? this.#writeList(field, raw, this.#every) : this.#writeScalar(field, raw)
 	}
 
 	line(id: string, values: Readonly<Record<string, unknown>>): string {
@@ -210,6 +204,27 @@ export class Narrator implements NarratorInterface {
 			default:
 				return undefined
 		}
+	}
+
+	// Quotes every member where one holds a joining text, so that the list can be told apart. A space
+	// on each side of a member finds a joining text it would complete beside its neighbor.
+	#writeList(field: FieldPath, raw: readonly unknown[], list: Intl.ListFormat): string {
+		const read = attempt(() =>
+			Array.from(raw, (entry) => ({
+				entry,
+				text: isArray(entry) ? preview(entry) : this.#writeScalar(field, entry),
+			})),
+		)
+		if (!isSuccess(read) || read.value.length === 0) return preview(raw)
+		const texts = read.value.map(({ text }) => text)
+		const joins = collectListJoins(list, texts)
+		const quoted = texts.some((text) => joins.some((join) => ` ${text} `.includes(join)))
+		if (!quoted) return list.format(texts)
+		return list.format(
+			read.value.map(({ entry, text }) =>
+				this.line('value.quoted', { value: isString(entry) ? entry : text }),
+			),
+		)
 	}
 
 	// A blank string prints quoted, because a blank slot reads as a missing word.
@@ -678,9 +693,12 @@ export class Narrator implements NarratorInterface {
 	}
 
 	#writeExpected({ field, operator, value: expected }: Check): string {
-		if (!isArray(expected) || (operator !== 'between' && operator !== 'outside')) {
-			return isArray(expected) && expected.length === 0 ? '[]' : this.value(field, expected)
+		if (!isArray(expected)) return this.value(field, expected)
+		if (expected.length === 0) return '[]'
+		if (operator === 'any' || operator === 'none') {
+			return this.#writeList(field, expected, this.#either)
 		}
+		if (operator !== 'between' && operator !== 'outside') return this.value(field, expected)
 		const [minimum, maximum] = expected
 		return this.line('value.range', {
 			minimum: this.value(field, minimum),
@@ -983,7 +1001,7 @@ export class Narrator implements NarratorInterface {
 				? undefined
 				: context.faults.find((entry) => formatField(entry.path) === formatField(origin.field))
 		if (fault !== undefined) return [this.#faultLine(fault, source)]
-		// A factor with no value says where it looked and what it missed, and states no number.
+		// A factor with no value says where it looked and what it missed, and no number of its own.
 		if (!result.applied && origin.origin === 'static') return []
 		const missed = !result.applied && result.raw === undefined
 		if (missed && (origin.origin === 'lookup' || origin.origin === 'range')) {
@@ -997,13 +1015,13 @@ export class Narrator implements NarratorInterface {
 				}),
 			]
 		}
-		const read = result.applied ? result : undefined
-		return this.#writeSource(factor, context.unit, read).map((entry) =>
+		return this.#writeSource(factor, context.unit, result).map((entry) =>
 			buildAccountLine({ role: 'reason', decisive: true, ...entry, source }),
 		)
 	}
 
-	// States where a factor's number comes from, and the number itself before its changes.
+	// States where a factor's number comes from, and, of one that applied, the number before its
+	// changes.
 	#writeSource(
 		factor: Factor,
 		unit: string | undefined,
@@ -1040,7 +1058,8 @@ export class Narrator implements NarratorInterface {
 		const missed: FrameName = either ? 'source.either' : 'source.fallback'
 		const frame: FrameName = fallback ? missed : `source.${source.origin}`
 		const chosen = { text: this.line(frame, { label }), gaps }
-		if (raw === undefined || raw === result?.value || !isFiniteNumber(raw)) return [chosen]
+		const applied = result?.applied === true
+		if (!applied || raw === result.value || !isFiniteNumber(raw)) return [chosen]
 		const value = this.#writeNumber(undefined, raw)
 		return [chosen, { text: this.line('worksheet.raw', { value }), gaps: [] }]
 	}
@@ -1270,7 +1289,10 @@ export class Narrator implements NarratorInterface {
 					gaps: this.#collectCheckGaps(check),
 				}
 			}
-			return this.#writeCheck(check, holds, 'condition', {})
+			const written = this.#writeCheck(check, holds, 'condition', {})
+			// A list's own joining text would read as the condition's.
+			const listed = (operator === 'any' || operator === 'none') && isArray(expected)
+			return this.#writeGroup(written.text, written.gaps, inner && listed && expected.length > 1)
 		}
 		const applies = holds === (readClosedState(operator) !== 'met')
 		const verdict = this.#lexicon.rules[applies ? 'met' : 'unmet']

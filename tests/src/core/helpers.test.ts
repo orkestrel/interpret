@@ -50,6 +50,7 @@ import {
 	collectFaultFields,
 	collectFieldGaps,
 	collectGaps,
+	collectListJoins,
 	collectNameGaps,
 	collectReasons,
 	collectRequiredFields,
@@ -1400,6 +1401,20 @@ describe('the reasons', () => {
 		).toEqual([])
 		const unknown: Check = JSON.parse('{"field":"tier","operator":"near","value":1}')
 		expect(findConditionRules(unknown, concluders)).toEqual([])
+	})
+
+	it("collectListJoins reads a format's joining texts, by locale, type, and neighboring member", () => {
+		const cases = [
+			['en', 'conjunction', [], [' and ', ', ', ', and ']],
+			['en', 'disjunction', ['a', 'b'], [' or ', ', ', ', or ']],
+			['de', 'disjunction', [], [' oder ', ', ']],
+			['ja', 'disjunction', [], ['または', '、', '、または']],
+			['es', 'disjunction', ['siete', 'ocho'], [' u ', ' o ', ', ']],
+		] as const
+		for (const [locale, type, members, joins] of cases) {
+			const read = collectListJoins(new Intl.ListFormat(locale, { type }), members)
+			expect(read.toSorted()).toEqual(joins.toSorted())
+		}
 	})
 
 	it('cloneFieldPath copies a list of segments, and keeps a string', () => {

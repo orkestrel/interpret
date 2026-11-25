@@ -1829,6 +1829,36 @@ export function collectFaultFields(lines: readonly AccountLine[]): ReadonlySet<s
 }
 
 /**
+ * Collects the texts a list format puts between members.
+ *
+ * @remarks
+ * A format can word a join by the member beside it, so the members' own list is read beside lists
+ * of other lengths.
+ *
+ * @param format - The list format
+ * @param members - The members to join
+ * @returns Each joining text once
+ *
+ * @example
+ * ```ts
+ * import { collectListJoins } from '@orkestrel/interpret'
+ *
+ * collectListJoins(new Intl.ListFormat('en', { type: 'disjunction' }), []) // [' or ', ', ', ', or ']
+ * ```
+ */
+export function collectListJoins(
+	format: Intl.ListFormat,
+	members: readonly string[],
+): readonly string[] {
+	const lists = [members, ['a', 'a'], ['a', 'a', 'a'], ['a', 'a', 'a', 'a']]
+	const joins = lists
+		.flatMap((list) => format.formatToParts(list))
+		.filter((part) => part.type === 'literal')
+		.map((part) => part.value)
+	return [...new Set(joins)]
+}
+
+/**
  * Renders reasons as one list, joined by a lexicon's words.
  *
  * @param reasons - The reasons, in order

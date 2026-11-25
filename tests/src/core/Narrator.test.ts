@@ -503,7 +503,7 @@ describe('Narrator', () => {
 				'  Decides whether a community workshop lends a room for an activity.',
 				'Restricted activity',
 				'  The workshop never lends a room for an activity on its restricted list.',
-				`  applies when activity is one of ${WORKSHOP_RESTRICTED.slice(0, -1).join(', ')}, and ${requireValue(WORKSHOP_RESTRICTED.at(-1))}`,
+				`  applies when activity is one of ${WORKSHOP_RESTRICTED.slice(0, -1).join(', ')}, or ${requireValue(WORKSHOP_RESTRICTED.at(-1))}`,
 				'Over capacity',
 				'  A booking that asks for more places than the room holds is over capacity.',
 				'  applies when places over capacity is more than $0.00',
@@ -767,9 +767,9 @@ describe('Narrator', () => {
 			const expected = [
 				'D',
 				'Served region',
-				'  applies when Region is one of north, south, east, west, and central',
+				'  applies when Region is one of north, south, east, west, or central',
 				'Allowed code',
-				'  applies when Code is not one of 1, 2, 3, 4, 5, and 6',
+				'  applies when Code is not one of 1, 2, 3, 4, 5, or 6',
 				'Empty list',
 				'  applies when Code is one of []',
 				'Null list',
@@ -788,6 +788,110 @@ describe('Narrator', () => {
 			)
 		})
 
+		it("quotes a list's members where one holds a joining text, and no other list", () => {
+			const cases = [
+				[['Paris, France', 'Rome, Italy'], '"Paris, France" or "Rome, Italy"'],
+				[['Paris, France', 'Rome'], '"Paris, France" or "Rome"'],
+				[['Paris', 'Rome', 'Oslo'], 'Paris, Rome, or Oslo'],
+				[['salt and pepper', 'sugar'], 'salt and pepper or sugar'],
+				[['salt or pepper', 'sugar'], '"salt or pepper" or "sugar"'],
+				[['Paris, Rome'], '"Paris, Rome"'],
+				[['Paris'], 'Paris'],
+				[['or else', 'sugar'], '"or else" or "sugar"'],
+				[['color', 'anchor'], 'color or anchor'],
+				[['a, b', 5, true, null, ''], '"a, b", "5", "true", "none", or ""'],
+				[['a', ''], 'a or ""'],
+				[[], '[]'],
+			] as const
+			for (const [list, text] of cases) {
+				const definition = createLogicalDefinition('d', 'D', [
+					createRule('r', [createAtom('place', 'any', list)], createAtom('x', 'equals', true), {
+						name: 'R',
+					}),
+				])
+				const guide = new Narrator({ glossary: { labels: { place: 'Place' } } }).describe(
+					definition,
+				)
+				expect(guide.lines[1]?.summary).toBe(`R applies when Place is one of ${text}`)
+				expect(guide.lines[1]?.lines[0]?.text).toBe(`applies when Place is one of ${text}`)
+			}
+			expect(new Narrator().value('place', ['Paris, France', 'Rome'])).toBe(
+				'"Paris, France" and "Rome"',
+			)
+			expect(new Narrator().value('place', ['salt or pepper', 'sugar'])).toBe(
+				'salt or pepper and sugar',
+			)
+			const marked = new Narrator({ lexicon: { frames: { 'value.quoted': '«{{value}}»' } } })
+			expect(marked.value('place', ['a, b', 'c'])).toBe('«a, b» and «c»')
+		})
+
+		it('keeps every member recoverable, whatever the length, the operator, the locale, or the document', () => {
+			// Each locale's joining texts, written out by hand, longest first.
+			const locales = [
+				['en-US', /, or | or |, /u, ', '],
+				['de-DE', / oder |, /u, ' oder '],
+				['es-ES', / o | u |, /u, ' o '],
+				['ja-JP', /、または|または|、/u, '、'],
+			] as const
+			for (const [locale, joins, join] of locales) {
+				const narrator = new Narrator({ locale, lexicon: { limits: { list: 40 } } })
+				for (const length of [1, 2, 3, 40]) {
+					const plain = Array.from({ length }, (_, index) => `m${String(index)}`)
+					const held = plain.map((member, index) => (index === 0 ? `${member}${join}x` : member))
+					for (const operator of ['any', 'none'] as const) {
+						for (const members of [plain, held]) {
+							const atom = createAtom('kind', operator, members)
+							const definition = createLogicalDefinition('d', 'D', [
+								createRule('r', [atom], createAtom('x', 'equals', true), { name: 'R' }),
+								createRule('s', [createCompound('not', [atom])], createAtom('y', 'equals', true), {
+									name: 'S',
+								}),
+							])
+							const result = REASON.reason({ kind: 'z' }, definition)
+							const guide = narrator.describe(definition)
+							const account = narrator.narrate(definition, result)
+							const texts = [
+								...guide.lines.slice(1).map((line) => line.lines[0]?.text ?? ''),
+								...account.lines.slice(1).map((line) => line.lines[0]?.text ?? ''),
+							]
+							expect(texts).toHaveLength(4)
+							for (const text of texts) {
+								const list = text.split(/ is (?:not )?one of /u).at(-1) ?? ''
+								const quoted = [...list.matchAll(/"([^"]*)"/gu)].map((match) => match[1])
+								expect(quoted.length > 0).toBe(members === held)
+								expect(members === held ? quoted : list.split(joins)).toEqual(members)
+							}
+						}
+					}
+				}
+			}
+		})
+
+		it('joins a list as a disjunction, grouped where it stands inside another condition', () => {
+			const region = createAtom('region', 'any', ['north', 'south'])
+			const lone = createAtom('region', 'none', ['north'])
+			const code = createAtom('code', 'equals', 5)
+			const cases = [
+				[[region], 'region is one of north or south'],
+				[[createCompound('not', [region])], 'region is not one of north or south'],
+				[[region, code], '(region is one of north or south) and code is 5'],
+				[[createCompound('or', [region, code])], '(region is one of north or south) or code is 5'],
+				[
+					[createCompound('or', [createCompound('not', [region]), code])],
+					'(region is not one of north or south) or code is 5',
+				],
+				[[createCompound('or', [lone, code])], 'region is not one of north or code is 5'],
+			] as const
+			for (const [premises, condition] of cases) {
+				const definition = createLogicalDefinition('d', 'D', [
+					createRule('r', premises, createAtom('x', 'equals', true), { name: 'R' }),
+				])
+				expect(new Narrator().describe(definition).lines[1]?.summary).toBe(
+					`R applies when ${condition}`,
+				)
+			}
+		})
+
 		it('words every comparison holding and failing', () => {
 			const cases = [
 				['equals', 5, 'n is 5', 'n is not 5'],
@@ -796,21 +900,21 @@ describe('Narrator', () => {
 				['below', 5, 'n is less than 5', 'n is not less than 5'],
 				['from', 5, 'n is at least 5', 'n is less than 5'],
 				['to', 5, 'n is at most 5', 'n is more than 5'],
-				['any', [5, 7], 'n is one of 5 and 7', 'n is not one of 5 and 7'],
-				['none', [5, 7], 'n is not one of 5 and 7', 'n is one of 5 and 7'],
+				['any', [5, 7], 'n is one of 5 or 7', 'n is not one of 5 or 7'],
+				['none', [5, 7], 'n is not one of 5 or 7', 'n is one of 5 or 7'],
 				['between', [5, 7], 'n is in the range 5 to 7', 'n is outside the range 5 to 7'],
 				['outside', [5, 7], 'n is outside the range 5 to 7', 'n is in the range 5 to 7'],
 				[
 					'any',
 					[1, 2, 3, 4, 5],
-					'n is one of 1, 2, 3, 4, and 5',
-					'n is not one of 1, 2, 3, 4, and 5',
+					'n is one of 1, 2, 3, 4, or 5',
+					'n is not one of 1, 2, 3, 4, or 5',
 				],
 				[
 					'none',
 					[1, 2, 3, 4, 5],
-					'n is not one of 1, 2, 3, 4, and 5',
-					'n is one of 1, 2, 3, 4, and 5',
+					'n is not one of 1, 2, 3, 4, or 5',
+					'n is one of 1, 2, 3, 4, or 5',
 				],
 				['any', [], 'n is one of []', 'n is not one of []'],
 			] as const
@@ -1023,7 +1127,7 @@ describe('Narrator', () => {
 				'Three applies',
 				'  kind is z, which is not one of the 3 listed',
 				'Two does not apply',
-				'  kind is z, which is not one of a and b',
+				'  kind is z, which is not one of a or b',
 			])
 		})
 
@@ -1042,10 +1146,10 @@ describe('Narrator', () => {
 				['from', 5, 4, 'n is 4, which is less than 5'],
 				['to', 5, 5, 'n is 5, which is at most 5'],
 				['to', 5, 6, 'n is 6, which is more than 5'],
-				['any', [5, 7], 5, 'n is 5, which is one of 5 and 7'],
-				['any', [5, 7], 6, 'n is 6, which is not one of 5 and 7'],
-				['none', [5, 7], 6, 'n is 6, which is not one of 5 and 7'],
-				['none', [5, 7], 5, 'n is 5, which is one of 5 and 7'],
+				['any', [5, 7], 5, 'n is 5, which is one of 5 or 7'],
+				['any', [5, 7], 6, 'n is 6, which is not one of 5 or 7'],
+				['none', [5, 7], 6, 'n is 6, which is not one of 5 or 7'],
+				['none', [5, 7], 5, 'n is 5, which is one of 5 or 7'],
 				['between', [5, 7], 5, 'n is 5, which is in the range 5 to 7'],
 				['between', [5, 7], 8, 'n is 8, which is outside the range 5 to 7'],
 				['outside', [5, 7], 8, 'n is 8, which is outside the range 5 to 7'],
@@ -1865,6 +1969,73 @@ describe('Narrator', () => {
 			])
 		})
 
+		it('says where the number of a refused factor came from, as it does of one that applied', () => {
+			const narrator = new Narrator({ glossary: { labels: { t: 'Tier', n: 'Count' } } })
+			const divided = { transforms: [{ operation: 'divide', operand: 0 }] } as const
+			const sources = [
+				[
+					createLookupFactor('f', 't', { gold: 5 }, { name: 'Rate', fallback: 9, ...divided }),
+					{ t: 'bronze' },
+					'its fallback, because no entry matches Tier',
+				],
+				[
+					createLookupFactor('f', 't', { gold: 5 }, { name: 'Rate', fallback: 9, ...divided }),
+					{ t: 'gold' },
+					'looked up by Tier',
+				],
+				[
+					createLookupFactor('f', 't', { gold: 5 }, { name: 'Rate', fallback: 5, ...divided }),
+					{ t: 'bronze' },
+					'looked up by Tier, or its fallback',
+				],
+				[
+					createRangeFactor('f', 'n', [{ bounds: { maximum: 3 }, value: 2 }], {
+						name: 'Rate',
+						fallback: 8,
+						...divided,
+					}),
+					{ n: 5 },
+					'its fallback, because no entry matches Count',
+				],
+				[
+					createRangeFactor('f', 'n', [{ bounds: { maximum: 3 }, value: 8 }], {
+						name: 'Rate',
+						fallback: 8,
+						...divided,
+					}),
+					{ n: 5 },
+					'looked up by Count, or its fallback',
+				],
+				[createFieldFactor('f', 'n', { name: 'Rate', ...divided }), { n: 5 }, 'Count is 5'],
+				[
+					createLookupFactor('f', 't', { gold: 5 }, { name: 'Rate', ...divided }),
+					{ t: 'bronze' },
+					'no entry matches Tier',
+				],
+				[
+					createLookupFactor('f', 't', { gold: 5 }, { name: 'Rate', fallback: 9, ...divided }),
+					{},
+					'Tier is not known',
+				],
+			] as const
+			for (const [factor, subject, source] of sources) {
+				const definition = createQuantitativeDefinition('q', 'Quote', [
+					createFactorGroup('g', 'sum', [factor], { name: 'Group' }),
+				])
+				const result = REASON.reason(subject, definition)
+				expect(result.success).toBe(false)
+				const account = narrator.narrate(definition, result)
+				expect(renderAccount(account).split('\n')).toEqual([
+					'Quote gave no answer',
+					'  Rate found no value to use',
+					`    ${source}`,
+				])
+				expect(account.lines[0]?.summary).toBe(
+					`Quote gave no answer, because Rate found no value to use (${source})`,
+				)
+			}
+		})
+
 		it('names a gate it could not read', () => {
 			const narrator = new Narrator({ glossary: WORKSHOP_GLOSSARY })
 			const score = buildWorkshopScore()
@@ -2660,7 +2831,7 @@ describe('Narrator', () => {
 			)
 			expect(account.lines[0]?.lines.map((line) => line.text)).toEqual([
 				'cost is $1,250.50, which is at most $1,250.50',
-				'cost is $1,250.50, which is one of $1,250.50 and $3.00',
+				'cost is $1,250.50, which is one of $1,250.50 or $3.00',
 				'places over capacity is $1,250.50, which is at least $1,250.50',
 			])
 			const solved = createSymbolicDefinition('s', 'S', [
