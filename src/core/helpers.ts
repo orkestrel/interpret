@@ -19,6 +19,7 @@ import type {
 	AccountLine,
 	AccountLineInput,
 	AccountOptions,
+	AccountSource,
 	AnchorCandidate,
 	AnchorRefusalHandler,
 	Entity,
@@ -31,7 +32,9 @@ import type {
 	Interpretation,
 	Lexicon,
 	LexiconInput,
+	NarratorFormatter,
 	NarratorInterface,
+	NarratorOptions,
 	Recipe,
 	ReadNumber,
 	RuleReason,
@@ -48,8 +51,10 @@ import {
 	isArray,
 	isError,
 	isFiniteNumber,
+	isFunction,
 	isNonNegativeInteger,
 	isNumber,
+	isObject,
 	isRecord,
 	isString,
 	isSuccess,
@@ -1102,6 +1107,163 @@ export function resolveLocale(locale: string = DEFAULT_LOCALE): string {
 	throw new InterpretError('LEXICON', finding, { findings: [finding] })
 }
 
+/**
+ * Resolves the number formatters a narrator calls, by unit.
+ *
+ * @param input - The formatters; none when absent. A member that is no function is left out
+ * @returns The formatters, which a later change to the input leaves as they are
+ * @throws {@link InterpretError} `'GLOSSARY'` when the input or a member cannot be read
+ *
+ * @example
+ * ```ts
+ * import { resolveFormatters } from '@orkestrel/interpret'
+ *
+ * resolveFormatters({ acre: (value) => `${String(value)} ac` }).get('acre')?.(5) // '5 ac'
+ * ```
+ */
+export function resolveFormatters(
+	input?: NarratorOptions['formatters'],
+): ReadonlyMap<string, NarratorFormatter> {
+	const read = attempt(
+		() => new Map(Object.entries(input ?? {}).filter(([, formatter]) => isFunction(formatter))),
+	)
+	if (isSuccess(read)) return read.value
+	const finding = 'formatters cannot be read'
+	throw new InterpretError('GLOSSARY', `Narrator options are malformed: ${finding}`, {
+		findings: [finding],
+	})
+}
+
+/**
+ * Reads one option of a narrator.
+ *
+ * @param options - The options; none when absent
+ * @param key - The option to read
+ * @returns The option as it stands, or `undefined` when it is absent
+ * @throws {@link InterpretError} when the option cannot be read: `'LEXICON'` for `lexicon` and
+ * `locale`, `'GLOSSARY'` for `glossary` and `formatters`
+ *
+ * @example
+ * ```ts
+ * import { readNarratorOption } from '@orkestrel/interpret'
+ *
+ * readNarratorOption({ locale: 'de-DE' }, 'locale') // 'de-DE'
+ * ```
+ */
+export function readNarratorOption<K extends keyof NarratorOptions>(
+	options: NarratorOptions | undefined,
+	key: K,
+): NarratorOptions[K] | undefined {
+	const read = attempt(() => options?.[key])
+	if (isSuccess(read)) return read.value
+	const code = key === 'lexicon' || key === 'locale' ? 'LEXICON' : 'GLOSSARY'
+	const finding = `${key} cannot be read`
+	throw new InterpretError(code, `Narrator options are malformed: ${finding}`, {
+		findings: [finding],
+	})
+}
+
+// === The evidence an account owns: copies of a run's data
+
+/**
+ * Clones a field's path.
+ *
+ * @param field - The path
+ * @returns The path, its segments in a fresh list
+ *
+ * @example
+ * ```ts
+ * import { cloneFieldPath } from '@orkestrel/interpret'
+ *
+ * cloneFieldPath(['seat', 'cost']) // ['seat', 'cost']
+ * ```
+ */
+export function cloneFieldPath(field: FieldPath): FieldPath {
+	return isString(field) ? field : [...field]
+}
+
+/**
+ * Clones a value a check compared, so that no write to the copy reaches it.
+ *
+ * @remarks
+ * A subject can hold anything, so a value the host cannot clone is projected to JSON, and one with
+ * no JSON form is `undefined`.
+ *
+ * @param value - The value
+ * @returns The value itself when it is a primitive, and otherwise its copy
+ *
+ * @example
+ * ```ts
+ * import { cloneEvidence } from '@orkestrel/interpret'
+ *
+ * cloneEvidence(['a', 'b']) // ['a', 'b']
+ * cloneEvidence(Math.max) // undefined
+ * ```
+ */
+export function cloneEvidence(value: unknown): unknown {
+	if (!isObject(value) && !isFunction(value)) return value
+	const copy = attempt((): unknown => structuredClone(value))
+	return isSuccess(copy) ? copy.value : projectValue(value)
+}
+
+/**
+ * Clones the data a line was written from.
+ *
+ * @param source - The data
+ * @returns A copy that shares no object with it
+ *
+ * @example
+ * ```ts
+ * import { cloneAccountSource } from '@orkestrel/interpret'
+ *
+ * cloneAccountSource({ rule: 'adult', check: { field: 'kind', operator: 'any', value: ['a'] } })
+ * // { rule: 'adult', check: { field: 'kind', operator: 'any', value: ['a'] } }
+ * ```
+ */
+export function cloneAccountSource(source: AccountSource): AccountSource {
+	const { check, result, fault } = source
+	return {
+		...source,
+		...(check === undefined
+			? {}
+			: {
+					check: {
+						...check,
+						field: cloneFieldPath(check.field),
+						value: cloneEvidence(check.value),
+					},
+				}),
+		...(result === undefined
+			? {}
+			: {
+					result: {
+						...result,
+						field: cloneFieldPath(result.field),
+						actual: cloneEvidence(result.actual),
+					},
+				}),
+		...(fault === undefined ? {} : { fault: structuredClone(fault) }),
+	}
+}
+
+/**
+ * Clones a gap.
+ *
+ * @param gap - The gap
+ * @returns A copy that shares no object with it
+ *
+ * @example
+ * ```ts
+ * import { cloneGlossaryGap } from '@orkestrel/interpret'
+ *
+ * cloneGlossaryGap({ word: 'label', field: ['seat', 'cost'] })
+ * // { word: 'label', field: ['seat', 'cost'] }
+ * ```
+ */
+export function cloneGlossaryGap(gap: GlossaryGap): GlossaryGap {
+	return { ...gap, ...(gap.field === undefined ? {} : { field: cloneFieldPath(gap.field) }) }
+}
+
 // === The gaps: domain words a definition needs
 
 /**
@@ -1323,7 +1485,7 @@ export function collectGaps(
 					]
 			}
 		}),
-	)
+	).map((gap) => cloneGlossaryGap(gap))
 }
 
 // === The reasons: the checks that fix a rule's state
@@ -1615,7 +1777,7 @@ export function normalizeLine(text: string): string {
  *
  * @remarks
  * An absent `summary` is the text, an absent `decisive` is `false`, and an absent collection is
- * empty.
+ * empty. The line's `source` and `gaps` are copies.
  *
  * @param input - The line's parts
  * @returns The line
@@ -1635,8 +1797,8 @@ export function buildAccountLine(input: AccountLineInput): AccountLine {
 		decisive: input.decisive ?? false,
 		text: normalizeLine(input.text),
 		summary: normalizeLine(input.summary ?? input.text),
-		source: input.source ?? {},
-		gaps: filterUniqueGaps(input.gaps ?? []),
+		source: cloneAccountSource(input.source ?? {}),
+		gaps: filterUniqueGaps(input.gaps ?? []).map((gap) => cloneGlossaryGap(gap)),
 		lines: input.lines ?? [],
 	}
 }

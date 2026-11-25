@@ -1,6 +1,12 @@
-import type { LogicalResult, SymbolicResult } from '@orkestrel/reason'
-import type { AccountLine, GlossaryGap, NarratorFormatter, NarratorOptions } from '@src/core'
-import { numberShape, objectShape } from '@orkestrel/contract'
+import type { Definition, LogicalResult, Subject, SymbolicResult } from '@orkestrel/reason'
+import type {
+	AccountLine,
+	Glossary,
+	GlossaryGap,
+	NarratorFormatter,
+	NarratorOptions,
+} from '@src/core'
+import { isArray, isObject, numberShape, objectShape } from '@orkestrel/contract'
 import {
 	AGGREGATIONS,
 	COMPARISONS,
@@ -26,6 +32,7 @@ import {
 	createSymbolicDefinition,
 	createSymbolicReasoner,
 	createVariable,
+	formatField,
 	isLogicalResult,
 	isQuantitativeResult,
 } from '@orkestrel/reason'
@@ -48,6 +55,7 @@ import {
 	WORKSHOP_FEES,
 	WORKSHOP_GATES,
 	WORKSHOP_GLOSSARY,
+	WORKSHOP_RESTRICTED,
 	WORKSHOP_SCORES,
 	WORKSHOP_SUBJECTS,
 } from '../../setup.js'
@@ -411,6 +419,43 @@ describe('Narrator', () => {
 			}
 		})
 
+		it('refuses options it cannot read, under the code of the words they hold', () => {
+			const revoked = Proxy.revocable<NarratorOptions>({}, {})
+			revoked.revoke()
+			const formatters = Proxy.revocable<Record<string, NarratorFormatter>>({}, {})
+			formatters.revoke()
+			const members = { count: renderInterpretUnit }
+			Object.defineProperty(members, 'money', {
+				enumerable: true,
+				get: () => {
+					throw new Error('refused')
+				},
+			})
+			const keys = ['lexicon', 'glossary', 'formatters', 'locale'] as const
+			const throwing = keys.map((key): readonly [string, NarratorOptions, string] => {
+				const options: NarratorOptions = {}
+				Object.defineProperty(options, key, {
+					enumerable: true,
+					get: () => {
+						throw new Error('refused')
+					},
+				})
+				return [key, options, `${key} cannot be read`]
+			})
+			const cases: ReadonlyArray<readonly [string, NarratorOptions, string]> = [
+				['lexicon', revoked.proxy, 'lexicon cannot be read'],
+				['formatters', { formatters: formatters.proxy }, 'formatters cannot be read'],
+				['formatters', { formatters: members }, 'formatters cannot be read'],
+				...throwing,
+			]
+			for (const [key, options, finding] of cases) {
+				const error = captureError(() => new Narrator(options))
+				if (!isInterpretError(error)) throw new Error('Expected an InterpretError')
+				expect(error.code).toBe(key === 'lexicon' || key === 'locale' ? 'LEXICON' : 'GLOSSARY')
+				expect(error.context).toEqual({ findings: [finding] })
+			}
+		})
+
 		it('owns its words, so a later change to the caller changes nothing', () => {
 			const labels: Record<string, string> = { cost: 'Cost' }
 			const frames: Record<string, string> = { 'rule.settled': '{{name}}: {{verdict}}' }
@@ -458,7 +503,7 @@ describe('Narrator', () => {
 				'  Decides whether a community workshop lends a room for an activity.',
 				'Restricted activity',
 				'  The workshop never lends a room for an activity on its restricted list.',
-				'  applies when activity is one of the 40 listed',
+				`  applies when activity is one of ${WORKSHOP_RESTRICTED.slice(0, -1).join(', ')}, and ${requireValue(WORKSHOP_RESTRICTED.at(-1))}`,
 				'Over capacity',
 				'  A booking that asks for more places than the room holds is over capacity.',
 				'  applies when places over capacity is more than $0.00',
@@ -692,6 +737,57 @@ describe('Narrator', () => {
 			expect(wrong).toEqual([])
 		})
 
+		it('prints every member of a list in a condition, whatever the limit', () => {
+			const definition = createLogicalDefinition('d', 'D', [
+				createRule(
+					'region',
+					[createAtom('region', 'any', ['north', 'south', 'east', 'west', 'central'])],
+					createAtom('region.ok', 'equals', true),
+					{ name: 'Served region' },
+				),
+				createRule(
+					'code',
+					[createAtom('code', 'none', [1, 2, 3, 4, 5, 6])],
+					createAtom('code.ok', 'equals', true),
+					{ name: 'Allowed code' },
+				),
+				createRule(
+					'empty',
+					[createAtom('code', 'any', [])],
+					createAtom('empty.ok', 'equals', true),
+					{ name: 'Empty list' },
+				),
+				createRule(
+					'nothing',
+					[createAtom('code', 'any', [null])],
+					createAtom('nothing.ok', 'equals', true),
+					{ name: 'Null list' },
+				),
+			])
+			const expected = [
+				'D',
+				'Served region',
+				'  applies when Region is one of north, south, east, west, and central',
+				'Allowed code',
+				'  applies when Code is not one of 1, 2, 3, 4, 5, and 6',
+				'Empty list',
+				'  applies when Code is one of []',
+				'Null list',
+				'  applies when Code is one of none',
+			]
+			const glossary = { labels: { region: 'Region', code: 'Code' } }
+			for (const list of [0, 4, 30]) {
+				const narrator = new Narrator({ glossary, lexicon: { limits: { list } } })
+				expect(
+					renderAccount(narrator.describe(definition), { detail: 'full' }).split('\n'),
+				).toEqual(expected)
+			}
+			const guide = new Narrator({ glossary: WORKSHOP_GLOSSARY }).describe(buildWorkshopRules())
+			expect(WORKSHOP_RESTRICTED.filter((name) => !guide.lines[1]?.summary.includes(name))).toEqual(
+				[],
+			)
+		})
+
 		it('words every comparison holding and failing', () => {
 			const cases = [
 				['equals', 5, 'n is 5', 'n is not 5'],
@@ -704,8 +800,19 @@ describe('Narrator', () => {
 				['none', [5, 7], 'n is not one of 5 and 7', 'n is one of 5 and 7'],
 				['between', [5, 7], 'n is in the range 5 to 7', 'n is outside the range 5 to 7'],
 				['outside', [5, 7], 'n is outside the range 5 to 7', 'n is in the range 5 to 7'],
-				['any', [1, 2, 3, 4, 5], 'n is one of the 5 listed', 'n is not one of the 5 listed'],
-				['none', [1, 2, 3, 4, 5], 'n is not one of the 5 listed', 'n is one of the 5 listed'],
+				[
+					'any',
+					[1, 2, 3, 4, 5],
+					'n is one of 1, 2, 3, 4, and 5',
+					'n is not one of 1, 2, 3, 4, and 5',
+				],
+				[
+					'none',
+					[1, 2, 3, 4, 5],
+					'n is not one of 1, 2, 3, 4, and 5',
+					'n is one of 1, 2, 3, 4, and 5',
+				],
+				['any', [], 'n is one of []', 'n is not one of []'],
 			] as const
 			for (const [operator, expected, holds, fails] of cases) {
 				const atom = createAtom('n', operator, expected)
@@ -790,6 +897,8 @@ describe('Narrator', () => {
 			expect(account.lines.flatMap((line) => line.gaps)).toEqual([
 				{ word: 'name', part: 'definition', id: 'loan' },
 				{ word: 'name', part: 'rule', id: 'adult' },
+				{ word: 'label', field: 'age' },
+				{ word: 'unit', field: 'age' },
 			])
 		})
 	})
@@ -1256,6 +1365,94 @@ describe('Narrator', () => {
 		})
 	})
 
+	describe('ownership', () => {
+		const path = ['seat', 'free']
+		// Without its validation, which refuses a check that expects a record.
+		const engine = createReason({
+			validate: false,
+			reasoners: [createLogicalReasoner(), createQuantitativeReasoner(), createSymbolicReasoner()],
+		})
+		const logical = createLogicalDefinition('d', 'D', [
+			createRule(
+				'first',
+				[createAtom(path, 'any', ['a', 'b', 'c']), createAtom('kind', 'equals', { deep: [1] })],
+				createAtom('one', 'equals', true),
+			),
+			createRule(
+				'second',
+				[createAtom('one', 'equals', true), createAtom(['seat', 'cost'], 'above', 5)],
+				createAtom('two', 'equals', true),
+			),
+		])
+		const sheet = createQuantitativeDefinition('q', 'Q', [
+			createFactorGroup('g', 'sum', [
+				createFieldFactor('f', ['seat', 'cost']),
+				createStaticFactor('s', 1, {
+					checks: [{ field: path, operator: 'any', value: ['a', 'b'] }],
+				}),
+			]),
+		])
+		const solved = createSymbolicDefinition('s', 'S', [
+			createEquation('e', createVariable('x'), createVariable('y'), 'x'),
+		])
+		const subject = { seat: { free: 'z', cost: 9 }, kind: { deep: [1] } }
+		const runs = [
+			[logical, subject],
+			[logical, { seat: { free: 'a', cost: 9 }, kind: { deep: [1] } }],
+			[logical, { seat: { free: 'a', cost: 'x' } }],
+			[sheet, subject],
+			[sheet, {}],
+			[solved, {}],
+		] as const
+
+		it('shares no object between two accounts, or with the definition, the result, or the subject', () => {
+			const narrator = new Narrator()
+			for (const [definition, given] of runs) {
+				const result = engine.reason(given, definition)
+				const roots: readonly object[] = [
+					definition,
+					result,
+					given,
+					narrator.narrate(definition, result),
+					narrator.narrate(definition, result),
+					narrator.describe(definition),
+					narrator.describe(definition),
+					narrator.audit([definition]),
+					narrator.audit([definition]),
+				]
+				const reached = roots.map((root) => {
+					const nodes: object[] = [root]
+					for (const node of nodes) nodes.push(...Object.values(node).filter(isObject))
+					return new Set(nodes)
+				})
+				const shared = reached.slice(3).flatMap((nodes, index) =>
+					reached
+						.filter((others) => others !== nodes)
+						.flatMap((others) => [...others].filter((node) => nodes.has(node)))
+						.map((node) => [index, node]),
+				)
+				expect(shared).toEqual([])
+			}
+		})
+
+		it('keeps the evidence of a line as it was, and a later account, whatever a caller writes to it', () => {
+			const narrator = new Narrator()
+			const result = engine.reason(subject, logical)
+			const before = JSON.stringify(narrator.narrate(logical, result))
+			const account = narrator.narrate(logical, result)
+			const nodes: object[] = [account]
+			for (const node of nodes) nodes.push(...Object.values(node).filter(isObject))
+			for (const node of nodes) Reflect.deleteProperty(node, isArray(node) ? 0 : 'value')
+			for (const node of nodes) Reflect.set(node, 'field', 'changed')
+			expect(JSON.stringify(narrator.narrate(logical, result))).toBe(before)
+			const line = narrator.narrate(logical, engine.reason(subject, logical)).lines[0]?.lines[0]
+			expect(line?.lines[0]?.source).toEqual({
+				check: { field: ['seat', 'free'], operator: 'any', value: ['a', 'b', 'c'] },
+				result: { field: ['seat', 'free'], state: 'unmet', actual: 'z' },
+			})
+		})
+	})
+
 	describe('T1: a refused result states no value and names what it did not read', () => {
 		it('names the missing field of a logical run, and counts nothing', () => {
 			const definition = buildWorkshopRules()
@@ -1420,6 +1617,84 @@ describe('Narrator', () => {
 				'  Debt cannot be decided',
 				'    debt is not known',
 			])
+		})
+
+		it('states nothing a run derived where its errors hold more than its faults', () => {
+			const flip = createRule(
+				'r1',
+				[createAtom('loop', 'not', true)],
+				createAtom('loop', 'equals', true),
+				{ name: 'Flip rule' },
+			)
+			const seat = createRule(
+				'r2',
+				[createAtom('loop', 'equals', true)],
+				createAtom('seat', 'equals', true),
+				{ name: 'Seat rule' },
+			)
+			const chain = ['seed', 'k1', 'k2'].map((field, index) =>
+				createRule(
+					`c${String(index)}`,
+					[createAtom(field, 'equals', true)],
+					createAtom(`k${String(index + 1)}`, 'equals', true),
+					{ name: `Rule ${String(index)}` },
+				),
+			)
+			const gold = createRule(
+				'gold',
+				[createAtom('age', 'from', 18)],
+				createAtom('tier', 'equals', 'gold'),
+				{ name: 'Gold rule' },
+			)
+			const tin = createRule(
+				'tin',
+				[createAtom('age', 'from', 21)],
+				createAtom('tier', 'equals', 'tin'),
+				{ name: 'Tin rule' },
+			)
+			const high = createRule(
+				'high',
+				[createAtom('tier', 'above', 5)],
+				createAtom('high', 'equals', true),
+				{ name: 'High rule' },
+			)
+			const cases = [
+				['a negative cycle', [flip, seat], {}, { age: 30 }],
+				['a depth cap', chain, { depth: 1 }, { seed: true }],
+				['a supplied conclusion key', [gold, high], {}, { age: 30, tier: 'gold' }],
+				['a conflict', [gold, tin], {}, { age: 30 }],
+				['a conclusion read as a number', [gold, high], {}, { age: 30 }],
+			] as const
+			const narrator = new Narrator()
+			for (const [title, rules, options, subject] of cases) {
+				const definition = createLogicalDefinition('d', 'Eligibility', rules, options)
+				// The reasoner alone, because the engine refuses a negative cycle before it runs.
+				const result = createLogicalReasoner().reason(subject, definition)
+				if (!isLogicalResult(result)) throw new Error('Expected a logical result')
+				expect([title, result.success, result.faults]).toEqual([title, false, []])
+				expect(result.errors.length).toBeGreaterThan(0)
+				const account = narrator.narrate(definition, result)
+				for (const detail of ['line', 'reasons', 'full'] as const) {
+					expect([title, renderAccount(account, { detail })]).toEqual([
+						title,
+						'Eligibility gave no answer',
+					])
+				}
+			}
+			const income = createRule(
+				'income',
+				[createAtom('income', 'above', 1)],
+				createAtom('paid', 'equals', true),
+				{ name: 'Income rule' },
+			)
+			const both = createLogicalDefinition('d', 'Eligibility', [gold, high, income])
+			const account = narrator.narrate(both, createLogicalReasoner().reason({ age: 30 }, both))
+			expect(renderAccount(account, { detail: 'full' })).toBe(
+				'Eligibility gave no answer\n  income is not known',
+			)
+			expect(renderAccount(account, { detail: 'line' })).toBe(
+				'Eligibility gave no answer, because income is not known',
+			)
 		})
 
 		it('names the fields a door refused, and nothing where the evidence holds no cause', () => {
@@ -1893,6 +2168,75 @@ describe('Narrator', () => {
 				['D: 6', 'base: 2', 'a: 3', 'b: 4'],
 				['D: 5', 'a: 3', 'b: 4', 'bounds: at most 5'],
 			])
+		})
+
+		it('says so where a value is both the fallback and an entry', () => {
+			const narrator = new Narrator({
+				glossary: { labels: { tier: 'Customer tier', b: 'Field B' } },
+			})
+			const tables = createQuantitativeDefinition('d', 'D', [
+				createFactorGroup('g', 'sum', [
+					createLookupFactor(
+						'rate',
+						'tier',
+						{ gold: 5, silver: 3 },
+						{ name: 'Tier rate', fallback: 5 },
+					),
+					createRangeFactor(
+						'band',
+						'b',
+						[
+							{ bounds: { maximum: 3 }, value: 2 },
+							{ bounds: { minimum: 7 }, value: 8 },
+						],
+						{ name: 'Band', fallback: 8 },
+					),
+				]),
+			])
+			const texts = [
+				{ tier: 'bronze', b: 5 },
+				{ tier: 'gold', b: 9 },
+				{ tier: 'silver', b: 1 },
+			].map((subject) => {
+				const account = narrator.narrate(tables, REASON.reason(subject, tables))
+				return account.lines[1]?.lines.map((line) => [
+					line.text,
+					line.lines.map(({ text }) => text),
+				])
+			})
+			const unsettled = [
+				['Tier rate: 5', ['looked up by Customer tier, or its fallback']],
+				['Band: 8', ['looked up by Field B, or its fallback']],
+			]
+			expect(texts).toEqual([
+				unsettled,
+				unsettled,
+				[
+					['Tier rate: 3', ['looked up by Customer tier']],
+					['Band: 2', ['set by the range Field B falls in']],
+				],
+			])
+		})
+
+		it('states a weight only under an aggregation that uses it', () => {
+			const narrator = new Narrator()
+			const weighted = AGGREGATIONS.map((aggregation) => {
+				const worksheet = createQuantitativeDefinition('d', 'D', [
+					createFactorGroup('g', aggregation, [
+						createStaticFactor('one', 4, { name: 'One', weight: 3 }),
+						createStaticFactor('two', 5, { name: 'Two', weight: 1 }),
+					]),
+				])
+				const account = narrator.narrate(worksheet, REASON.reason({}, worksheet))
+				return [aggregation, account.lines[1]?.lines[0]?.lines.map((line) => line.text)]
+			})
+			expect(Object.fromEntries(weighted)).toEqual({
+				sum: ['fixed at 4', 'weight: 3'],
+				product: ['fixed at 4', 'weight: 3'],
+				average: ['fixed at 4', 'weight: 3'],
+				minimum: ['fixed at 4'],
+				maximum: ['fixed at 4'],
+			})
 		})
 
 		it('states a base, a weight, and a bound wherever one is authored', () => {
@@ -2623,6 +2967,192 @@ describe('Narrator', () => {
 					'looked up by season',
 				]),
 			)
+		})
+
+		it('carries a removed word on every line whose text or summary changes without it', () => {
+			const quote = createQuantitativeDefinition(
+				'fees',
+				'Quote',
+				[
+					createFactorGroup(
+						'stay',
+						'sum',
+						[
+							createStaticFactor('seats', 10, { name: 'Seats' }),
+							createFieldFactor('guests', 'guests', { name: 'Guests', weight: 2 }),
+						],
+						{ name: 'Stay', base: 10, bounds: { minimum: 5 } },
+					),
+				],
+				{ base: 100, bounds: { minimum: 50, maximum: 1500 } },
+			)
+			const runs: ReadonlyArray<readonly [Definition, Subject]> = [
+				...Object.values(WORKSHOP_SUBJECTS).map(
+					({ subject }) => [buildWorkshopRules(), subject] as const,
+				),
+				...Object.values(WORKSHOP_GATES).map(
+					({ subject }) => [buildWorkshopGates(), subject] as const,
+				),
+				...Object.values(WORKSHOP_SCORES).map(
+					({ subject }) => [buildWorkshopScore(), subject] as const,
+				),
+				...Object.values(WORKSHOP_FEES).map(
+					({ subject }) => [buildWorkshopFees(), subject] as const,
+				),
+				...Object.values(WORKSHOP_AREA).map(
+					({ subject }) => [buildWorkshopArea(), subject] as const,
+				),
+				[quote, { guests: 1234 }],
+			]
+			const { labels, units, formats } = WORKSHOP_GLOSSARY
+			const removals: ReadonlyArray<readonly [string, Glossary]> = [
+				...Object.keys(labels).map(
+					(key) =>
+						[
+							`label ${key}`,
+							{
+								...WORKSHOP_GLOSSARY,
+								labels: Object.fromEntries(Object.entries(labels).filter(([word]) => word !== key)),
+							},
+						] as const,
+				),
+				...Object.keys(units).map(
+					(key) =>
+						[
+							`unit ${key}`,
+							{
+								...WORKSHOP_GLOSSARY,
+								units: Object.fromEntries(Object.entries(units).filter(([word]) => word !== key)),
+							},
+						] as const,
+				),
+				...Object.keys(formats).map(
+					(key) =>
+						[
+							`format ${key}`,
+							{
+								...WORKSHOP_GLOSSARY,
+								formats: Object.fromEntries(
+									Object.entries(formats).filter(([word]) => word !== key),
+								),
+							},
+						] as const,
+				),
+			]
+			const complete = new Narrator({ glossary: WORKSHOP_GLOSSARY })
+			const missed = removals.flatMap(([removed, glossary]) => {
+				const narrator = new Narrator({ glossary })
+				return runs.flatMap(([definition, subject]) => {
+					const result = REASON.reason(subject, definition)
+					const [whole, less] = [complete, narrator].map((writer) => {
+						const lines = [
+							...writer.narrate(definition, result).lines,
+							...writer.describe(definition).lines,
+						]
+						for (const line of lines) lines.push(...line.lines)
+						return lines
+					})
+					return requireValue(less).flatMap((line, index) => {
+						const other = requireValue(requireValue(whole)[index])
+						const carried = line.gaps.map(
+							(gap) =>
+								`${gap.word} ${gap.field === undefined ? String(gap.unit) : formatField(gap.field)}`,
+						)
+						const changed = line.text !== other.text || line.summary !== other.summary
+						return changed && !carried.includes(removed) ? [[removed, line.text]] : []
+					})
+				})
+			})
+			expect(missed).toEqual([])
+		})
+
+		it('carries a missing name on every line whose text or summary prints its id', () => {
+			const narrator = new Narrator({ glossary: WORKSHOP_GLOSSARY })
+			const logical = [
+				[buildWorkshopRules(), WORKSHOP_SUBJECTS],
+				[buildWorkshopGates(), WORKSHOP_GATES],
+			] as const
+			const quantitative = [
+				[buildWorkshopScore(), WORKSHOP_SCORES],
+				[buildWorkshopFees(), WORKSHOP_FEES],
+			] as const
+			const runs: ReadonlyArray<readonly [string, Definition, Definition, Subject]> = [
+				...logical.flatMap(([definition, cases]) =>
+					Object.values(cases).flatMap(({ subject }) =>
+						definition.rules.map(
+							({ id }) =>
+								[
+									`rule ${id}`,
+									definition,
+									{
+										...definition,
+										rules: definition.rules.map((rule) =>
+											rule.id === id ? { ...rule, name: id } : rule,
+										),
+									},
+									subject,
+								] as const,
+						),
+					),
+				),
+				...quantitative.flatMap(([definition, cases]) =>
+					Object.values(cases).flatMap(({ subject }) =>
+						definition.groups.flatMap((group) =>
+							[group, ...group.factors].map(
+								({ id }) =>
+									[
+										`${id === group.id ? 'group' : 'factor'} ${id}`,
+										definition,
+										{
+											...definition,
+											groups: definition.groups.map((part) => ({
+												...part,
+												name: part.id === id ? id : part.name,
+												factors: part.factors.map((factor) =>
+													factor.id === id ? { ...factor, name: id } : factor,
+												),
+											})),
+										},
+										subject,
+									] as const,
+							),
+						),
+					),
+				),
+			]
+			const missed = runs.flatMap(([removed, definition, unnamed, subject]) => {
+				const result = REASON.reason(subject, definition)
+				const [whole, less] = [definition, unnamed].map((described) => {
+					const lines = [
+						...narrator.narrate(described, result).lines,
+						...narrator.describe(described).lines,
+					]
+					for (const line of lines) lines.push(...line.lines)
+					return lines
+				})
+				return requireValue(less).flatMap((line, index) => {
+					const other = requireValue(requireValue(whole)[index])
+					const carried = line.gaps.map((gap) => `${String(gap.part)} ${String(gap.id)}`)
+					const changed = line.text !== other.text || line.summary !== other.summary
+					return changed && !carried.includes(removed) ? [[removed, line.text]] : []
+				})
+			})
+			expect(missed).toEqual([])
+			expect(runs.length).toBeGreaterThan(100)
+		})
+
+		it("carries another rule's missing name on the line whose condition prints it", () => {
+			const definition = createLogicalDefinition('d', 'D', [
+				createRule('adult', [createAtom('age', 'from', 18)], createAtom('adult', 'equals', true)),
+				createRule('ok', [createAtom('adult', 'equals', true)], createAtom('ok', 'equals', true), {
+					name: 'Approved',
+				}),
+			])
+			const guide = new Narrator({
+				glossary: { labels: { age: 'Age' }, units: { age: 'plain' } },
+			}).describe(definition)
+			expect(guide.lines[2]?.summary).toBe('Approved applies when adult applies')
+			expect(guide.lines[2]?.gaps).toEqual([{ word: 'name', part: 'rule', id: 'adult' }])
 		})
 
 		it('reports nothing for the complete glossary, over every fixture', () => {

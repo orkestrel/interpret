@@ -728,7 +728,6 @@ export type FrameName =
 	| 'condition.when'
 	| 'condition.equal'
 	| 'condition.compared'
-	| 'condition.listed'
 	| 'condition.xor'
 	| 'condition.group'
 	| 'condition.not'
@@ -762,6 +761,7 @@ export type FrameName =
 	| 'source.range'
 	| 'source.missed'
 	| 'source.fallback'
+	| 'source.either'
 	| 'group.aggregation'
 	| 'equation.target'
 	| 'subject.fields'
@@ -782,8 +782,8 @@ export type FrameName =
  * words what a field that was not read is, and `missing` is the word for a value nobody read.
  * `joins.reasons` stands between reasons and `joins.last` before the last one. `frames` are
  * `@orkestrel/template` templates whose slots `FRAME_SLOTS` lists. `limits.list` is the
- * longest list printed in full, a longer one being counted, and `limits.reasons` the most
- * reasons, or rules that apply, one sentence gives.
+ * longest list a fact prints in full, a longer one being counted, and `limits.reasons` the most
+ * reasons, or rules that apply, one sentence gives. A condition prints every member of its list.
  */
 export interface Lexicon {
 	readonly comparisons: Readonly<Record<Comparison, ComparisonPhrase>>
@@ -924,6 +924,7 @@ export interface AccountSource {
  * `text` states the outcome alone, and `summary` adds its reasons; `summary` is `text` when the
  * line has none. `decisive` is true when the line decides the line it stands under, or the
  * account's verdict at the top level. `gaps` lists the domain words the two needed and lacked.
+ * `text` and `summary` are one line each. `source` and `gaps` are copies of the evidence.
  */
 export interface AccountLine {
 	readonly role: AccountRole
@@ -1341,10 +1342,13 @@ export interface GeneratorInterface {
  * domain's words, and the evidence of a reasons run.
  *
  * @remarks
- * Every method answers without throwing, whatever the evidence holds, and every lookup reads
- * own keys, so a key such as `toString` or `__proto__` misses. A missing domain word prints the
- * field's path or the part's id and travels as a {@link GlossaryGap}. `describe` and `narrate`
- * write every text on one line.
+ * The lookups `phrase`, `label`, `value`, and `line` answer without throwing. Each reads own keys,
+ * so a key such as `toString` or `__proto__` misses, and gives a supplied text as it is, its line
+ * breaks included. `describe`, `narrate`, and `audit` read a definition and a result as the
+ * `isDefinition` and `isReasonResult` guards of `@orkestrel/reason` admit them, and throw nothing
+ * of their own; a hostile accessor can throw what it throws. A missing domain word prints the
+ * field's path or the part's id and travels as a {@link GlossaryGap}. An account owns what it
+ * holds, its `id` and `name` are as authored, and each line's `text` and `summary` are one line.
  */
 export interface NarratorInterface {
 	/**
@@ -1403,7 +1407,8 @@ export interface NarratorInterface {
 	 * definition without a goal counts the rules that apply. A quantitative result is written as a
 	 * worksheet of its groups and factors. A result whose `success` is false states no value, count,
 	 * or solution: its verdict names each field that was not read and each factor that found no
-	 * value.
+	 * value. A refused logical result whose `errors` outnumber its `faults` states its faults alone,
+	 * and no rule.
 	 *
 	 * @param definition - The definition the result answers
 	 * @param result - The result to narrate

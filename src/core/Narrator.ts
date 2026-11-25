@@ -1,5 +1,6 @@
 import type { AuditFault, FieldPath } from '@orkestrel/contract'
 import type {
+	Aggregation,
 	Bounds,
 	Check,
 	CheckState,
@@ -38,7 +39,6 @@ import {
 	isArray,
 	isBoolean,
 	isFiniteNumber,
-	isFunction,
 	isNull,
 	isNumber,
 	isString,
@@ -63,8 +63,10 @@ import {
 	findSoleExpression,
 	findWord,
 	matchesNumericCheck,
+	readNarratorOption,
 	renderName,
 	renderReasons,
+	resolveFormatters,
 	resolveGlossary,
 	resolveLexicon,
 	resolveLocale,
@@ -78,7 +80,8 @@ import {
  * The general words are a `Lexicon`, each overridable on its own. The domain's words are a
  * `Glossary`. The instance owns both from construction, so a later change to the caller's
  * object changes nothing. Construction throws `InterpretError` with code `LEXICON` or
- * `GLOSSARY` for malformed words, and no method throws afterwards.
+ * `GLOSSARY` for malformed words, and for options it cannot read. No lookup throws afterwards,
+ * and no document of plain data does.
  *
  * @example
  * ```ts
@@ -109,12 +112,10 @@ export class Narrator implements NarratorInterface {
 	readonly #units: ReadonlySet<string>
 
 	constructor(options?: NarratorOptions) {
-		this.#lexicon = resolveLexicon(options?.lexicon)
-		this.#glossary = resolveGlossary(options?.glossary)
-		this.#locale = resolveLocale(options?.locale)
-		this.#formatters = new Map(
-			Object.entries(options?.formatters ?? {}).filter(([, formatter]) => isFunction(formatter)),
-		)
+		this.#lexicon = resolveLexicon(readNarratorOption(options, 'lexicon'))
+		this.#glossary = resolveGlossary(readNarratorOption(options, 'glossary'))
+		this.#locale = resolveLocale(readNarratorOption(options, 'locale'))
+		this.#formatters = resolveFormatters(readNarratorOption(options, 'formatters'))
 		this.#formats = new Map(
 			Object.entries({ ...DEFAULT_FORMATS, ...this.#glossary.formats }).map(([unit, format]) => [
 				unit,
@@ -346,7 +347,13 @@ export class Narrator implements NarratorInterface {
 		}
 	}
 
+	// A refused run derives nothing it can't vouch for: an error that is no fault's leaves every state
+	// in doubt, where a rule settled beside a missing input stays settled whatever the input is.
 	#logicalLines(definition: Definition, result: LogicalResult): readonly AccountLine[] {
+		if (!result.success && result.errors.length > result.faults.length) {
+			const faults = result.faults.map((fault) => this.#faultLine(fault))
+			return [this.#refusedLine(definition, faults, faults)]
+		}
 		const context = this.#readContext(definition, result)
 		const seen = new Set<string>()
 		const goal = this.#findGoal(definition, result, context)
@@ -654,13 +661,15 @@ export class Narrator implements NarratorInterface {
 			label: this.label(field),
 			comparison: holds ? phrase.holds : phrase.fails,
 		}
+		// A fact counts a long list, and a condition prints it whole, because it states the rule.
 		if (
+			frame === 'fact' &&
 			isArray(expected) &&
 			(operator === 'any' || operator === 'none') &&
 			(expected.length === 0 || expected.length > this.#lexicon.limits.list)
 		) {
 			const count = this.#plain.format(expected.length)
-			return { text: this.line(`${frame}.listed`, { ...values, count }), gaps }
+			return { text: this.line('fact.listed', { ...values, count }), gaps }
 		}
 		return {
 			text: this.line(`${frame}.compared`, { ...values, expected: this.#writeExpected(check) }),
@@ -670,7 +679,7 @@ export class Narrator implements NarratorInterface {
 
 	#writeExpected({ field, operator, value: expected }: Check): string {
 		if (!isArray(expected) || (operator !== 'between' && operator !== 'outside')) {
-			return this.value(field, expected)
+			return isArray(expected) && expected.length === 0 ? '[]' : this.value(field, expected)
 		}
 		const [minimum, maximum] = expected
 		return this.line('value.range', {
@@ -731,7 +740,13 @@ export class Narrator implements NarratorInterface {
 		return [this.#settingLine(this.line('worksheet.base', { value }), unit, source)]
 	}
 
-	#weightLines(weight: number | undefined, source: AccountSource): readonly AccountLine[] {
+	// The least and the greatest value use no weight.
+	#weightLines(
+		weight: number | undefined,
+		aggregation: Aggregation | undefined,
+		source: AccountSource,
+	): readonly AccountLine[] {
+		if (aggregation === 'minimum' || aggregation === 'maximum') return []
 		if (weight === 1 || !isFiniteNumber(weight)) return []
 		const value = this.#writeNumber(undefined, weight)
 		return [this.#settingLine(this.line('worksheet.weight', { value }), undefined, source)]
@@ -906,10 +921,11 @@ export class Narrator implements NarratorInterface {
 				: this.#evidenceLines(authored, factor, context, source)
 		const step = this.#writeStep('worksheet.factor', named, factor, context.stated, context.unit)
 		if (factor.applied) {
+			const aggregation = context.groups.get(group.id)?.aggregation
 			const settings = context.stated
 				? [
 						...this.#boundsLines(authored?.bounds, context.unit, source),
-						...this.#weightLines(authored?.weight, source),
+						...this.#weightLines(authored?.weight, aggregation, source),
 					]
 				: []
 			return buildAccountLine({
@@ -998,8 +1014,10 @@ export class Narrator implements NarratorInterface {
 		if (source.origin === 'static') {
 			if (!isFiniteNumber(source.value)) return []
 			const changed = factor.transforms !== undefined || factor.bounds !== undefined
-			const value = this.#writeNumber(changed ? undefined : unit, source.value)
-			return [{ text: this.line('source.static', { value }), gaps: [] }]
+			const kept = changed ? undefined : unit
+			const value = this.#writeNumber(kept, source.value)
+			const gaps = collectUnitGaps(kept, this.#units)
+			return [{ text: this.line('source.static', { value }), gaps }]
 		}
 		const label = this.label(source.field)
 		const gaps = this.#collectLabelGaps(source.field)
@@ -1016,8 +1034,11 @@ export class Narrator implements NarratorInterface {
 			source.origin === 'lookup'
 				? Object.values(source.table)
 				: source.ranges.map((range) => range.value)
-		const missed = raw !== undefined && raw === factor.fallback && !entries.includes(raw)
-		const frame: FrameName = missed ? 'source.fallback' : `source.${source.origin}`
+		// A result does not say whether an entry or the fallback gave a value that both hold.
+		const fallback = raw !== undefined && raw === factor.fallback
+		const either = fallback && entries.includes(raw)
+		const missed: FrameName = either ? 'source.either' : 'source.fallback'
+		const frame: FrameName = fallback ? missed : `source.${source.origin}`
 		const chosen = { text: this.line(frame, { label }), gaps }
 		if (raw === undefined || raw === result?.value || !isFiniteNumber(raw)) return [chosen]
 		const value = this.#writeNumber(undefined, raw)
@@ -1069,6 +1090,7 @@ export class Narrator implements NarratorInterface {
 			...(condition === undefined
 				? {}
 				: { summary: this.line('rule.condition', { name, condition }) }),
+			gaps: [...named.gaps, ...(written?.gaps ?? [])],
 			source,
 			lines: [
 				...this.#descriptionLines(description),

@@ -1,7 +1,9 @@
 import type { Check, Expression } from '@orkestrel/reason'
-import type { Account, Entity } from '@src/core'
+import type { Account, Entity, NarratorFormatter, NarratorOptions } from '@src/core'
 import {
 	arrayShape,
+	isFunction,
+	isObject,
 	nullableShape,
 	numberShape,
 	objectShape,
@@ -39,6 +41,10 @@ import {
 	canonicalize,
 	canonicalizeNode,
 	classifyIntent,
+	cloneAccountSource,
+	cloneEvidence,
+	cloneFieldPath,
+	cloneGlossaryGap,
 	collapseWhitespace,
 	collectAccountText,
 	collectFaultFields,
@@ -75,11 +81,13 @@ import {
 	isInterpretError,
 	matchRecipe,
 	normalizeLine,
+	readNarratorOption,
 	renderAccount,
 	renderName,
 	renderReasons,
 	renderSubject,
 	resolveExpression,
+	resolveFormatters,
 	resolveGlossary,
 	resolveLexicon,
 	resolveLocale,
@@ -1392,6 +1400,122 @@ describe('the reasons', () => {
 		).toEqual([])
 		const unknown: Check = JSON.parse('{"field":"tier","operator":"near","value":1}')
 		expect(findConditionRules(unknown, concluders)).toEqual([])
+	})
+
+	it('cloneFieldPath copies a list of segments, and keeps a string', () => {
+		const path = ['seat', 'cost']
+		const copy = cloneFieldPath(path)
+		expect(copy).toEqual(path)
+		expect(copy).not.toBe(path)
+		expect(cloneFieldPath('seat.cost')).toBe('seat.cost')
+	})
+
+	it('cloneEvidence keeps a primitive, and copies every object, whatever it holds', () => {
+		const mark = Symbol('mark')
+		for (const value of [undefined, null, true, 'a', -0, Number.NaN, 12n, mark]) {
+			expect(cloneEvidence(value)).toBe(value)
+		}
+		const kept = [
+			['a', ['b']],
+			[Number.NEGATIVE_INFINITY, undefined],
+			{ a: { b: [1] } },
+			new Date(0),
+			new Map([['a', [1]]]),
+		]
+		for (const value of kept) {
+			expect(cloneEvidence(value)).toEqual(value)
+			expect(cloneEvidence(value)).not.toBe(value)
+		}
+		const list = [['inner']]
+		const copy = cloneEvidence(list)
+		list[0]?.push('later')
+		expect(copy).toEqual([['inner']])
+	})
+
+	it('cloneEvidence projects what the host cannot clone, and never throws', () => {
+		expect(cloneEvidence(Math.max)).toBe(undefined)
+		expect(cloneEvidence({ a: 1, f: Math.max })).toEqual({ a: 1 })
+		expect(cloneEvidence(new Proxy({ a: [1] }, {}))).toEqual({ a: [1] })
+		for (const value of createHostileValues()) {
+			const copy = cloneEvidence(value)
+			expect(Object.is(copy, value) && (isObject(value) || isFunction(value))).toBe(false)
+		}
+	})
+
+	it('cloneAccountSource copies the check, its list, the result, and the fault', () => {
+		const path = ['seat', 'kind']
+		const list = ['a', 'b']
+		const actual = { deep: [1] }
+		const fault = { reason: 'missing', path: ['seat', 'kind'], expected: 'number' } as const
+		const source = {
+			rule: 'r',
+			group: 'g',
+			factor: 'f',
+			check: { field: path, operator: 'any', value: list },
+			result: { field: path, state: 'unmet', actual },
+			fault,
+		} as const
+		const copy = cloneAccountSource(source)
+		expect(copy).toEqual(source)
+		list.push('c')
+		path.push('later')
+		actual.deep.push(2)
+		expect(copy).toEqual({
+			rule: 'r',
+			group: 'g',
+			factor: 'f',
+			check: { field: ['seat', 'kind'], operator: 'any', value: ['a', 'b'] },
+			result: { field: ['seat', 'kind'], state: 'unmet', actual: { deep: [1] } },
+			fault: { reason: 'missing', path: ['seat', 'kind'], expected: 'number' },
+		})
+		expect(copy.fault).not.toBe(fault)
+		expect(cloneAccountSource({})).toEqual({})
+	})
+
+	it('cloneGlossaryGap copies a gap and its path', () => {
+		const path = ['seat', 'cost']
+		const gap = { word: 'label', field: path } as const
+		const copy = cloneGlossaryGap(gap)
+		path.push('later')
+		expect(copy).toEqual({ word: 'label', field: ['seat', 'cost'] })
+		expect(cloneGlossaryGap({ word: 'format', unit: 'money' })).toEqual({
+			word: 'format',
+			unit: 'money',
+		})
+	})
+
+	it('readNarratorOption reads an option, and refuses an unreadable one under its code', () => {
+		const revoked = Proxy.revocable<NarratorOptions>({}, {})
+		expect(readNarratorOption(revoked.proxy, 'locale')).toBe(undefined)
+		revoked.revoke()
+		expect(readNarratorOption(undefined, 'lexicon')).toBe(undefined)
+		expect(readNarratorOption({ locale: 'de-DE' }, 'locale')).toBe('de-DE')
+		const codes = (['lexicon', 'locale', 'glossary', 'formatters'] as const).map((key) => {
+			const error = captureError(() => readNarratorOption(revoked.proxy, key))
+			return isInterpretError(error) ? [error.code, error.message] : undefined
+		})
+		expect(codes).toEqual([
+			['LEXICON', 'Narrator options are malformed: lexicon cannot be read'],
+			['LEXICON', 'Narrator options are malformed: locale cannot be read'],
+			['GLOSSARY', 'Narrator options are malformed: glossary cannot be read'],
+			['GLOSSARY', 'Narrator options are malformed: formatters cannot be read'],
+		])
+	})
+
+	it('resolveFormatters keeps functions alone, owns them, and refuses an unreadable input', () => {
+		const input: Record<string, NarratorFormatter> = { acre: String }
+		Reflect.set(input, 'money', 5)
+		const formatters = resolveFormatters(input)
+		input.later = String
+		expect([...formatters.keys()]).toEqual(['acre'])
+		expect(resolveFormatters().size).toBe(0)
+		const revoked = Proxy.revocable<Record<string, NarratorFormatter>>({}, {})
+		revoked.revoke()
+		const error = captureError(() => resolveFormatters(revoked.proxy))
+		expect(isInterpretError(error) && [error.code, error.context]).toEqual([
+			'GLOSSARY',
+			{ findings: ['formatters cannot be read'] },
+		])
 	})
 
 	it('findGoalRule finds the workshop approval, and no goal among independent gates', () => {
