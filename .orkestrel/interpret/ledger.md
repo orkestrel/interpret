@@ -14,3 +14,5 @@
 | 2026-11-25 | `wrt-reaudit`: five of six repairs confirmed | `reviewer`, Claude Sonnet 5.5 | `plan.md` § State |
 | 2026-11-25 | `wrt-closure`: closed | `reviewer`, Claude Sonnet 5.5 | `plan.md` § State |
 | 2026-11-25 | `wrt-gates`: the tree-wide gates, green | `verifier`, Claude Haiku 5.5 | `plan.md` § State |
+| 2026-11-25 | User: publish 0.0.27, once it holds every general word and is thorough and useful | `user` | `plan.md` § Rulings |
+| 2026-11-25 | `wrt-complete`: the completion and the family's results, designed | `planner`, Claude Fable 5.2 (read-only consultation) | `designs/writing.md` § The completion before the release, `designs/family.md` |
