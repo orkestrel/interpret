@@ -56,15 +56,13 @@ The claims are the truth rules and the exit criterion. The bar for this campaign
 | The family's wording leaves, part one: `qualifier`'s `renderComparison`, `renderValue`, `renderPremise`, and `interpolateMessage`; the `labels` options; `Premise` and `Evidence` as one type in `reason`; `rater`'s `Step.expression`; the family's rows narrated by shape | After this campaign closes, on the user's ruling of 2026-11-25; its own campaign, across packages | the user |
 | Part two: every result's `errors` becomes typed refusals, and each package's ownership proof | After part one | the user |
 | Validation text and `trace` as typed data | A tool or a screen shows one to a person | the user |
-| `ROADMAP.md` item 2 (`createHostileValues`) | This campaign's release visit | interpret |
+
 | The read-back check: a reworded text still holds an account's values | `@orkestrel/train`'s rewording task | interpret |
 | A backward proof's nested facts | `reason`'s `ProofNode` carries the fact it proved | `reason` |
 | An equation's input values | `reason`'s `SymbolicResult` carries its bindings | `reason` |
 | Lines for `repairs` and `defaulted` | An application shows a person what the subject door changed | interpret |
 | A batch's tallies | An application writes a batch summary through interpret | interpret |
 | The detail of a `variant` or `oneOf` fault | A person is shown one and can't act on it | interpret |
-| A list member that holds a quotation mark, which can still be misread | A consumer's list that holds one | interpret |
-| A Spanish list whose member holds ` u ` beside a word opening in `o` | A Spanish consumer | interpret |
 | A refusal that only `errors` words names no cause, and a worksheet can't name the value a lookup read | Part two, and a `reason` result that carries them | the user |
 
 ## Sequence
@@ -93,4 +91,6 @@ Part one of the family's removal is the next chunk; § Deferred holds it and par
   - **The gates** at `a298796`, on Node 22: format, lint, types, build, 1,575 core tests, 178 policy, 586 config, 103 setup, 97 guide, and 10 distribution tests, all green.
 - **Exit criteria 1 to 5 are met** (tag `writing-side-closed`). Nothing is pushed or published.
 - **The completeness check** the user's condition asked for found them short: thirteen vocabularies unworded, equations and derived facts written as a headline, no lookup entry or band in a guide, no expectation in a fault's sentence, and no family result. § Sequence's completion answers each.
-- **Next action:** § Sequence, step 1.
+- **The completion is built, reviewed, and published.** Words and faults (`7db54d1`), declarations (`f515b4f`), numbers and reasonings (`c03b010`, `84bd075`), the family's results (`9803f5c`), the first review's repairs (`940bb44`), the guide (`3d0d380`), the second review's repairs (`a0336fc`), and `createFamilyNarrator` (`8375a95`). The first review confirmed five of six claims and settled the sixth by receipt; the second confirmed seven of ten; a closure check closed every repair. One application's 70 programs read through it, 7,120 lines, with no false, broken, or unfilled one.
+- **0.0.27 is on the registry** (`3adf8ac`, 2026-11-25), pushed. Exit criteria 6 to 9 are met.
+- **Next:** the family's wave, whose plan is `@orkestrel/reason`'s `.orkestrel/plan.md`. interpret's continuation and its next shapes are units of it.
