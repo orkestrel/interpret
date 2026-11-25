@@ -2751,6 +2751,107 @@ export function parseWordedRange(text: string): Bounds | undefined {
 	return ends === null ? undefined : { minimum: Number(ends[1]), maximum: Number(ends[2]) }
 }
 
+/**
+ * Parses a quoted member at the start of a text, sharing nothing with what wrote it.
+ *
+ * @param text - The text to read
+ * @param open - The mark that opens a member
+ * @param close - The mark that closes one; a backslash stands before each one inside it
+ * @returns The member and the text after it, or `undefined` when no closed member opens the text
+ */
+export function parseQuotedMember(
+	text: string,
+	open: string,
+	close: string,
+): { readonly member: string; readonly rest: string } | undefined {
+	if (!text.startsWith(open)) return undefined
+	const body = text.slice(open.length)
+	const inner = close.replace(/[$()*+.?[\\\]^{|}]/gu, '\\$&')
+	const read = new RegExp(`^((?:\\\\[\\s\\S]|(?!${inner})[^\\\\])*)${inner}`, 'u').exec(body)
+	if (read === null) return undefined
+	return {
+		member: (read[1] ?? '').replace(/\\([\s\S])/gu, '$1'),
+		rest: body.slice(read[0].length),
+	}
+}
+
+/**
+ * Parses a list's text back into its members, sharing nothing with what wrote it.
+ *
+ * @remarks
+ * A list is quoted whole, or split at its joining texts where no member needed a quote. A blank
+ * member is quoted in either.
+ *
+ * @param text - The list's text
+ * @param joins - The texts the locale puts between members, longest first
+ * @param open - The mark that opens a quoted member
+ * @param close - The mark that closes one
+ * @returns The members
+ */
+export function parseListText(
+	text: string,
+	joins: readonly string[],
+	open: string,
+	close: string,
+): readonly string[] {
+	const quoted = parseQuotedMember(text, open, close)
+	const join = joins.find((entry) => quoted?.rest.startsWith(entry) === true)
+	if (quoted !== undefined && quoted.rest === '') return [quoted.member]
+	if (quoted !== undefined && join !== undefined) {
+		return [quoted.member, ...parseListText(quoted.rest.slice(join.length), joins, open, close)]
+	}
+	const cuts = joins
+		.map((entry) => ({ entry, at: text.indexOf(entry) }))
+		.filter(({ at }) => at >= 0)
+		.toSorted((a, b) => a.at - b.at || b.entry.length - a.entry.length)
+	const [cut] = cuts
+	if (cut === undefined) return [text]
+	return [
+		text.slice(0, cut.at),
+		...parseListText(text.slice(cut.at + cut.entry.length), joins, open, close),
+	]
+}
+
+/** Lists members a list must stay readable with: held marks, joining texts, backslashes, and blanks. */
+export const QUOTED_LISTS: ReadonlyArray<readonly string[]> = [
+	['"a', 'b"'],
+	['a or b'],
+	['a', 'b'],
+	['x", "y'],
+	['x', 'y'],
+	['x", "y', 'z'],
+	['x" or "y'],
+	['bob', 'q", "r'],
+	['a\\', 'b'],
+	['a\\', 'b"'],
+	['a\\"', 'b"'],
+	['\\', '"'],
+	['\\"'],
+	['"'],
+	['""', 'a'],
+	['', 'a'],
+	['', '"'],
+	['a, b', 'c\\'],
+	['a u otro'],
+	['a', 'otro'],
+	['siete u ocho', 'x'],
+	['a e hijo'],
+	['a oder b', 'c"'],
+	['a、b', 'c"'],
+	['aまたはb', 'c'],
+	['»a', 'b«'],
+	['a>', '<b'],
+	["it's", "x', 'y"],
+]
+
+/** Lists the shipped quote and reworded ones, each with the marks that open and close a member. */
+export const QUOTE_FRAMES: ReadonlyArray<readonly [frame: string, open: string, close: string]> = [
+	['"{{value}}"', '"', '"'],
+	['«{{value}}»', '«', '»'],
+	["'{{value}}'", "'", "'"],
+	['<<{{value}}>>', '<<', '>>'],
+]
+
 /** Lists the bands a drawn table is built of: two-sided, open on each side, open on both, and inverted. */
 export const TABLE_BANDS: readonly [
 	Pick<FactorRange, 'bounds'>,

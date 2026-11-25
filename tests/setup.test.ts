@@ -89,7 +89,10 @@ import {
 	measureDepth,
 	measureTree,
 	parseWordedRange,
+	parseListText,
+	parseQuotedMember,
 	parseSide,
+	QUOTED_LISTS,
 	seedInterpretContext,
 	SIDE_READINGS,
 	splitGroups,
@@ -1035,6 +1038,36 @@ describe('parseWordedRange', () => {
 		expect(parseWordedRange('at most -2.5')).toEqual({ maximum: -2.5 })
 		expect(parseWordedRange('3 to 8')).toEqual({ minimum: 3, maximum: 8 })
 		expect(parseWordedRange('near 5')).toBeUndefined()
+	})
+})
+
+describe('parseQuotedMember', () => {
+	it('reads to the first closing mark with no backslash before it', () => {
+		expect(parseQuotedMember('"a\\"b\\\\" or x', '"', '"')).toEqual({
+			member: 'a"b\\',
+			rest: ' or x',
+		})
+		expect(parseQuotedMember('<<a\\>>>b', '<<', '>>')).toEqual({ member: 'a>', rest: 'b' })
+		expect(parseQuotedMember('a"', '"', '"')).toBeUndefined()
+		expect(parseQuotedMember('"a\\"', '"', '"')).toBeUndefined()
+	})
+})
+
+describe('parseListText', () => {
+	it('reads a quoted list whole, and any other at its joining texts', () => {
+		const joins = [', or ', ' or ', ', ']
+		expect(parseListText('"a, b", "c", or "d"', joins, '"', '"')).toEqual(['a, b', 'c', 'd'])
+		expect(parseListText('a, b, or c', joins, '"', '"')).toEqual(['a', 'b', 'c'])
+		expect(parseListText('a or ""', joins, '"', '"')).toEqual(['a', ''])
+		expect(parseListText('"q", "r"', joins, '"', '"')).toEqual(['q', 'r'])
+		expect(parseListText('"q\\", \\"r"', joins, '"', '"')).toEqual(['q", "r'])
+	})
+})
+
+describe('QUOTED_LISTS', () => {
+	it('lists each list once, the pairs a quote with no mark would read alike among them', () => {
+		expect(new Set(QUOTED_LISTS.map((list) => JSON.stringify(list))).size).toBe(QUOTED_LISTS.length)
+		expect(QUOTED_LISTS.slice(0, 2)).toEqual([['"a', 'b"'], ['a or b']])
 	})
 })
 

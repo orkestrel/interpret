@@ -23,8 +23,10 @@ import type {
 	WorksheetFactor,
 	WorksheetGroup,
 } from '@orkestrel/rater'
+import type { ReasonResult } from '@orkestrel/reason'
 import type {
 	Account,
+	AccountDefinition,
 	AccountDetail,
 	AccountLine,
 	FamilyDefinition,
@@ -57,16 +59,19 @@ import {
 	createCompound,
 	createFactorGroup,
 	createFieldFactor,
+	createInferentialReasoner,
 	createLogicalDefinition,
 	createLogicalReasoner,
 	createLookupFactor,
 	createQuantitativeDefinition,
+	createQuantitativeReasoner,
 	createRangeFactor,
 	createRule,
 	createStaticFactor,
+	createSymbolicReasoner,
 	formatField,
 } from '@orkestrel/reason'
-import { invokeUnchecked, requireValue } from '@orkestrel/test'
+import { requireValue } from '@orkestrel/test'
 import {
 	DEFAULT_FORMATS,
 	DEFAULT_LEXICON,
@@ -78,6 +83,7 @@ import {
 	isFamilyQualificationResult,
 	isFamilyRating,
 	isFamilyRatingResult,
+	mergeLexicon,
 	Narrator,
 	renderAccount,
 } from '@src/core'
@@ -87,6 +93,9 @@ import {
 	buildFamilyProgram,
 	buildFamilyQualification,
 	buildFamilyRating,
+	buildWorkshopArea,
+	buildWorkshopFacts,
+	buildWorkshopScore,
 	collectFamilyFindings,
 	FAMILY_BASE,
 	FAMILY_GLOSSARY,
@@ -1772,19 +1781,107 @@ describe('FamilyNarrator', () => {
 			expect(narrator.audit([PROGRAM])).toEqual([])
 		})
 
-		it('narrate gives no answer for a pair no overload admits', () => {
-			const answer = createLogicalReasoner().reason({ age: 30 }, loan)
-			const pairs: ReadonlyArray<readonly [unknown, unknown, string]> = [
-				[QUALIFICATION, rated, 'Booking qualification'],
-				[RATING, answer, 'Booking rating'],
-				[loan, executed, 'Loan'],
+		it('narrate writes one account for every definition beside every result, through every entry point', () => {
+			const area = buildWorkshopArea()
+			const score = buildWorkshopScore()
+			const facts = { ...buildWorkshopFacts(), depth: 10 }
+			const answers: ReadonlyArray<readonly [AccountDefinition, ReasonResult | FamilyResult]> = [
+				[loan, createLogicalReasoner().reason({ age: 30 }, loan)],
+				[
+					score,
+					createQuantitativeReasoner().reason({ cost: 100, member: 'gold', room: 'hall' }, score),
+				],
+				[area, createSymbolicReasoner().reason({ width: 4, depth: 5 }, area)],
+				[facts, createInferentialReasoner().reason({}, facts)],
+				[QUALIFICATION, qualified],
+				[RATING, requireValue(RATED[0])[1]],
+				[PROGRAM, executed],
 			]
-			for (const writer of [narrator, interpret]) {
-				for (const [definition, result, name] of pairs) {
-					const account = invokeUnchecked<Account>(writer, writer.narrate, [definition, result])
-					expect(account.lines.map((line) => line.summary)).toEqual([`${name} gave no answer`])
+			const quote = { lexicon: { frames: { 'value.quoted': '«{{value}}»' } }, glossary: GLOSSARY }
+			const writers = [{ glossary: GLOSSARY }, quote].map((options) => {
+				const owned = new Narrator(options)
+				const lexicon = mergeLexicon(DEFAULT_LEXICON, 'lexicon' in options ? options.lexicon : {})
+				return {
+					narrator: owned,
+					interpret: new Interpret({ narrator: options }),
+					family: new FamilyNarrator(owned, { lexicon, glossary: GLOSSARY, units: UNITS }),
 				}
+			})
+			const missed = writers.flatMap((writer) =>
+				[undefined, '', ' '].flatMap((name) =>
+					answers.flatMap(([authored], kind) =>
+						answers.flatMap(([, result], other) => {
+							const blank = name === undefined ? {} : { name }
+							const definition = { ...authored, ...blank, ...(name === ' ' ? { id: ' ' } : {}) }
+							const account = writer.narrator.narrate(definition, result)
+							const texts = [
+								writer.interpret.narrate(definition, result),
+								...('reasoning' in definition || 'reasoning' in result
+									? []
+									: [writer.family.narrate(definition, result)]),
+							].map((entry) => JSON.stringify(entry))
+							const [line] = account.lines
+							const refusal = {
+								role: 'verdict',
+								decisive: true,
+								text: `${account.name} gave no answer`,
+								summary: `${account.name} gave no answer`,
+								source: {},
+								gaps:
+									name === undefined
+										? []
+										: [{ word: 'name', part: 'definition', id: definition.id }],
+								lines: [],
+							}
+							const whole =
+								kind === other ||
+								JSON.stringify([line, account.lines.length]) === JSON.stringify([refusal, 1])
+							const alike = texts.every((text) => text === JSON.stringify(account))
+							return whole && alike && account.success === result.success
+								? []
+								: [[definition.id, name, kind, other, account.lines.length, line, texts]]
+						}),
+					),
+				),
+			)
+			expect(missed.map(([id, name, kind, other]) => [id, name, kind, other])).toEqual([])
+			expect(answers.length ** 2).toBe(49)
+			// The matching pairs answer.
+			for (const [definition, result] of answers) {
+				expect(narrator.narrate(definition, result).lines[0]?.text).not.toContain('gave no answer')
 			}
+			const [plain] = answers
+			expect(narrator.narrate(requireValue(plain)[0], rated).lines[0]?.state).toBeUndefined()
+		})
+
+		it('a refusal that read a field keeps its state', () => {
+			expect(REFUSED.errors.length).toBeGreaterThan(REFUSED.faults.length)
+			expect(narrator.narrate(MISSED, REFUSED).lines[0]?.state).toBe('unread')
+			expect(interpret.narrate(MISSED, REFUSED).lines[0]?.state).toBe('unread')
+		})
+
+		it('a line of a rating prints the precision that moves its amount', () => {
+			const parts = createQuantitativeDefinition(
+				'parts',
+				'Parts',
+				[createFactorGroup('g', 'sum', [createStaticFactor('a', 2.5), createStaticFactor('b', 3)])],
+				{ precision: 0 },
+			)
+			const rating = buildRatingDefinition('rating', 'Rating', [
+				buildLineDefinition('parts', 'Parts', parts),
+			])
+			const account = new FamilyNarrator(new Narrator()).narrate(rating, RATER.rate(rating, {}))
+			expect(renderAccount(account).split('\n')).toEqual([
+				'Rating: 6',
+				'Parts: 6',
+				'  g: 5.5',
+				'    a: 2.5',
+				'      fixed at 2.5',
+				'    b: 3',
+				'      fixed at 3',
+				'  decimal places: 0',
+				'  Total: 6',
+			])
 		})
 
 		it('prints a unit the narrator’s formatters hold, and reports no gap for it', () => {

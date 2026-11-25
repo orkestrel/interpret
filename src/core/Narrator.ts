@@ -1,6 +1,7 @@
 import type { AuditFault, FaultKind, FieldPath } from '@orkestrel/contract'
 import type {
 	Aggregation,
+	AggregatorInterface,
 	Bounds,
 	ChainStrategy,
 	Check,
@@ -19,6 +20,7 @@ import type {
 	InferentialResult,
 	LogicalDefinition,
 	LogicalResult,
+	ProofNode,
 	QuantitativeDefinition,
 	QuantitativeResult,
 	ReasonResult,
@@ -70,9 +72,12 @@ import {
 	preview,
 } from '@orkestrel/contract'
 import {
+	clamp,
 	collectConcluders,
 	combineStates,
 	CONFIDENCE_PRECISION,
+	createAggregator,
+	DEFAULT_BASE,
 	formatField,
 	readClosedState,
 	readExpectedKind,
@@ -90,6 +95,7 @@ import {
 	collectGaps,
 	collectListJoins,
 	collectNameGaps,
+	collectQuoteMarks,
 	collectReasons,
 	collectSlots,
 	collectUnitGaps,
@@ -104,6 +110,7 @@ import {
 	findWord,
 	matchesChangedFactor,
 	matchesNumericCheck,
+	matchesQuotedMember,
 	matchesReceivedValue,
 	matchesSubjectKeys,
 	matchesUnboundFact,
@@ -111,6 +118,7 @@ import {
 	readNarratorOption,
 	renderCitedReasons,
 	renderName,
+	renderQuoted,
 	resolveFormatters,
 	resolveGlossary,
 	resolveLexicon,
@@ -157,6 +165,7 @@ export class Narrator implements NarratorInterface {
 	readonly #every: Intl.ListFormat
 	readonly #either: Intl.ListFormat
 	readonly #units: ReadonlySet<string>
+	readonly #aggregator: AggregatorInterface = createAggregator()
 	readonly #family: FamilyNarratorInterface
 
 	constructor(options?: NarratorOptions) {
@@ -192,7 +201,7 @@ export class Narrator implements NarratorInterface {
 
 	label(field: FieldPath): string {
 		const key = formatField(field)
-		const path = key.trim() === '' ? preview(key) : key
+		const path = key.trim() === '' ? this.#writeQuoted(key) : key
 		return findWord(this.#glossary.labels, key) ?? path
 	}
 
@@ -228,19 +237,22 @@ export class Narrator implements NarratorInterface {
 	narrate(definition: FamilyQualification, result: FamilyQualificationResult): Account
 	narrate(definition: FamilyRating, result: FamilyRatingResult): Account
 	narrate(definition: FamilyProgram, result: FamilyProgramResult): Account
-	// A result of another kind of definition reads as no answer.
+	narrate(definition: AccountDefinition, result: ReasonResult | FamilyResult): Account
 	narrate(definition: AccountDefinition, result: ReasonResult | FamilyResult): Account {
 		if (!('reasoning' in definition) && !('reasoning' in result)) {
 			return this.#family.narrate(definition, result)
 		}
+		const answered =
+			'reasoning' in definition &&
+			'reasoning' in result &&
+			definition.reasoning === result.reasoning
 		return {
 			id: definition.id,
-			name: renderName(definition),
+			name: renderName(definition, this.#lexicon.frames['value.quoted']),
 			success: result.success,
-			lines:
-				'reasoning' in definition && 'reasoning' in result
-					? this.#resultLines(definition, result)
-					: [this.#refusedLine(definition, [], [])],
+			lines: answered
+				? this.#resultLines(definition, result)
+				: [this.#refusedLine(definition, [], [])],
 		}
 	}
 
@@ -306,8 +318,6 @@ export class Narrator implements NarratorInterface {
 		}
 	}
 
-	// Quotes every member where one holds a joining text, so that the list can be told apart. A space
-	// on each side of a member finds a joining text it would complete beside its neighbor.
 	#writeList(field: FieldPath, raw: readonly unknown[], list: Intl.ListFormat): string {
 		const read = attempt(() =>
 			Array.from(raw, (entry) => ({
@@ -317,19 +327,29 @@ export class Narrator implements NarratorInterface {
 		)
 		if (!isSuccess(read) || read.value.length === 0) return preview(raw)
 		const texts = read.value.map(({ text }) => text)
-		const joins = collectListJoins(list, texts)
-		const quoted = texts.some((text) => joins.some((join) => ` ${text} `.includes(join)))
-		if (!quoted) return list.format(texts)
-		return list.format(
-			read.value.map(({ entry, text }) =>
-				this.line('value.quoted', { value: isString(entry) ? entry : text }),
-			),
-		)
+		return list.format(this.#writeMembers(read.value, collectListJoins(list, texts)))
+	}
+
+	// Quotes every member where one holds a joining text or a mark of the quote, so that the members
+	// can be told apart. A text is told by what it holds, and not by the quote a blank one prints in.
+	#writeMembers(
+		members: ReadonlyArray<{ readonly entry: unknown; readonly text: string }>,
+		joins: readonly string[],
+	): readonly string[] {
+		const marks = collectQuoteMarks(this.#lexicon.frames['value.quoted'])
+		const held = members.map(({ entry, text }) => (isString(entry) ? entry : text))
+		return held.some((member) => matchesQuotedMember(member, joins, marks))
+			? held.map((member) => this.#writeQuoted(member))
+			: members.map(({ text }) => text)
+	}
+
+	#writeQuoted(text: string): string {
+		return renderQuoted(text, this.#lexicon.frames['value.quoted'])
 	}
 
 	// A blank string prints quoted, because a blank slot reads as a missing word.
 	#writeScalar(field: FieldPath | undefined, raw: unknown): string {
-		if (isString(raw)) return raw.trim() === '' ? preview(raw) : raw
+		if (isString(raw)) return raw.trim() === '' ? this.#writeQuoted(raw) : raw
 		if (isNumber(raw)) {
 			const unit =
 				field === undefined ? undefined : findWord(this.#glossary.units, formatField(field))
@@ -363,7 +383,8 @@ export class Narrator implements NarratorInterface {
 		part: NonNullable<GlossaryGap['part']>,
 		named: { readonly id: string; readonly name: string },
 	): AccountText {
-		return { text: renderName(named), gaps: collectNameGaps(part, named) }
+		const text = renderName(named, this.#lexicon.frames['value.quoted'])
+		return { text, gaps: collectNameGaps(part, named) }
 	}
 
 	#writeMore(count: number): string {
@@ -424,7 +445,7 @@ export class Narrator implements NarratorInterface {
 			buildAccountLine({
 				role: proved ? 'verdict' : 'step',
 				decisive: true,
-				...this.#writeDerived(fact, keyed, proved),
+				...this.#writeDerived(fact, keyed, proved ? proof : undefined),
 				source: { fact: fact.id },
 				lines: inference === undefined ? [] : [this.#provedLine(inference, authored)],
 			}),
@@ -462,14 +483,20 @@ export class Narrator implements NarratorInterface {
 	}
 
 	// A proof binds no variable of its conclusion, so a conclusion that holds one is no claim of every
-	// value.
-	#writeDerived(fact: Fact, keyed: boolean, proved: boolean): AccountText {
+	// value. One that is no known fact was reached premise by premise with no binding carried between
+	// them, so it is possible and not settled.
+	#writeDerived(fact: Fact, keyed: boolean, proof: ProofNode | undefined): AccountText {
 		const { text, gaps } = this.#writeStatement(fact, keyed)
-		const some = proved && matchesUnboundFact(fact) ? this.line('fact.some', { fact: text }) : text
+		const open = proof !== undefined && matchesUnboundFact(fact)
+		const some = open ? this.line('fact.some', { fact: text }) : text
+		const stated =
+			proof?.inference === undefined ? some : this.line('fact.possible', { fact: some })
 		const confidence = this.#writeConfidence(fact.confidence)
 		return {
 			text:
-				confidence === undefined ? some : this.line('fact.confidence', { fact: some, confidence }),
+				confidence === undefined
+					? stated
+					: this.line('fact.confidence', { fact: stated, confidence }),
 			gaps,
 		}
 	}
@@ -494,13 +521,8 @@ export class Narrator implements NarratorInterface {
 			isArray(term) ? preview(term) : this.#writeScalar(undefined, term),
 		)
 		const join = this.#lexicon.joins.terms
-		const quoted = texts.some((text) => ` ${text} `.includes(join))
-		const terms = texts
-			.map((text, index) => {
-				const term = fact.terms[index]
-				return quoted ? this.line('value.quoted', { value: isString(term) ? term : text }) : text
-			})
-			.join(join)
+		const members = texts.map((text, index) => ({ entry: fact.terms[index], text }))
+		const terms = this.#writeMembers(members, [join]).join(join)
 		const sentence = findFactSentence(fact, this.#glossary.predicates)
 		if (sentence !== undefined) {
 			const slots = texts.map((text, index) => [String(index + 1), text])
@@ -687,7 +709,7 @@ export class Narrator implements NarratorInterface {
 	}
 
 	#writeRefusal({ text, reason, unreadable, field }: NumberRefusal): string {
-		const refused = text.trim() === '' ? preview(text) : text
+		const refused = text.trim() === '' ? this.#writeQuoted(text) : text
 		const refusal =
 			reason === 'unreadable' && unreadable !== undefined
 				? this.line('refusal.unreadable', {
@@ -1087,8 +1109,20 @@ export class Narrator implements NarratorInterface {
 			...this.#baseLines(authored?.base, context.unit),
 			...groups,
 			...this.#boundsLines(authored?.bounds, context.unit),
+			...(this.#matchesRounded(authored, result) ? this.#precisionLines(authored?.precision) : []),
 			...this.#totalLines(authored, value, gaps),
 		]
+	}
+
+	// Whether the value is other than its groups, base, and bounds give, which a precision moved.
+	#matchesRounded(
+		definition: QuantitativeDefinition | undefined,
+		result: QuantitativeResult,
+	): boolean {
+		if (definition === undefined) return false
+		const { aggregation, base = DEFAULT_BASE, bounds } = definition
+		const values = result.groups.filter((group) => group.applied).map((group) => group.value)
+		return clamp(base + this.#aggregator.aggregate(values, aggregation), bounds) !== result.value
 	}
 
 	// A base, a weight, and a bound print wherever one is authored, so a worksheet's numbers can be

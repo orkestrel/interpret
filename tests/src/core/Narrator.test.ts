@@ -98,8 +98,11 @@ import {
 	FAULT_WORDS,
 	MALFORMED_RECORDS,
 	parseWordedRange,
+	parseListText,
 	parseSide,
 	pickMember,
+	QUOTE_FRAMES,
+	QUOTED_LISTS,
 	REFUSAL_MAPPINGS,
 	REFUSAL_SENTENCES,
 	renderInterpretUnit,
@@ -1058,6 +1061,86 @@ describe('Narrator', () => {
 			)
 			const marked = new Narrator({ lexicon: { frames: { 'value.quoted': '«{{value}}»' } } })
 			expect(marked.value('place', ['a, b', 'c'])).toBe('«a, b» and «c»')
+			expect(marked.value('place', ['a', ''])).toBe('a and «»')
+			expect(marked.value('place', ' ')).toBe('« »')
+			expect(marked.label('')).toBe('«»')
+			expect(marked.explain({ text: ' ', start: 0, end: 1, reason: 'unanchored' })).toBe(
+				'« » was not taken, because it could not be tied to a value',
+			)
+			const unnamed = createLogicalDefinition('', '', [
+				createRule('', [createAtom('a', 'equals', 'b')], createAtom('x', 'equals', true), {
+					name: ' ',
+				}),
+			])
+			expect(marked.describe(unnamed).lines.map((line) => line.text)).toEqual(['«»', '«»'])
+			const read = createLogicalReasoner().reason({ a: 'b' }, unnamed)
+			expect([marked.describe(unnamed).name, marked.narrate(unnamed, read).name]).toEqual([
+				'«»',
+				'«»',
+			])
+		})
+
+		it('quotes every member where one holds a mark of the quote, and writes a backslash before each mark and backslash', () => {
+			const cases = [
+				[['"a', 'b"'], '"\\"a" and "b\\""'],
+				[['x", "y'], '"x\\", \\"y"'],
+				[['a\\', 'b"'], '"a\\\\" and "b\\""'],
+				[['a\\', 'b'], 'a\\ and b'],
+				[['', '"'], '"" and "\\""'],
+				[['say "hi"', 5], '"say \\"hi\\"" and "5"'],
+			] as const
+			for (const [list, text] of cases) {
+				expect(new Narrator().value('place', list)).toBe(text)
+			}
+			const marked = new Narrator({ lexicon: { frames: { 'value.quoted': '«{{value}}»' } } })
+			expect(marked.value('place', ['a"', 'b'])).toBe('a" and b')
+			expect(marked.value('place', ['a»', 'b"'])).toBe('«a\\»» and «b"»')
+			const doubled = new Narrator({ lexicon: { frames: { 'value.quoted': '<<{{value}}>>' } } })
+			expect(doubled.value('place', ['a >> b', 'c>'])).toBe('<<a \\>> b>> and <<c\\>>>')
+		})
+
+		it('reads each list back to its members, in four languages, under four quotes, in a fact, a condition, and a value', () => {
+			// Each locale's joining texts, written out by hand, longest first.
+			const locales = [
+				['en-US', [', or ', ' or ', ', '], [', and ', ' and ', ', ']],
+				['de-DE', [' oder ', ', '], [' und ', ', ']],
+				['es-ES', [' o ', ' u ', ', '], [' y ', ' e ', ', ']],
+				['ja-JP', ['、または', 'または', '、'], ['、']],
+			] as const
+			const misread = locales.flatMap(([locale, either, every]) =>
+				QUOTE_FRAMES.flatMap(([frame, open, close]) => {
+					const narrator = new Narrator({
+						locale,
+						lexicon: { frames: { 'value.quoted': frame }, limits: { list: 40 } },
+					})
+					const texts = QUOTED_LISTS.map((list) => {
+						const rule = createRule(
+							'r',
+							[createAtom('kind', 'any', list)],
+							createAtom('x', 'equals', true),
+							{ name: 'R' },
+						)
+						const definition = createLogicalDefinition('d', 'D', [rule])
+						const account = narrator.narrate(definition, REASON.reason({ kind: 'z' }, definition))
+						const condition = narrator.describe(definition).lines[1]?.lines[0]?.text ?? ''
+						const fact = account.lines[0]?.lines[0]?.text ?? ''
+						return [condition, fact].map((text) => text.split(/ is (?:not )?one of /u).at(-1) ?? '')
+					})
+					const values = QUOTED_LISTS.map((list) => narrator.value('kind', list))
+					expect(new Set(texts.map(([condition]) => condition)).size).toBe(QUOTED_LISTS.length)
+					expect(new Set(values).size).toBe(QUOTED_LISTS.length)
+					return QUOTED_LISTS.flatMap((list, index) => {
+						const read = [
+							...(texts[index] ?? []).map((text) => parseListText(text, either, open, close)),
+							parseListText(values[index] ?? '', every, open, close),
+						]
+						return read.every((members) => canonicalize(members) === canonicalize(list))
+							? []
+							: [[locale, frame, list, read]]
+					})
+				}),
+			)
+			expect(misread).toEqual([])
 		})
 
 		it('keeps every member recoverable, whatever the length, the operator, the locale, or the document', () => {
@@ -1696,7 +1779,9 @@ describe('Narrator', () => {
 			expect(renderAccount(narrator.narrate(twice, result))).toBe('x is 2\n  x = 2')
 			const other = createSymbolicDefinition('s', 'S', [])
 			expect(renderAccount(narrator.narrate(other, result))).toBe('x is 2')
-			expect(renderAccount(narrator.narrate(buildWorkshopFacts(), result))).toBe('x is 2')
+			expect(renderAccount(narrator.narrate(buildWorkshopFacts(), result))).toBe(
+				'Booking facts gave no answer',
+			)
 		})
 
 		it('writes a charge as its solutions, each with its own equation', () => {
@@ -4297,13 +4382,13 @@ describe('Narrator', () => {
 				...kin,
 				inferences: kin.inferences.map((inference) => ({ ...inference, name: inference.id })),
 			}
-			const proved = [kin, nameless, buildWorkshopArea()].map(
+			const proved = [kin, nameless, { ...kin, inferences: [] }].map(
 				(definition) => narrator.narrate(definition, result).lines[0]?.lines[0],
 			)
 			expect(proved.map((line) => [line?.text, line?.gaps])).toEqual([
-				['proved through Grandparents', []],
-				['proved through grandparent', [{ word: 'name', part: 'inference', id: 'grandparent' }]],
-				['proved through grandparent', [{ word: 'name', part: 'inference', id: 'grandparent' }]],
+				['supported through Grandparents', []],
+				['supported through grandparent', [{ word: 'name', part: 'inference', id: 'grandparent' }]],
+				['supported through grandparent', [{ word: 'name', part: 'inference', id: 'grandparent' }]],
 			])
 		})
 
@@ -4550,6 +4635,98 @@ describe('Narrator', () => {
 			)
 		})
 
+		// The review's two parts add to 5.5, and the precision makes the number 6.
+		it('prints the precision that moves a value, before the total, and not in the one line', () => {
+			const parts = createQuantitativeDefinition(
+				't',
+				'T',
+				[createFactorGroup('g', 'sum', [createStaticFactor('a', 2.5), createStaticFactor('b', 3)])],
+				{ precision: 0 },
+			)
+			const account = new Narrator().narrate(parts, REASON.reason({}, parts))
+			expect(renderAccount(account).split('\n')).toEqual([
+				'T: 6',
+				'g: 5.5',
+				'  a: 2.5',
+				'    fixed at 2.5',
+				'  b: 3',
+				'    fixed at 3',
+				'decimal places: 0',
+				'Total: 6',
+			])
+			expect(renderAccount(account, { detail: 'line' })).toBe('T: 6')
+			const named = new Narrator({
+				lexicon: { frames: { 'worksheet.precision': 'to {{places}}' } },
+			})
+			expect(renderAccount(named.narrate(parts, REASON.reason({}, parts)))).toContain('\nto 0\n')
+		})
+
+		it('accounts for its value from its groups, its base, its bounds, and its precision, under every aggregation', () => {
+			const readings = AGGREGATIONS.flatMap((aggregation) =>
+				[undefined, 0, 1, 2, 6].flatMap((precision) =>
+					[
+						[2.5, 3],
+						[1.005, 7.25],
+						[3, 4],
+						[-2.45, 0.125],
+					].flatMap(([first = 0, second = 0]) =>
+						[0, 0.25].map((base) => {
+							const definition = createQuantitativeDefinition(
+								'd',
+								'D',
+								[first, second].map((value, index) =>
+									createFactorGroup(`g${String(index)}`, 'sum', [createStaticFactor('s', value)]),
+								),
+								{
+									aggregation,
+									base,
+									bounds: { minimum: -2, maximum: 9.75 },
+									...(precision === undefined ? {} : { precision }),
+								},
+							)
+							const result = REASON.reason({}, definition)
+							if (!isQuantitativeResult(result)) throw new Error('Expected a quantitative result')
+							const texts = renderAccount(new Narrator().narrate(definition, result)).split('\n')
+							const [places] = texts.flatMap(
+								(text) => /^decimal places: (.+)$/u.exec(text)?.[1] ?? [],
+							)
+							const values = texts.flatMap((text) => {
+								const value = /^g\d: (.+)$/u.exec(text)?.[1]
+								return value === undefined ? [] : [Number(value)]
+							})
+							const sum = values.reduce((total, value) => total + value, 0)
+							const held = {
+								sum,
+								product: values.reduce((total, value) => total * value, 1),
+								average: sum / values.length,
+								minimum: Math.min(...values),
+								maximum: Math.max(...values),
+							}[aggregation]
+							const whole = Math.min(9.75, Math.max(-2, base + held))
+							const scale = 10 ** Number(places ?? 0)
+							const read = places === undefined ? whole : Math.round(whole * scale) / scale
+							return { precision, places, whole, read, value: result.value, text: texts[0] }
+						}),
+					),
+				),
+			)
+			expect(
+				readings.filter(
+					({ text, value }) => text !== `D: ${Object.is(value, -0) ? '-0' : String(value)}`,
+				),
+			).toEqual([])
+			const authored = readings.filter(({ precision }) => precision !== undefined)
+			expect(authored.filter(({ read, value }) => read !== value)).toEqual([])
+			expect(
+				readings.filter(
+					({ precision, places, whole, value }) =>
+						places !== (precision === undefined || whole === value ? undefined : String(precision)),
+				),
+			).toEqual([])
+			const stated = authored.filter(({ places }) => places !== undefined)
+			expect(new Set(stated.map(({ places }) => places))).toEqual(new Set(['0', '1', '2', '6']))
+		})
+
 		it('writes the whole worksheet of a score', () => {
 			const narrator = new Narrator({ glossary: WORKSHOP_GLOSSARY })
 			const quote = buildWorkshopQuote()
@@ -4765,7 +4942,7 @@ describe('Narrator', () => {
 				[['?x', 'bo'], '?x knows bo, its values left open (confidence 50%)'],
 				[['?x', '?y'], '?x knows ?y, its values left open (confidence 50%)'],
 				[['ada', 'bo'], 'ada knows bo (confidence 50%)'],
-				[['a?', 'bo'], 'a? knows bo (confidence 50%)'],
+				[['a?', 'bo'], 'possible: a? knows bo (confidence 50%)'],
 			] as const
 			const narrator = new Narrator({
 				glossary: { labels: {}, predicates: { known: '{{1}} knows {{2}}' } },
@@ -4840,11 +5017,11 @@ describe('Narrator', () => {
 				REASON.reason({}, kin),
 			)
 			expect(renderAccount(account, { detail: 'full' }).split('\n')).toEqual([
-				'?x is a grandparent of ?z, its values left open (confidence 95%)',
-				'  proved through Grandparents',
+				'possible: ?x is a grandparent of ?z, its values left open (confidence 95%)',
+				'  supported through Grandparents',
 			])
 			expect(renderAccount(account, { detail: 'line' })).toBe(
-				'?x is a grandparent of ?z, its values left open (confidence 95%)',
+				'possible: ?x is a grandparent of ?z, its values left open (confidence 95%)',
 			)
 			expect(account.lines[0]?.source).toEqual({ fact: 'grandparent-conclusion' })
 			expect(account.lines[0]?.lines[0]?.source).toEqual({ inference: 'grandparent' })
@@ -4871,7 +5048,7 @@ describe('Narrator', () => {
 				strategy: 'backward',
 			})
 			expect(renderAccount(narrator.narrate(through, REASON.reason({}, through)))).toBe(
-				'ada is out\n  proved through First',
+				'possible: ada is out\n  supported through First',
 			)
 			const bo = createFact('o', 'out', ['bo'])
 			const stated = createInferentialDefinition('d', 'D', [bo], [goal], { strategy: 'backward' })
@@ -4890,7 +5067,7 @@ describe('Narrator', () => {
 				{ strategy: 'backward' },
 			)
 			expect(renderAccount(narrator.narrate(other, REASON.reason({}, other)))).toBe(
-				'ada is out\n  proved through Last',
+				'possible: ada is out\n  supported through Last',
 			)
 			const unproved = createInferentialDefinition('d', 'D', [], [goal], { strategy: 'backward' })
 			expect(renderAccount(narrator.narrate(unproved, REASON.reason({}, unproved)))).toBe(
@@ -4959,6 +5136,133 @@ describe('Narrator', () => {
 			)
 		})
 
+		// The review's fact: a term that holds the quote and the join reads as two terms.
+		it('reads each stated fact back to its own terms, whatever a term holds', () => {
+			const parents = [
+				['alice', 'bob'],
+				['bob', 'a, b'],
+				['a, b', 'q", "r'],
+			].map((terms, index) => createFact(`f${String(index)}`, 'parent', terms))
+			const definition = createInferentialDefinition('d', 'D', parents, [
+				createInference(
+					'i',
+					[createFact('p', 'parent', ['?x', '?y']), createFact('q', 'parent', ['?y', '?z'])],
+					createFact('c', 'grandparent', ['?x', '?z']),
+					{ name: 'I' },
+				),
+			])
+			const result = REASON.reason({}, definition)
+			expect(new Narrator().narrate(definition, result).lines.map((line) => line.text)).toEqual([
+				'Facts derived: 2',
+				'grandparent("alice", "a, b")',
+				'grandparent("bob", "q\\", \\"r")',
+			])
+			const misread = QUOTE_FRAMES.flatMap(([frame, open, close]) => {
+				const narrator = new Narrator({ lexicon: { frames: { 'value.quoted': frame } } })
+				const listed = new Narrator({
+					lexicon: { frames: { 'value.quoted': frame } },
+					glossary: { labels: {}, predicates: { out: 'out {{terms}}' } },
+				})
+				return QUOTED_LISTS.flatMap((terms) => {
+					const known = createFact('k', 'go', [])
+					const stated = createInferentialDefinition(
+						's',
+						'S',
+						[known],
+						[createInference('i', [known], createFact('c', 'out', terms), { name: 'I' })],
+					)
+					const read = REASON.reason({}, stated)
+					const bare = narrator.narrate(stated, read).lines[1]?.text ?? ''
+					const worded = listed.narrate(stated, read).lines[1]?.text ?? ''
+					const texts = [bare.slice('out('.length, -1), worded.slice('out '.length)]
+					return texts
+						.map((text) => parseListText(text, [', '], open, close))
+						.filter((members) => canonicalize(members) !== canonicalize(terms))
+				})
+			})
+			expect(misread).toEqual([])
+		})
+
+		it('calls a conclusion it reached through an inference possible, and one that is a known fact plain', () => {
+			const apart = createInferentialDefinition(
+				'd',
+				'D',
+				[createFact('a', 'a', [1]), createFact('b', 'b', [2])],
+				[
+					createInference(
+						'i',
+						[createFact('p', 'a', ['?x']), createFact('q', 'b', ['?x'])],
+						createFact('c', 'c', ['?x']),
+						{ name: 'Both' },
+					),
+				],
+				{ strategy: 'backward' },
+			)
+			const unrelated = {
+				...buildWorkshopKin('backward'),
+				facts: [
+					createFact('ab', 'parent', ['alice', 'bob']),
+					createFact('cd', 'parent', ['carl', 'dina']),
+				],
+			}
+			const ground = createInferentialDefinition(
+				'd',
+				'D',
+				[createFact('k', 'known', ['ada'])],
+				[
+					createInference(
+						'i',
+						[createFact('p', 'known', ['?x'])],
+						createFact('c', 'out', ['ada']),
+						{ name: 'First' },
+					),
+				],
+				{ strategy: 'backward' },
+			)
+			const base = { ...ground, facts: [createFact('o', 'out', ['ada'])] }
+			const open = createInferentialDefinition(
+				'd',
+				'D',
+				[createFact('o', 'out', ['bo'])],
+				[
+					createInference(
+						'i',
+						[createFact('p', 'known', ['?x'])],
+						createFact('c', 'out', ['?who']),
+						{ name: 'I' },
+					),
+				],
+				{ strategy: 'backward' },
+			)
+			// No value is both, and no grandparent stands in the facts, so neither run settles its claim.
+			const forward = { ...unrelated, strategy: 'forward' as const }
+			expect(REASON.reason({}, forward)).toMatchObject({ success: true, derived: [] })
+			expect(REASON.reason({}, { ...apart, strategy: 'forward' })).toMatchObject({ derived: [] })
+			const narrator = new Narrator({ glossary: WORKSHOP_GLOSSARY })
+			const texts = [apart, unrelated, ground, base, open].map((definition) =>
+				renderAccount(narrator.narrate(definition, REASON.reason({}, definition))),
+			)
+			expect(texts).toEqual([
+				'possible: c(?x), its values left open\n  supported through Both',
+				'possible: ?x is a grandparent of ?z, its values left open (confidence 95%)\n  supported through Grandparents',
+				'possible: out(ada)\n  supported through First',
+				'out(ada)',
+				'out(?who), its values left open',
+			])
+			const reworded = new Narrator({
+				lexicon: {
+					frames: {
+						'fact.possible': 'perhaps {{fact}}',
+						'fact.confidence': '[{{fact}}] {{confidence}}',
+					},
+				},
+				glossary: WORKSHOP_GLOSSARY,
+			})
+			expect(reworded.narrate(unrelated, REASON.reason({}, unrelated)).lines[0]?.text).toBe(
+				'[perhaps ?x is a grandparent of ?z, its values left open] 95%',
+			)
+		})
+
 		it('states a fact of no terms by its predicate alone', () => {
 			const rain = createInferentialDefinition(
 				'd',
@@ -4990,7 +5294,7 @@ describe('Narrator', () => {
 					strategy: 'backward',
 				})
 				const account = narrator.narrate(definition, REASON.reason({}, definition))
-				expect(account.lines[0]?.text).toBe(`out${text}`)
+				expect(account.lines[0]?.text).toBe(`possible: out${text}`)
 				const rendered = renderAccount(narrator.describe(definition))
 				expect(rendered.split('\n').slice(3)).toEqual(
 					text === '' ? [] : [`  confidence: ${text.slice(13, -1)}`],

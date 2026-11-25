@@ -84,7 +84,12 @@ import {
 	scanSymbolicExpression,
 	settleComparison,
 } from '@orkestrel/reason'
-import { DEFAULT_LOCALE, FILL_PATTERN, UNSAFE_FIELD_SEGMENTS } from '@orkestrel/template'
+import {
+	DEFAULT_LOCALE,
+	FILL_PATTERN,
+	fillTemplate,
+	UNSAFE_FIELD_SEGMENTS,
+} from '@orkestrel/template'
 import {
 	CLAUSE_BREAK_PATTERN,
 	CONFIDENCE_DEFAULT,
@@ -2179,8 +2184,8 @@ export function collectFaultFields(lines: readonly AccountLine[]): ReadonlySet<s
  * Collects the texts a list format puts between members.
  *
  * @remarks
- * A format can word a join by the member beside it, so the members' own list is read beside lists
- * of other lengths.
+ * A format can word a join by the member beside it, as Spanish does before an `o` or an `i`, so the
+ * members' own list is read beside lists of other lengths and of those words.
  *
  * @param format - The list format
  * @param members - The members to join
@@ -2197,12 +2202,96 @@ export function collectListJoins(
 	format: Intl.ListFormat,
 	members: readonly string[],
 ): readonly string[] {
-	const lists = [members, ['a', 'a'], ['a', 'a', 'a'], ['a', 'a', 'a', 'a']]
+	const lists = [members, ['a', 'a'], ['a', 'a', 'a'], ['a', 'a', 'a', 'a'], ['a', 'o'], ['a', 'i']]
 	const joins = lists
 		.flatMap((list) => format.formatToParts(list))
 		.filter((part) => part.type === 'literal')
 		.map((part) => part.value)
 	return [...new Set(joins)]
+}
+
+/**
+ * Collects the marks a quote's frame holds around its slot, in order.
+ *
+ * @param frame - The frame, with the slot `value`
+ * @returns Each text around the slot, trimmed, an empty one left out
+ *
+ * @example
+ * ```ts
+ * import { collectQuoteMarks } from '@orkestrel/interpret'
+ *
+ * collectQuoteMarks('«{{value}}»') // ['«', '»']
+ * ```
+ */
+export function collectQuoteMarks(frame: string): readonly string[] {
+	const slot = '\u{0}'
+	return fillTemplate(frame, { value: slot }, { missing: 'empty' })
+		.split(slot)
+		.map((mark) => mark.trim())
+		.filter((mark) => mark !== '')
+}
+
+/**
+ * Determines whether a member needs a quote to be told from its neighbors.
+ *
+ * @remarks
+ * A space on each side of the member finds a joining text it would complete beside its neighbor.
+ *
+ * @param member - The member's text, unquoted
+ * @param joins - The texts that stand between members
+ * @param marks - The marks of the quote
+ * @returns True if the member holds a joining text or a mark; false otherwise
+ *
+ * @example
+ * ```ts
+ * import { matchesQuotedMember } from '@orkestrel/interpret'
+ *
+ * matchesQuotedMember('salt or pepper', [' or '], ['"']) // true
+ * matchesQuotedMember('salt', [' or '], ['"']) // false
+ * ```
+ */
+export function matchesQuotedMember(
+	member: string,
+	joins: readonly string[],
+	marks: readonly string[],
+): boolean {
+	return (
+		joins.some((join) => ` ${member} `.includes(join)) ||
+		marks.some((mark) => member.includes(mark))
+	)
+}
+
+/**
+ * Renders a text in a quote's frame, so that a reader finds where it ends.
+ *
+ * @remarks
+ * Inside the quote, a backslash stands before each backslash and before each of the quote's own
+ * marks, one that the text would complete beside the closing mark included.
+ *
+ * @param text - The text to quote
+ * @param frame - The frame, with the slot `value`. Default: the shipped `value.quoted`
+ * @returns The quoted text
+ *
+ * @example
+ * ```ts
+ * import { renderQuoted } from '@orkestrel/interpret'
+ *
+ * renderQuoted('say "hi"') // '"say \\"hi\\""'
+ * renderQuoted('a', '«{{value}}»') // '«a»'
+ * ```
+ */
+export function renderQuoted(
+	text: string,
+	frame: string = DEFAULT_LEXICON.frames['value.quoted'],
+): string {
+	const marks = collectQuoteMarks(frame)
+	const closed = `${text}${marks.at(-1) ?? ''}`
+	const value = Array.from({ length: text.length }, (_unit, index) => {
+		const unit = text[index] ?? ''
+		const marked = unit === '\\' || marks.some((mark) => closed.startsWith(mark, index))
+		return marked ? `\\${unit}` : unit
+	}).join('')
+	return fillTemplate(frame, { value }, { missing: 'empty' })
 }
 
 /**
@@ -2265,6 +2354,8 @@ export function renderCitedReasons(
  * Renders a part's name, or its id where it has none.
  *
  * @param named - The part's id and name
+ * @param frame - The frame a blank id is quoted in, with the slot `value`. Default: the shipped
+ * `value.quoted`
  * @returns The name as authored, the id where the name is blank, or the quoted id where both are
  *
  * @example
@@ -2275,9 +2366,12 @@ export function renderCitedReasons(
  * renderName({ id: 'adult', name: '' }) // 'adult'
  * ```
  */
-export function renderName(named: { readonly id: string; readonly name: string }): string {
+export function renderName(
+	named: { readonly id: string; readonly name: string },
+	frame?: string,
+): string {
 	if (named.name.trim() !== '') return named.name
-	return named.id.trim() === '' ? preview(named.id) : named.id
+	return named.id.trim() === '' ? renderQuoted(named.id, frame) : named.id
 }
 
 /**

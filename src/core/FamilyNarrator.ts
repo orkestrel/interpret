@@ -5,6 +5,7 @@ import type {
 	FactorResult,
 	GroupResult,
 	LogicalDefinition,
+	LogicalResult,
 	QuantitativeDefinition,
 	QuantitativeResult,
 	Rule,
@@ -97,7 +98,7 @@ export class FamilyNarrator implements FamilyNarratorInterface {
 	describe(definition: FamilyDefinition): Account {
 		return {
 			id: definition.id,
-			name: renderName(definition),
+			name: this.#renderName(definition),
 			lines: this.#guideLines(definition),
 		}
 	}
@@ -105,7 +106,7 @@ export class FamilyNarrator implements FamilyNarratorInterface {
 	narrate(definition: FamilyDefinition, result: FamilyResult): Account {
 		return {
 			id: definition.id,
-			name: renderName(definition),
+			name: this.#renderName(definition),
 			success: result.success,
 			lines: this.#resultLines(definition, result),
 		}
@@ -129,21 +130,26 @@ export class FamilyNarrator implements FamilyNarratorInterface {
 		if ('qualification' in definition && 'determinations' in result) {
 			return this.#programLines(definition, result)
 		}
-		return [this.#refusalLine(definition, [])]
+		return this.#narrator.narrate(definition, this.#unreadResult([])).lines
 	}
 
 	// === The words
+
+	// A blank id prints in the quote of the words this was built over.
+	#renderName(named: { readonly id: string; readonly name: string }): string {
+		return renderName(named, this.#lexicon.frames['value.quoted'])
+	}
 
 	#writeName(
 		part: NonNullable<GlossaryGap['part']>,
 		named: { readonly id: string; readonly name: string },
 	): AccountText {
-		return { text: renderName(named), gaps: collectNameGaps(part, named) }
+		return { text: this.#renderName(named), gaps: collectNameGaps(part, named) }
 	}
 
 	// A word the lexicon lacks prints as the engine's own.
 	#writeWord(table: 'eligibilities' | 'effects' | 'statuses' | 'decisions', key: string): string {
-		return renderName({ id: key, name: this.#narrator.phrase(table, key) })
+		return this.#renderName({ id: key, name: this.#narrator.phrase(table, key) })
 	}
 
 	#writeCited(reasons: readonly AccountText[]): AccountText {
@@ -238,21 +244,26 @@ export class FamilyNarrator implements FamilyNarratorInterface {
 		const { id, name } = named
 		const { lines } = this.#narrator.narrate(
 			{ reasoning: 'logical', id, name, strategy: 'forward', rules: [] },
-			{
-				reasoning: 'logical',
-				conclusion: 'unread',
-				rules: [],
-				count: 0,
-				success: false,
-				trace: [],
-				errors: [],
-				faults,
-				repairs: [],
-				defaulted: [],
-			},
+			this.#unreadResult(faults),
 		)
-		const text = this.#narrator.line('result.refused', { name: renderName(named) })
+		const text = this.#narrator.line('result.refused', { name: this.#renderName(named) })
 		return lines[0] ?? buildAccountLine({ role: 'verdict', decisive: true, text })
+	}
+
+	// The result of a run that read nothing, and of another kind than any family definition's.
+	#unreadResult(faults: readonly AuditFault[]): LogicalResult {
+		return {
+			reasoning: 'logical',
+			conclusion: 'unread',
+			rules: [],
+			count: 0,
+			success: false,
+			trace: [],
+			errors: [],
+			faults,
+			repairs: [],
+			defaulted: [],
+		}
 	}
 
 	#faultLines(

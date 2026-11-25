@@ -67,6 +67,7 @@ import {
 	collectFieldGaps,
 	collectGaps,
 	collectListJoins,
+	collectQuoteMarks,
 	collectSlots,
 	collectNameGaps,
 	collectReasons,
@@ -100,6 +101,7 @@ import {
 	matchesFilledField,
 	matchesNumericCheck,
 	matchesNumericSource,
+	matchesQuotedMember,
 	matchesReceivedValue,
 	matchesSubjectKeys,
 	matchesUnboundFact,
@@ -113,6 +115,7 @@ import {
 	renderAccount,
 	renderName,
 	renderCitedReasons,
+	renderQuoted,
 	renderReasons,
 	renderSubject,
 	resolveExpression,
@@ -148,6 +151,9 @@ import {
 	InterpretFixtureValue,
 	OPEN_SHAPE,
 	OPERATION_READINGS,
+	parseQuotedMember,
+	QUOTE_FRAMES,
+	QUOTED_LISTS,
 	TRANSFORM_READINGS,
 	TRICKY_KEYS,
 	UNBOUND_LINK_READINGS,
@@ -1379,6 +1385,7 @@ describe('the words', () => {
 				'fact.some',
 				'result.facts',
 				'worksheet.base',
+				'fact.possible',
 				'fact.proved',
 				'value.any',
 				'result.outcome',
@@ -1405,7 +1412,8 @@ describe('the words', () => {
 			'{{fact}}, its values left open',
 			'Facts derived: {{count}} ({{facts}})',
 			'base: {{value}}, added to the rest',
-			'proved through {{name}}',
+			'possible: {{fact}}',
+			'supported through {{name}}',
 			'any value',
 			'{{name}}: {{outcome}}',
 			'{{name}}: {{outcome}}, because {{reasons}}',
@@ -1864,6 +1872,8 @@ describe('the reasons', () => {
 			['de', 'disjunction', [], [' oder ', ', ']],
 			['ja', 'disjunction', [], ['または', '、', '、または']],
 			['es', 'disjunction', ['siete', 'ocho'], [' u ', ' o ', ', ']],
+			['es', 'disjunction', ['a u otro'], [' u ', ' o ', ', ']],
+			['es', 'conjunction', [], [' e ', ' y ', ', ']],
 		] as const
 		for (const [locale, type, members, joins] of cases) {
 			const read = collectListJoins(new Intl.ListFormat(locale, { type }), members)
@@ -2278,6 +2288,43 @@ describe("the account's text", () => {
 		expect(renderName({ id: 'r', name: 'Rule' })).toBe('Rule')
 		expect(renderName({ id: 'r', name: ' ' })).toBe('r')
 		expect(renderName({ id: '', name: '' })).toBe('""')
+		expect(renderName({ id: ' ', name: '' }, '«{{value}}»')).toBe('« »')
+		expect(renderName({ id: 'r', name: '' }, '«{{value}}»')).toBe('r')
+	})
+
+	it('collectQuoteMarks reads the trimmed texts around the slot, and leaves an empty one out', () => {
+		expect(collectQuoteMarks('"{{value}}"')).toEqual(['"', '"'])
+		expect(collectQuoteMarks('« {{ value }} »')).toEqual(['«', '»'])
+		expect(collectQuoteMarks('{{value}}')).toEqual([])
+		expect(collectQuoteMarks('q:{{value}}')).toEqual(['q:'])
+		expect(collectQuoteMarks('\\{{{{value}}}}')).toEqual(['{{', '}}'])
+		expect(collectQuoteMarks('({{value}}|{{value}})')).toEqual(['(', '|', ')'])
+	})
+
+	it('matchesQuotedMember finds a joining text, one a neighbor would complete, and a mark', () => {
+		const joins = [' or ', ', ']
+		expect(matchesQuotedMember('a or b', joins, ['"'])).toBe(true)
+		expect(matchesQuotedMember('or else', joins, ['"'])).toBe(true)
+		expect(matchesQuotedMember('a,', joins, ['"'])).toBe(true)
+		expect(matchesQuotedMember('a"', joins, ['"'])).toBe(true)
+		expect(matchesQuotedMember('color\\', joins, ['"'])).toBe(false)
+		expect(matchesQuotedMember('', joins, ['"'])).toBe(false)
+	})
+
+	it('renderQuoted writes a backslash before each backslash and mark, and one the close completes', () => {
+		expect(renderQuoted('a')).toBe('"a"')
+		expect(renderQuoted('')).toBe('""')
+		expect(renderQuoted('a"\\"')).toBe('"a\\"\\\\\\""')
+		expect(renderQuoted('a"', '«{{value}}»')).toBe('«a"»')
+		expect(renderQuoted('«»', '«{{value}}»')).toBe('«\\«\\»»')
+		expect(renderQuoted('a > b >> c>', '<<{{value}}>>')).toBe('<<a > b \\>> c\\>>>')
+		expect(renderQuoted('{{value}}')).toBe('"{{value}}"')
+		for (const [frame, open, close] of QUOTE_FRAMES) {
+			for (const text of [...QUOTED_LISTS.flat(), 'a\nb', '\u{1F600}"', '>>>', '\\\\']) {
+				const read = parseQuotedMember(`${renderQuoted(text, frame)}${close}`, open, close)
+				expect([frame, read]).toEqual([frame, { member: text, rest: close }])
+			}
+		}
 	})
 
 	it('renderAccount prints the verdict, the deciding lines, or every line', () => {

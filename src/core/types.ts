@@ -737,6 +737,7 @@ export type FrameName =
 	| 'fact.stated'
 	| 'fact.confidence'
 	| 'fact.some'
+	| 'fact.possible'
 	| 'fact.proved'
 	| 'fault.type'
 	| 'fault.missing'
@@ -1693,9 +1694,9 @@ export interface NarratorInterface {
 	 *
 	 * @remarks
 	 * A formatter wins over a format, and a glossary format over a shipped one. A list joins by
-	 * the locale, each member quoted where one holds a joining text. `true`, `false`, and `null`
-	 * use the lexicon's words, and a string prints as it stands unless it is blank. An absent value
-	 * and `NaN` print the lexicon's `missing` word.
+	 * the locale, each member quoted where one holds a joining text or a mark of the quote. `true`,
+	 * `false`, and `null` use the lexicon's words, and a string prints as it stands unless it is
+	 * blank. An absent value and `NaN` print the lexicon's `missing` word.
 	 *
 	 * @param field - The field path the value belongs to
 	 * @param raw - The value to render
@@ -1729,10 +1730,11 @@ export interface NarratorInterface {
 	 * @remarks
 	 * A logical result's verdict is its goal rule's outcome, as `findGoalRule` finds it, and a
 	 * definition without a goal counts the rules that apply. A quantitative result is written as a
-	 * worksheet of its groups and factors, and a symbolic one as each solution with the last equation
-	 * of its target. An inferential result states each fact it derived, with a confidence below 1,
-	 * and one with a proof states its conclusion and the inference that proved it. A result whose
-	 * `success` is false states no value, count, fact, or solution: its verdict names each field that
+	 * worksheet of its groups and factors, with an authored precision that moved its value, and a
+	 * symbolic one as each solution with the last equation of its target. An inferential result states
+	 * each fact it derived, with a confidence below 1. One with a proof states its conclusion, as
+	 * possible where an inference supports it and plainly where a known fact is the proof. A result
+	 * whose `success` is false states no value, count, fact, or solution: its verdict names each field that
 	 * was not read and each factor that found no value. A refused logical result whose `errors`
 	 * outnumber its `faults` states its faults alone, and no rule.
 	 *
@@ -1752,6 +1754,8 @@ export interface NarratorInterface {
 	narrate(definition: FamilyRating, result: FamilyRatingResult): Account
 	// A program and its result, as `@orkestrel/program` gives them.
 	narrate(definition: FamilyProgram, result: FamilyProgramResult): Account
+	// Any pair, where a result of another kind reads as no answer.
+	narrate(definition: AccountDefinition, result: ReasonResult | FamilyResult): Account
 	/**
 	 * Writes why one value was not taken, as one line.
 	 *
@@ -2094,6 +2098,8 @@ export interface InterpretInterface {
 	narrate(definition: FamilyRating, result: FamilyRatingResult): Account
 	// A program and its result, as `@orkestrel/program` gives them.
 	narrate(definition: FamilyProgram, result: FamilyProgramResult): Account
+	// Any pair, where a result of another kind reads as no answer.
+	narrate(definition: AccountDefinition, result: ReasonResult | FamilyResult): Account
 	/**
 	 * Tears the orchestrator down idempotently — the recipe registry, the context it
 	 * constructed itself, then the emitter last.

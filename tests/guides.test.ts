@@ -948,8 +948,8 @@ await new GuideCommand({
 			})
 			const proved = worded.narrate(backward, reasoner.reason({}, backward))
 			expect(renderAccount(proved).split('\n')).toEqual([
-				'?x reaches ?z, its values left open (confidence 90%)',
-				'  proved through One change',
+				'possible: ?x reaches ?z, its values left open (confidence 90%)',
+				'  supported through One change',
 			])
 		})
 
