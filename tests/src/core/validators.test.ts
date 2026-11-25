@@ -929,12 +929,6 @@ describe('isInterpretation', () => {
 })
 
 it('keeps every result guard total under hostile inputs', () => {
-	const cyclic: Record<string, unknown> = {}
-	cyclic.self = cyclic
-	const nullPrototype: Record<string, unknown> = Object.create(null)
-	const revoked = Proxy.revocable({}, {})
-	revoked.revoke()
-
 	for (const guard of [
 		isProvenance,
 		isIntent,
@@ -945,9 +939,10 @@ it('keeps every result guard total under hostile inputs', () => {
 		isStageFailure,
 		isInterpretation,
 	]) {
-		expect(guard(cyclic)).toBe(false)
-		expect(guard(nullPrototype)).toBe(false)
-		expect(guard(revoked.proxy)).toBe(false)
+		for (const [index, value] of createHostileValues().entries()) {
+			expect(() => guard(value), `${guard.name} hostile value ${index}`).not.toThrow()
+			expect(guard(value), `${guard.name} hostile value ${index}`).toBe(false)
+		}
 	}
 
 	expect(
