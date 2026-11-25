@@ -403,8 +403,9 @@ await new GuideCommand({
 			expect(withdrawn.ambiguities[0]?.candidates).toEqual(['4'])
 			expect(withdrawn.subject).toBeUndefined()
 
-			const next = interpret.interpret('book workshop guests 12', { previous: answered })
-			expect(next.subject).toEqual({ guests: 12, hours: 4 })
+			const next = interpret.interpret('book workshop hours 6', { previous: answered })
+			expect(next.subject).toEqual({ hours: 6, guests: 8 })
+			expect(next.entities[1]?.provenance).toEqual({ category: 'carried', detail: 'proposed' })
 
 			// The rules the section states beside the fence.
 			const stored: unknown = JSON.parse(JSON.stringify(projectInterpretation(answered)))
@@ -425,8 +426,18 @@ await new GuideCommand({
 			expect(interpret.amend(answered, { removed: ['colour'] })).toEqual(answered)
 			const replaced = interpret.amend(answered, { entities: [{ name: 'hours', value: 6 }] })
 			expect(replaced.subject).toEqual({ guests: 8, hours: 6 })
-			const lost = interpret.interpret('book workshop', { previous: answered })
-			expect(lost.ambiguities.map((ambiguity) => ambiguity.question)).toEqual(['How many guests?'])
+			const later = interpret.interpret('book workshop', { previous: next })
+			expect(later.entities.map((entity) => entity.provenance)).toEqual([
+				{ category: 'carried', detail: 'proposed' },
+				{ category: 'carried' },
+			])
+			const stated = interpret.interpret('book workshop guests 12', { previous: answered })
+			expect(stated.subject).toEqual({ guests: 12, hours: 4 })
+			const doubted = interpret.interpret('book workshop 5', { previous: answered })
+			expect(doubted.ambiguities.map((ambiguity) => ambiguity.candidates)).toEqual([['5'], ['5']])
+			const refused = interpret.interpret('book workshop', { previous: other })
+			expect(refused.ambiguities.map((ambiguity) => ambiguity.field)).toEqual([['colour']])
+			expect(interpret.amend(refused, { removed: ['colour'] }).ambiguities).toEqual([])
 			expect(
 				[
 					captureError(() => invokeUnchecked(interpret, interpret.amend, [{}, {}])),

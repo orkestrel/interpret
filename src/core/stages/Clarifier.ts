@@ -41,10 +41,11 @@ import { Narrator } from '../Narrator.js'
  * @remarks
  * Resolution order: fresh (already-assigned) entities always win; carry-over
  * fills a mapping only from the same domain's and recipe's most recent prior turn (a
- * domain change drops carry-over entirely), only with what was stated, because a
+ * domain change drops carry-over entirely), only with what was stated or supplied, because a
  * computed or defaulted value is worked out again, and never overwrites a fresh
- * value; computed fields resolve in dependency (topological) order through
- * `resolveExpression` — an unresolved input, a non-finite result, or a
+ * value; a supplied value no mapping names carries on its own field, and every supplied one
+ * carries with detail `proposed`, doubted as any carried value is; computed fields
+ * resolve in dependency (topological) order through `resolveExpression` — an unresolved input, a non-finite result, or a
  * dependency cycle leaves the field a gap, never landing an entity; the door then
  * reads the whole subject, so `parse` fills each default still absent and a computed
  * value stands over a default. A computation reads every resolved numeric field and
@@ -130,8 +131,10 @@ export class Clarifier implements ClarifierInterface {
 		}
 	}
 
-	// Same-domain-only carry-over — a chaining pass over `context.previous()`
-	// mutating the shared `resolved` accumulator — an algorithm step, not a
+	// Same-domain-only carry-over of what earlier turns stated, the latest turn first: each mapping
+	// takes a value extracted, supplied, or carried there, and then each name an amendment supplied
+	// that no mapping holds lands on its own field. A supplied value keeps that detail for the turns
+	// after. A chaining pass mutating the shared `resolved` accumulator — an algorithm step, not a
 	// leaf.
 	#carryOver(
 		recipe: Recipe,
@@ -142,35 +145,48 @@ export class Clarifier implements ClarifierInterface {
 		resolved: Entity[],
 	): void {
 		if (context === undefined) return
-		const sameDomain = context
+		const fresh = [...filledFields]
+		const held = context
 			.previous()
 			.filter(
 				(prior) =>
 					prior.intent.domain === intent.domain &&
 					(prior.recipe === undefined || prior.recipe === recipe.id),
 			)
+			.toReversed()
+			.flatMap((prior) => prior.entities)
+			.flatMap<Entity>(({ name, field, value, provenance: { category, detail } }) => {
+				if (category !== 'extracted' && category !== 'proposed' && category !== 'carried') return []
+				const supplied =
+					category === 'proposed' || (category === 'carried' && detail === 'proposed')
+				return [
+					{
+						name,
+						...(field === undefined ? {} : { field }),
+						value,
+						provenance: { category: 'carried', ...(supplied ? { detail: 'proposed' } : {}) },
+						confidence: CONFIDENCE_CARRIED,
+					},
+				]
+			})
 		for (const mapping of recipe.mappings) {
 			if (filledEntityNames.has(mapping.entity)) continue
-			for (const offset of sameDomain.keys()) {
-				const index = sameDomain.length - 1 - offset
-				const prior = sameDomain[index]
-				const found = prior?.entities.find(
-					(entity) =>
-						entity.name === mapping.entity &&
-						(entity.provenance.category === 'extracted' ||
-							entity.provenance.category === 'carried'),
-				)
-				if (found === undefined) continue
-				resolved.push({
-					name: mapping.entity,
-					value: found.value,
-					provenance: { category: 'carried' },
-					confidence: CONFIDENCE_CARRIED,
-				})
-				filledEntityNames.add(mapping.entity)
-				filledFields.add(formatField(mapping.field))
-				break
-			}
+			const found = held.find((entity) => entity.name === mapping.entity)
+			if (found === undefined) continue
+			const { field: _field, ...carried } = found
+			resolved.push(carried)
+			filledEntityNames.add(mapping.entity)
+			filledFields.add(formatField(mapping.field))
+		}
+		for (const entity of held) {
+			const key = formatField(findEntityField(entity, recipe.mappings))
+			if (entity.provenance.detail === undefined || filledEntityNames.has(entity.name)) continue
+			if (filledFields.has(key) || fresh.some((field) => key.startsWith(`${field}.`))) continue
+			// The subject is written in order, so an object a fresh value sits inside is written first.
+			if (fresh.some((field) => field.startsWith(`${key}.`))) resolved.unshift(entity)
+			else resolved.push(entity)
+			filledEntityNames.add(entity.name)
+			filledFields.add(key)
 		}
 	}
 

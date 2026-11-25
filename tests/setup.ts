@@ -4031,6 +4031,97 @@ export function buildCarriedEntity(name: string, value: unknown): Entity {
 	return { name, value, provenance: { category: 'carried' }, confidence: 0.7 }
 }
 
+/** Builds an entity a turn carried that an amendment of an earlier turn supplied. */
+export function buildSuppliedEntity(name: string, value: unknown, field?: FieldPath): Entity {
+	return {
+		name,
+		...(field === undefined ? {} : { field }),
+		value,
+		provenance: { category: 'carried', detail: 'proposed' },
+		confidence: 0.7,
+	}
+}
+
+/** Holds the amendment the supplied turns continue from: a mapped, a defaulted, and a computed name. */
+export const SUPPLIED_AMENDMENT: Amendment = {
+	entities: [
+		{ name: 'accidents', value: 3 },
+		{ name: 'deductible', value: 1200 },
+		{ name: 'monthly', value: 55 },
+	],
+}
+
+/**
+ * Lists the turns continued from {@link SUPPLIED_AMENDMENT}, each with the entities it and the turn
+ * after it carry, its questions with their candidates, and the subject of the turn after it.
+ */
+export const SUPPLIED_TURNS: ReadonlyArray<{
+	readonly name: string
+	readonly text: string
+	readonly carried: readonly Entity[]
+	readonly open: ReadonlyArray<readonly [field: FieldPath, candidates: readonly string[]]>
+	readonly again: readonly Entity[]
+	readonly accidents: number
+}> = [
+	{
+		name: 'restates nothing',
+		text: 'calculate insurance',
+		carried: [
+			buildCarriedEntity('age', 25),
+			buildSuppliedEntity('accidents', 3),
+			buildSuppliedEntity('deductible', 1200, ['deductible']),
+			buildSuppliedEntity('monthly', 55, 'monthly'),
+		],
+		open: [],
+		again: [
+			buildCarriedEntity('age', 25),
+			buildSuppliedEntity('accidents', 3),
+			buildSuppliedEntity('deductible', 1200, ['deductible']),
+			buildSuppliedEntity('monthly', 55, 'monthly'),
+		],
+		accidents: 3,
+	},
+	{
+		name: 'restates a supplied value',
+		text: 'calculate insurance accidents 1',
+		carried: [
+			buildCarriedEntity('age', 25),
+			buildSuppliedEntity('deductible', 1200, ['deductible']),
+			buildSuppliedEntity('monthly', 55, 'monthly'),
+		],
+		open: [],
+		again: [
+			buildCarriedEntity('age', 25),
+			buildCarriedEntity('accidents', 1),
+			buildSuppliedEntity('deductible', 1200, ['deductible']),
+			buildSuppliedEntity('monthly', 55, 'monthly'),
+		],
+		accidents: 1,
+	},
+	{
+		name: 'holds an unclaimed number',
+		text: 'calculate insurance 7',
+		carried: [
+			buildCarriedEntity('age', 25),
+			buildSuppliedEntity('accidents', 3),
+			buildSuppliedEntity('deductible', 1200, ['deductible']),
+			buildSuppliedEntity('monthly', 55, 'monthly'),
+		],
+		open: [
+			['age', ['7']],
+			['accidents', ['7']],
+			['coverage', ['7']],
+		],
+		again: [
+			buildCarriedEntity('age', 25),
+			buildSuppliedEntity('accidents', 3),
+			buildSuppliedEntity('deductible', 1200, ['deductible']),
+			buildSuppliedEntity('monthly', 55, 'monthly'),
+		],
+		accidents: 3,
+	},
+]
+
 /**
  * Lists the amendments, each with what clarify must be handed: the entities stated, the entities
  * left to carry, and the numbers nobody claims, all written out by hand.

@@ -49,6 +49,9 @@ import {
 	buildProposedEntity,
 	buildRuleChain,
 	buildStatedEntity,
+	buildSuppliedEntity,
+	SUPPLIED_AMENDMENT,
+	SUPPLIED_TURNS,
 	buildTermsRecipe,
 	collectEvidenceAccounts,
 	collectFixtureAccounts,
@@ -1761,6 +1764,27 @@ describe('the continuation fixtures', () => {
 		])
 		expect(Object.hasOwn(buildProposedEntity('age', 25), 'field')).toBe(false)
 		expect(buildProposedEntity('a.b', 1, ['a', 'b']).field).toEqual(['a', 'b'])
+		expect(buildSuppliedEntity('a.b', 1, ['a', 'b'])).toEqual({
+			...buildCarriedEntity('a.b', 1),
+			field: ['a', 'b'],
+			provenance: { category: 'carried', detail: 'proposed' },
+		})
+		expect(Object.hasOwn(buildSuppliedEntity('age', 25), 'field')).toBe(false)
+	})
+
+	it('the supplied amendment names a mapped, a defaulted, and a computed entity of the corpus', () => {
+		const recipe = buildInsuranceRecipe()
+		const names = (SUPPLIED_AMENDMENT.entities ?? []).map((entity) => entity.name)
+		const mapped = recipe.mappings.map((mapping) => mapping.entity)
+		const defaulted = collectShapeDefaults(recipe.shape).map((entry) => formatField(entry.field))
+		const computed = recipe.computations.map((entry) => formatField(entry.field))
+		expect(names).toEqual(['accidents', 'deductible', 'monthly'])
+		expect(names.filter((name) => mapped.includes(name))).toEqual(['accidents'])
+		expect(names.filter((name) => defaulted.includes(name) && !mapped.includes(name))).toEqual([
+			'deductible',
+		])
+		expect(names.filter((name) => computed.includes(name))).toEqual(['monthly'])
+		expect(SUPPLIED_TURNS.map((turn) => turn.open.length > 0)).toEqual([false, false, true])
 	})
 
 	it('the terms recipe defaults and computes nested fields that no mapping names', () => {

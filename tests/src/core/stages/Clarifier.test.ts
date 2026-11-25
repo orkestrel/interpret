@@ -7,9 +7,17 @@ import {
 	stringShape,
 } from '@orkestrel/contract'
 import { createConstant, createOperation, createVariable } from '@orkestrel/reason'
-import { Clarifier, Narrator } from '@src/core'
+import { buildSubject, Clarifier, Narrator } from '@src/core'
 import { describe, expect, it } from 'vitest'
-import { buildInterpretation, buildInterpretRecipe, seedInterpretContext } from '../../../setup.js'
+import {
+	buildCarriedEntity,
+	buildInterpretation,
+	buildInterpretRecipe,
+	buildProposedEntity,
+	buildStatedEntity,
+	buildSuppliedEntity,
+	seedInterpretContext,
+} from '../../../setup.js'
 
 // The `Clarifier` stage — carry-over, the door's defaults, computed fields (topological,
 // gap-on-cycle), and what the door refuses as ambiguities. Drives a REAL
@@ -99,6 +107,142 @@ describe('Clarifier', () => {
 			]
 			const result = clarifier.clarify(fresh, recipe, seedInterpretContext([prior]), intent)
 			expect(result.entities).toEqual(fresh)
+		})
+
+		describe('of a supplied value', () => {
+			const recipe = buildInterpretRecipe()
+
+			it('carries a proposed value, mapped or not, and one carried as proposed, with that detail', () => {
+				const prior = buildInterpretation({
+					intent,
+					entities: [
+						buildProposedEntity('rate', 4, ['terms', 'rate']),
+						buildProposedEntity('value', 99),
+						buildProposedEntity('plain', 'a'),
+						buildSuppliedEntity('months', 12, ['terms', 'months']),
+					],
+				})
+				const result = new Clarifier().clarify([], recipe, seedInterpretContext([prior]), intent)
+				expect(result.entities).toEqual([
+					buildSuppliedEntity('value', 99),
+					buildSuppliedEntity('rate', 4, ['terms', 'rate']),
+					buildSuppliedEntity('plain', 'a'),
+					buildSuppliedEntity('months', 12, ['terms', 'months']),
+				])
+			})
+
+			it('keeps the detail of a mapped value carried as proposed, and adds none to another', () => {
+				for (const entity of [buildSuppliedEntity('value', 99), buildCarriedEntity('value', 99)]) {
+					const prior = buildInterpretation({ intent, entities: [entity] })
+					const result = new Clarifier().clarify([], recipe, seedInterpretContext([prior]), intent)
+					expect(result.entities).toEqual([entity])
+				}
+			})
+
+			it('takes no unmapped value that nobody supplied', () => {
+				const prior = buildInterpretation({
+					intent,
+					entities: [
+						buildStatedEntity('plain', 1),
+						buildCarriedEntity('other', 2),
+						{ ...buildProposedEntity('term', 12), provenance: { category: 'default' } },
+						{ ...buildProposedEntity('sum', 24), provenance: { category: 'computed' } },
+					],
+				})
+				const result = new Clarifier().clarify([], recipe, seedInterpretContext([prior]), intent)
+				expect(result.entities).toEqual([])
+			})
+
+			it('the latest turn wins, and a fresh value by its name or on its field wins over it', () => {
+				const context = seedInterpretContext([
+					buildInterpretation({
+						intent,
+						entities: [buildProposedEntity('rate', 4), buildProposedEntity('value', 1)],
+					}),
+					buildInterpretation({
+						intent,
+						entities: [buildProposedEntity('rate', 5), buildStatedEntity('value', 2)],
+					}),
+				])
+				const clarifier = new Clarifier()
+				expect(clarifier.clarify([], recipe, context, intent).entities).toEqual([
+					buildCarriedEntity('value', 2),
+					buildSuppliedEntity('rate', 5),
+				])
+				const named = [buildStatedEntity('value', 3), buildProposedEntity('rate', 6)]
+				expect(clarifier.clarify(named, recipe, context, intent).entities).toEqual(named)
+				const placed = [buildStatedEntity('value', 3), buildProposedEntity('price', 6, 'rate')]
+				expect(clarifier.clarify(placed, recipe, context, intent).entities).toEqual(placed)
+			})
+
+			it('a fresh value inside a supplied object, or over a supplied member, wins over it', () => {
+				const terms = { rate: 4, months: 12 }
+				const inner = buildInterpretRecipe({
+					mappings: [{ entity: 'value', aliases: [], field: ['terms', 'rate'] }],
+				})
+				const whole = buildInterpretation({
+					intent,
+					entities: [buildProposedEntity('terms', terms, ['terms'])],
+				})
+				const restated = new Clarifier().clarify(
+					[buildStatedEntity('value', 9)],
+					inner,
+					seedInterpretContext([whole]),
+					intent,
+				)
+				expect(buildSubject(restated.entities, inner.mappings)).toEqual({
+					terms: { rate: 9, months: 12 },
+				})
+				const outer = buildInterpretRecipe({
+					mappings: [{ entity: 'value', aliases: [], field: 'terms' }],
+				})
+				const member = buildInterpretation({
+					intent,
+					entities: [buildProposedEntity('terms.rate', 4, ['terms', 'rate'])],
+				})
+				const replaced = new Clarifier().clarify(
+					[buildStatedEntity('value', { rate: 9 })],
+					outer,
+					seedInterpretContext([member]),
+					intent,
+				)
+				expect(replaced.entities).toEqual([buildStatedEntity('value', { rate: 9 })])
+				const carried = new Clarifier().clarify(
+					[],
+					inner,
+					seedInterpretContext([
+						buildInterpretation({
+							intent,
+							entities: [buildStatedEntity('value', 1), ...whole.entities],
+						}),
+					]),
+					intent,
+				)
+				expect(buildSubject(carried.entities, inner.mappings)).toEqual({ terms })
+			})
+
+			it('crosses no domain and no recipe', () => {
+				const entities = [buildProposedEntity('rate', 4), buildProposedEntity('value', 99)]
+				const context = seedInterpretContext([
+					buildInterpretation({ intent: { ...intent, domain: 'other' }, entities }),
+					buildInterpretation({ intent, recipe: 'other', entities }),
+				])
+				expect(new Clarifier().clarify([], recipe, context, intent).entities).toEqual([])
+			})
+
+			it('still asks of a mapped one while an unclaimed number could be its value', () => {
+				const prior = buildInterpretation({ intent, entities: [buildProposedEntity('value', 99)] })
+				const result = new Clarifier().clarify(
+					[],
+					recipe,
+					seedInterpretContext([prior]),
+					intent,
+					[7],
+				)
+				expect(result.ambiguities.map(({ field, candidates }) => [field, candidates])).toEqual([
+					['value', ['7']],
+				])
+			})
 		})
 	})
 

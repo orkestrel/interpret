@@ -184,7 +184,13 @@ export interface ShapeDefault {
 
 // === Intent, entity, ambiguity, provenance
 
-/** Describes how one value landed — its origin category plus an optional strategy detail. */
+/**
+ * Describes how one value landed — its origin category plus an optional strategy detail.
+ *
+ * @remarks
+ * `detail` names the match an `extracted` value came from, and is `proposed` on a `carried` value
+ * that a reader supplied on an earlier turn.
+ */
 export interface Provenance {
 	readonly category: ProvenanceCategory
 	readonly detail?: string

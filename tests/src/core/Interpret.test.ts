@@ -75,6 +75,8 @@ import {
 	DISTRACTING_TURNS,
 	freezeFixture,
 	seedInterpretContext,
+	SUPPLIED_AMENDMENT,
+	SUPPLIED_TURNS,
 } from '../../setup.js'
 
 // The `Interpret` orchestrator — registry, synchronous
@@ -1720,8 +1722,8 @@ describe('T29: an interpretation amended', () => {
 			accidents: 2,
 		})
 		const continued = interpret.interpret('calculate insurance', { previous: amended })
-		expect(continued.ambiguities.map((ambiguity) => ambiguity.field)).toEqual(['age'])
-		expect(continued.entities.map((entity) => entity.name)).not.toContain('accidents')
+		expect(continued.ambiguities).toEqual([])
+		expect(continued.subject).toMatchObject({ age: 30, accidents: 0 })
 		interpret.destroy()
 	})
 
@@ -1756,6 +1758,132 @@ describe('T29: an interpretation amended', () => {
 		const interpret = buildCorpusInterpret()
 		const read = interpret.interpret('calculate insurance age 25')
 		expect(interpret.amend(read, { removed: ['height'] })).toEqual(read)
+		interpret.destroy()
+	})
+})
+
+describe('T32: a value supplied on a turn carried to the next', () => {
+	it.each(SUPPLIED_TURNS)(
+		'asks of it as of any carried value, over a text that $name',
+		({ text, open }) => {
+			const interpret = buildCorpusInterpret()
+			const read = interpret.interpret('calculate insurance age 25')
+			const previous = interpret.amend(read, SUPPLIED_AMENDMENT)
+			const next = interpret.interpret(text, { previous })
+			expect(next.ambiguities.map(({ field, candidates }) => [field, candidates])).toEqual(open)
+			interpret.destroy()
+		},
+	)
+
+	it.each(SUPPLIED_TURNS)(
+		'an amendment of nothing gives the continued turn back, over a text that $name',
+		({ text }) => {
+			const interpret = buildCorpusInterpret()
+			const read = interpret.interpret('calculate insurance age 25')
+			const previous = interpret.amend(read, SUPPLIED_AMENDMENT)
+			const next = interpret.interpret(text, { previous })
+			expect(interpret.amend(next, {})).toEqual(next)
+			const later = interpret.interpret('calculate insurance', { previous: next })
+			expect(interpret.amend(later, {})).toEqual(later)
+			interpret.destroy()
+		},
+	)
+
+	it.each(SUPPLIED_TURNS)(
+		'carries it on its own field, and once more with its detail, over a text that $name',
+		({ text, carried, open, again, accidents }) => {
+			const interpret = buildCorpusInterpret()
+			const read = interpret.interpret('calculate insurance age 25')
+			const previous = interpret.amend(read, SUPPLIED_AMENDMENT)
+			const next = interpret.interpret(text, { previous })
+			expect(next.entities.filter((entity) => entity.provenance.category === 'carried')).toEqual(
+				carried,
+			)
+			expect(next.entities.filter((entity) => entity.provenance.category === 'proposed')).toEqual(
+				[],
+			)
+			expect(next.subject).toEqual(
+				open.length > 0
+					? undefined
+					: { age: 25, accidents, coverage: 'standard', deductible: 1200, monthly: 55 },
+			)
+			expect(interpretationContract.audit(projectInterpretation(next))).toEqual([])
+
+			const later = interpret.interpret('calculate insurance', { previous: next })
+			expect(later.entities.filter((entity) => entity.provenance.category === 'carried')).toEqual(
+				again,
+			)
+			expect(later.subject).toEqual({
+				age: 25,
+				accidents,
+				coverage: 'standard',
+				deductible: 1200,
+				monthly: 55,
+			})
+			interpret.destroy()
+		},
+	)
+
+	it('asks no more for a required value that was supplied', () => {
+		const interpret = buildCorpusInterpret()
+		const read = interpret.interpret('calculate insurance')
+		expect(read.ambiguities.map((ambiguity) => ambiguity.field)).toEqual(['age'])
+		const previous = interpret.amend(read, { entities: [{ name: 'age', value: 30 }] })
+		const next = interpret.interpret('calculate insurance', { previous })
+		expect(next.ambiguities).toEqual([])
+		expect(next.subject?.age).toBe(30)
+		interpret.destroy()
+	})
+
+	it('carries the same from a history that holds the amended turn, and from a stored one', () => {
+		const reader = buildCorpusInterpret()
+		const read = reader.interpret('calculate insurance age 25')
+		const previous = reader.amend(read, SUPPLIED_AMENDMENT)
+		const stored: unknown = JSON.parse(JSON.stringify(projectInterpretation(previous)))
+		if (!isInterpretation(stored)) throw new Error('The stored turn is no interpretation')
+		for (const { text } of SUPPLIED_TURNS) {
+			const context = seedInterpretContext([read, previous])
+			const seeded = new Interpret({
+				recipes: [buildInsuranceRecipe()],
+				extractor: createCorpusExtractor(),
+				context,
+			})
+			const continued = reader.interpret(text, { previous })
+			expect(seeded.interpret(text)).toEqual(continued)
+			expect(reader.interpret(text, { previous: stored })).toEqual(continued)
+			seeded.destroy()
+			context.destroy()
+		}
+		reader.destroy()
+	})
+
+	it('lets a later amendment replace or withdraw a supplied value it carried', () => {
+		const interpret = buildCorpusInterpret()
+		const read = interpret.interpret('calculate insurance age 25')
+		const previous = interpret.amend(read, SUPPLIED_AMENDMENT)
+		const next = interpret.interpret('calculate insurance', { previous })
+		const changed = interpret.amend(next, {
+			entities: [{ name: 'accidents', value: 5 }],
+			removed: ['monthly'],
+		})
+		expect(changed.subject).toMatchObject({ accidents: 5, deductible: 1200, monthly: 100 })
+		expect(interpret.interpret('calculate insurance', { previous: changed }).subject).toEqual({
+			age: 25,
+			accidents: 5,
+			coverage: 'standard',
+			deductible: 1200,
+			monthly: 100,
+		})
+		interpret.destroy()
+	})
+
+	it('carries a name the shape refuses too, so the question stands until it is withdrawn', () => {
+		const interpret = buildCorpusInterpret()
+		const read = interpret.interpret('calculate insurance age 25')
+		const previous = interpret.amend(read, { entities: [{ name: 'colour', value: 'red' }] })
+		const next = interpret.interpret('calculate insurance', { previous })
+		expect(next.ambiguities.map((ambiguity) => ambiguity.field)).toEqual([['colour']])
+		expect(interpret.amend(next, { removed: ['colour'] }).ambiguities).toEqual([])
 		interpret.destroy()
 	})
 })

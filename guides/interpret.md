@@ -170,7 +170,7 @@ A `default` value still asks when an unclaimed number could be its value. `amend
 entity it is supplied this provenance.
 Every one of these blocks the subject, and what a blocked turn read stays in `entities`, so the
 next turn can carry it when history is enabled, or when it names that turn as `previous`: only an
-`extracted` or `carried` value carries, because a computed or defaulted value is
+`extracted`, `proposed`, or `carried` value carries, because a computed or defaulted value is
 worked out again, and only within one recipe. Only a mapping whose field's shape is an array collects many numbers, and collection requires
 an anchor. An unreadable occurrence asks instead of supplying digit fragments or an empty array.
 
@@ -404,8 +404,9 @@ const withdrawn = interpret.amend(answered, { removed: ['hours'] })
 withdrawn.ambiguities[0]?.candidates // ['4']
 withdrawn.subject // undefined
 
-const next = interpret.interpret('book workshop guests 12', { previous: answered })
-next.subject // { guests: 12, hours: 4 }
+const next = interpret.interpret('book workshop hours 6', { previous: answered })
+next.subject // { hours: 6, guests: 8 }
+next.entities[1]?.provenance // { category: 'carried', detail: 'proposed' }
 interpret.destroy()
 ```
 
@@ -429,8 +430,10 @@ interpret.destroy()
 - `refusals` stay what the text's anchors refused. A number is unclaimed when no standing entity's
   anchor claimed it and no proposed value equals it: a replaced value's number stays claimed, a
   withdrawn one is free again, and a number the reader couldn't read stays unclaimed.
-- A value carries to the next turn only where it was `extracted` or `carried`, so a proposed one
-  doesn't. Supply it again on that turn.
+- A value you supplied carries to a turn continued from it, on its own field, as `carried` with
+  detail `proposed`, and keeps that detail on each turn after. A value the next text states wins, and
+  an unclaimed number raises the field's question, as for any carried value. A name a closed shape
+  refuses carries too, so its question stands until you withdraw the name.
 
 `amend` throws `InterpretError('INTERPRETATION')` for a value `isInterpretation` refuses, and
 `interpret` does for such a `previous`. It throws `'VERSION'` when the registry doesn't hold the
