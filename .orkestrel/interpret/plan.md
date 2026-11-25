@@ -51,14 +51,23 @@ The claims are the truth rules and the exit criterion. The bar for this campaign
 | Symbolic and inferential accounts past the verdict | One application | interpret |
 | `ROADMAP.md` item 2 (`createHostileValues`) | This campaign's release visit | interpret |
 
+| A list member that holds a quotation mark, which can still be misread | A consumer's list that holds one | interpret |
+| A Spanish list whose member holds ` u ` beside a word opening in `o` | A Spanish consumer | interpret |
+| `1 of 1 rules apply` and `1 of 5 rules apply` read plural | A consumer who asks | interpret |
+| A refusal that only `errors` words names no cause, and a worksheet can't name the value a lookup read | Part two, and a `reason` result that carries them | the user |
+
 ## Sequence
 
-1. **Words and the verdict account:** the types, the lexicon and its merge, the glossary and its audit, the sentences, and the logical account with the refusals.
-2. **The worksheet and the guide,** with the renderer and its detail levels.
-3. **A real consumer:** one application's definitions and subjects through the built package, outside this repository.
-4. **The review,** the documentation pass, and the gates.
+Every step of this campaign is done. Part one of the family's removal is the next chunk, after the user's release decision; § Deferred holds it and part two.
 
 ## State
 
-- **2026-11-25.** Opened. The design is `designs/writing.md`. Before it, probes on the current packages read: pairing a rule's atoms with its checks by extraction order and recombining with `combineStates` agreed with the engine on 9,024 of 9,024 premises over all five connectives; `fillTemplate` fills 15 of 16 token forms as `qualifier`'s filler does, the other being its documented escape; and `qualifier`'s, `program`'s, and `rater`'s rows fit small structural types.
-- **Next action:** unit `wrt-core`, with `wrt-fixture` beside it.
+- **2026-11-25.** Opened, built, reviewed, and gated in one day.
+  - **Stage 1** (`2533a1b`): the lexicon and its word-level merge, the glossary and its audit, the sentences, and the logical account with its refusals.
+  - **Stage 2** (`153b61e`, `00f0efa`): the worksheet, the guide, the renderer, and the goal rule.
+  - **The real consumer:** one application's own definitions and subjects through the package, outside this repository: 161 accounts, 1,859 lines, no throw, no unclean text, no rule worded as applying that the engine left unmet, and 64 refusals each with a cause. It found the goal rule.
+  - **The review** broke six of ten claims, and the repairs (`107f7f2`) and the re-audit's two (`a298796`) closed them; the closure check read closed.
+  - **The documentation pass** (`25b3073`): every fence runs in the guide test.
+  - **The gates** at `a298796`, on Node 22: format, lint, types, build, 1,575 core tests, 178 policy, 586 config, 103 setup, 97 guide, and 10 distribution tests, all green.
+- **The exit criterion is met.** Nothing is pushed or published.
+- **Next action:** the user's word on the release (the 0.0.27 visit, its migration entry written) and on when part one opens.

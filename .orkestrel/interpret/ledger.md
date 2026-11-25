@@ -8,3 +8,9 @@
 | 2026-11-25 | User: interpret is the family's one owner of wording | `user` | `plan.md` § Rulings |
 | 2026-11-25 | The design and plan | `planner`, Claude Fable 5.2 (read-only consultation) | `designs/writing.md` |
 | 2026-11-25 | User: proceed with stages 1 and 2 as recommended | `user` | `plan.md` § Rulings |
+| 2026-11-25 | `wrt-core`, `wrt-documents`, `wrt-fix`, `wrt-guide`, `wrt-fix-2`: the writing side, its repairs, and its guide | `opus`, Claude Opus 5.5 (holding `astra`'s unit; Astra dark) | `plan.md` § State |
+| 2026-11-25 | `wrt-fixture`: the invented domain and the generated trees | `builder`, Claude Sonnet 5.5 | `plan.md` § State |
+| 2026-11-25 | `wrt-review`: six of ten claims broken | `reviewer`, Claude Sonnet 5.5 | `plan.md` § State |
+| 2026-11-25 | `wrt-reaudit`: five of six repairs confirmed | `reviewer`, Claude Sonnet 5.5 | `plan.md` § State |
+| 2026-11-25 | `wrt-closure`: closed | `reviewer`, Claude Sonnet 5.5 | `plan.md` § State |
+| 2026-11-25 | `wrt-gates`: the tree-wide gates, green | `verifier`, Claude Haiku 5.5 | `plan.md` § State |
