@@ -196,6 +196,16 @@ A rule's reasons are the checks that fix its state. interpret pairs the rule's a
 
 A condition is a check with no subject: `condition.equal` (`{{label}} is {{expected}}`), `condition.compared`, or `condition.listed`. Under `not`, the check takes its failing words. A conclusion key reads as its concluding rule's name with `rules.met`, or `rules.unmet` under `not`. `and` and `or` join through `Intl.ListFormat`, conjunction and disjunction; `implies` reads `condition.implies` (`if {{first}}, then {{second}}`); `xor` reads `condition.xor` (`either {{first}} or {{second}}, but not both`); and a compound inside another takes `condition.group` (`({{condition}})`). A `not` over a compound takes `condition.not` (`not ({{condition}})`).
 
+## Rulings from the review of 2026-11-25
+
+- **A refused run derives nothing it can't vouch for.** Where every entry of `errors` is a fault's (`errors` holds no more entries than `faults`), a logical account still prints its settled rules, because a rule settled in strong Kleene logic stays settled whatever the missing input. Where `errors` holds more, the account prints the refusal and its faults alone: no rule's state, no reason, and no verdict word. The count compares lengths and reads no string.
+- **A condition is the whole rule.** A list in a condition prints every member, whatever the limit, so `condition.listed` leaves. A fact still counts past the limit.
+- **A source the result can't settle says so.** Where a factor's raw value equals both its fallback and an entry's value, its line reads `source.either` (`looked up by {{label}}, or its fallback`), for a lookup and a range alike. A weight prints only under an aggregation that uses weights.
+- **Plain data in.** `describe`, `narrate`, and `audit` read a definition and a result as `reason`'s guards admit them, and say so; a hostile accessor can throw what it throws. The constructor reads every option safely and refuses an unreadable one with `LEXICON` or `GLOSSARY`. The lookups stay total.
+- **Verbatim lookups.** `value`, `label`, `line`, `phrase`, `Account.name`, and `Account.id` give the supplied text as it is; the one-line law binds a line's `text` and `summary`.
+- **An account owns what it holds.** A line's source and gaps are copies, so no two accounts, and no account and its definition or result, share a mutable object.
+- **A line carries every gap of its `text` and its `summary`,** a condition's and a static source's included.
+
 ## The verdict of a logical definition
 
 `reason`'s `conclusion` is the last evaluated rule's state, so it's a verdict only where that rule is a goal. A definition has a goal when it has one enabled rule, or when its last enabled rule reads a key another enabled rule concludes.
