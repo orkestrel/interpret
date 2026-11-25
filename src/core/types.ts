@@ -845,8 +845,8 @@ export type DecisionKey = 'approved' | 'denied' | 'submitted'
  * and `transforms` a factor's. `refusals` words why a number in a text was not taken, and
  * `unreadables` why it could not be read exactly. `eligibilities`, `effects`, `statuses`, and
  * `decisions` word what other packages decide; `phrase` reads them. `joins.reasons` stands
- * between reasons, `joins.last` before the last one, and `joins.steps` between a factor's steps.
- * `frames` are `@orkestrel/template` templates whose slots `FRAME_SLOTS` lists, and
+ * between reasons, `joins.last` before the last one, `joins.steps` between a factor's steps, and
+ * `joins.terms` between a fact's terms. `frames` are `@orkestrel/template` templates whose slots `FRAME_SLOTS` lists, and
  * `WORD_SLOTS` lists those of `operations`, `transforms`, `constraints`, `lengths`, and
  * `refusals`. `limits.list` is the longest list a fact prints in full, a longer one being
  * counted, and `limits.reasons` the most reasons, or rules that apply, one sentence gives. A
@@ -871,7 +871,7 @@ export interface Lexicon {
 	readonly statuses: Readonly<Record<StatusKey, string>>
 	readonly decisions: Readonly<Record<DecisionKey, string>>
 	readonly values: { readonly true: string; readonly false: string; readonly null: string }
-	readonly joins: { readonly reasons: string; readonly last: string; readonly steps: string }
+	readonly joins: Readonly<Record<'reasons' | 'last' | 'steps' | 'terms', string>>
 	readonly frames: Readonly<Record<FrameName, string>>
 	readonly limits: { readonly list: number; readonly reasons: number }
 	readonly missing: string
@@ -1705,6 +1705,11 @@ export interface NarratorInterface {
 	/**
 	 * Writes the guide to a definition: each enabled part's name, description, and condition.
 	 *
+	 * @remarks
+	 * A lookup's entries, a range's bands, and each base, bound, change, weight, fallback, and
+	 * precision a number is set by print at `full` detail alone. An equation prints its own text, and
+	 * an inference its conclusion and its premises.
+	 *
 	 * @param definition - The definition to describe
 	 * @returns The guide's account, with no `success`
 	 */
@@ -1715,10 +1720,12 @@ export interface NarratorInterface {
 	 * @remarks
 	 * A logical result's verdict is its goal rule's outcome, as `findGoalRule` finds it, and a
 	 * definition without a goal counts the rules that apply. A quantitative result is written as a
-	 * worksheet of its groups and factors. A result whose `success` is false states no value, count,
-	 * or solution: its verdict names each field that was not read and each factor that found no
-	 * value. A refused logical result whose `errors` outnumber its `faults` states its faults alone,
-	 * and no rule.
+	 * worksheet of its groups and factors, and a symbolic one as each solution with the last equation
+	 * of its target. An inferential result states each fact it derived, with a confidence below 1,
+	 * and one with a proof states its conclusion and the inference that proved it. A result whose
+	 * `success` is false states no value, count, fact, or solution: its verdict names each field that
+	 * was not read and each factor that found no value. A refused logical result whose `errors`
+	 * outnumber its `faults` states its faults alone, and no rule.
 	 *
 	 * @param definition - The definition the result answers
 	 * @param result - The result to narrate

@@ -1,4 +1,12 @@
-import type { Definition, LogicalResult, Subject, SymbolicResult } from '@orkestrel/reason'
+import type {
+	Bounds,
+	Definition,
+	InferentialResult,
+	LogicalResult,
+	Subject,
+	SymbolicExpression,
+	SymbolicResult,
+} from '@orkestrel/reason'
 import type {
 	AccountLine,
 	Glossary,
@@ -13,6 +21,7 @@ import {
 	nullShape,
 	numberShape,
 	objectShape,
+	seededRandom,
 	stringShape,
 	undefinedShape,
 	unionShape,
@@ -33,6 +42,7 @@ import {
 	createLogicalDefinition,
 	createLogicalReasoner,
 	createLookupFactor,
+	createOperation,
 	createQuantitativeDefinition,
 	createQuantitativeReasoner,
 	createRangeFactor,
@@ -46,9 +56,11 @@ import {
 	formatField,
 	isLogicalResult,
 	isQuantitativeResult,
+	MATH_OPERATIONS,
 } from '@orkestrel/reason'
 import { captureError, createHostileValues, requireValue } from '@orkestrel/test'
 import {
+	canonicalize,
 	compileEntities,
 	isInterpretError,
 	Narrator,
@@ -60,33 +72,47 @@ import {
 } from '@src/core'
 import { describe, expect, it } from 'vitest'
 import {
+	ABSENT_OPERAND_READINGS,
+	buildBandTables,
 	buildExpressionTrees,
+	buildSymbolicTrees,
 	buildWorkshopArea,
+	buildWorkshopCharge,
 	buildWorkshopFacts,
 	buildWorkshopFees,
 	buildWorkshopGates,
+	buildWorkshopKin,
+	buildWorkshopQuote,
 	buildWorkshopRules,
 	buildWorkshopScore,
 	collectTreeSubjects,
+	computeChanges,
 	FAULT_BOUNDS,
 	FAULT_PLAIN,
 	FAULT_SHAPES,
 	FAULT_WORDS,
 	MALFORMED_RECORDS,
+	parseWordedRange,
+	parseSide,
+	pickMember,
 	REFUSAL_MAPPINGS,
 	REFUSAL_SENTENCES,
 	renderInterpretUnit,
 	STRANGE_RECORDS,
+	TRANSFORM_READINGS,
 	TRICKY_KEYS,
 	UNREADABLE_SENTENCES,
 	WORKSHOP_AREA,
 	WORKSHOP_BASE,
+	WORKSHOP_CHARGES,
 	WORKSHOP_FEES,
 	WORKSHOP_GATES,
 	WORKSHOP_GLOSSARY,
+	WORKSHOP_QUOTES,
 	WORKSHOP_RESTRICTED,
 	WORKSHOP_SCORES,
 	WORKSHOP_SUBJECTS,
+	WORKSHOP_TREE_SEED,
 } from '../../setup.js'
 
 // The `Narrator` writes a reasons run as a worded account. Every account here is written from the
@@ -165,7 +191,7 @@ const TREE_READINGS = buildExpressionTrees().map((definition) =>
 
 // What no written text may hold: a missing value's name, a line break, or an empty slot.
 const BLANK_TEXT =
-	/undefined|NaN|∞|[\n\v\f\r\x85\p{Zl}\p{Zp}]|^\s*$|\s$|\bis ,|\bis $|which is\s*(?:,|$)|, because\s*(?:,|$)|\(\s*\)|:\s*$|\b(?:when|by|from|at|if|then|either|or|and|be|than|of|have)\s*(?:,|$)|\bnot\s*,|\band {2}is not|\bfor\s*\)/u
+	/undefined|NaN|∞|[\n\v\f\r\x85\p{Zl}\p{Zp}]|^\s*$|\s$|\bis ,|\bis $|which is\s*(?:,|$)|, because\s*(?:,|$)|\(\s*\)|:\s*$|\b(?:when|by|from|at|if|then|either|or|and|be|than|of|have)\s*(?:,|$)|\bnot\s*,|\band {2}is not|\bfor\s*\)|^\s*:/u
 
 const WORKSHOP_HELD_LINE =
 	'Workshop booking holds, because Trusted booker applies (wOrkshop tier is gold); Quiet activity applies (noise level is 30, which is not more than 40); Restricted activity does not apply (activity is pottery, which is not one of the 40 listed); and cost is $1,000.00, which is at most $1,250.00'
@@ -597,10 +623,16 @@ describe('Narrator', () => {
 				'  Room rate',
 				'    The hourly rate, for a session of two hours.',
 				'    taken from hourly rate',
+				'    changes: times 2',
 				'  Crowd charge',
 				'    set by the first range guest count falls in',
+				'      at most 10: 5',
+				'      11 to 30: 12',
+				'      fallback: 40',
+				'    changes: times 3',
 				'  Deposit',
 				'    fixed at $50.00',
+				'    must apply',
 				'    applies when cost is at most $1,250.00',
 				'Share',
 				'  Product of the values that apply',
@@ -608,8 +640,12 @@ describe('Narrator', () => {
 				'    fixed at 0.9',
 				'  Season',
 				'    looked up by season',
+				'      peak: 1.5',
+				'      low: 0.75',
+				'      fallback: 1',
 				'Extras',
 				'  Average of the values that apply',
+				'  applies only when all of its values apply',
 				'  Tool hire',
 				'    fixed at $10.00',
 				'    applies when tools brought is true and noise level is at most 40',
@@ -618,7 +654,97 @@ describe('Narrator', () => {
 			])
 		})
 
-		it('writes each equation with its target, and each inference by name', () => {
+		it('writes every setting a score authors at full detail, and none at any other', () => {
+			const narrator = new Narrator({ glossary: WORKSHOP_GLOSSARY })
+			const account = narrator.describe(buildWorkshopQuote())
+			expect(renderAccount(account, { detail: 'full' }).split('\n')).toEqual([
+				'Workshop quote',
+				'  Quotes one booking.',
+				'  Total of the values that apply',
+				'  base: $10.00',
+				'  bounds: at least $25.00',
+				'  decimal places: 2',
+				'Hire',
+				'  Total of the values that apply',
+				'  base: $5.00',
+				'  bounds: at most $500.00',
+				'  applies only when all of its values apply',
+				'  Material rate',
+				'    looked up by material',
+				'      oak: $12.50',
+				'      pine: $8.00',
+				'      fallback: $6.00',
+				'    weight: 2',
+				'  Session charge',
+				'    set by the first range hours booked falls in',
+				'      at most 4: 30',
+				'      3 to 8: 50',
+				'      any value: 75',
+				'    changes: 90% of it, then plus 0.4, then rounded up to a whole number',
+				'    bounds: $28.00 to $60.00',
+				'  Deposit',
+				'    fixed at $50.00',
+				'    must apply',
+				'    applies when cost is at most $1,250.00',
+				'Crowd',
+				'  Highest of the values that apply',
+				'  Crowd charge',
+				'    set by the first range guest count falls in',
+				'      at least 20: $15.13',
+				'      fallback: $0.00',
+			])
+			expect(renderAccount(account).split('\n')).toEqual([
+				'Workshop quote',
+				'  Total of the values that apply',
+				'Hire',
+				'  Total of the values that apply',
+				'  Material rate',
+				'    looked up by material',
+				'  Session charge',
+				'    set by the first range hours booked falls in',
+				'  Deposit',
+				'    fixed at $50.00',
+				'    applies when cost is at most $1,250.00',
+				'Crowd',
+				'  Highest of the values that apply',
+				'  Crowd charge',
+				'    set by the first range guest count falls in',
+			])
+			expect(renderAccount(account, { detail: 'line' })).toBe('Workshop quote')
+		})
+
+		it('writes no setting that is the engine default, no weight the aggregation ignores, and no fallback a source cannot take', () => {
+			const definition = createQuantitativeDefinition(
+				'd',
+				'D',
+				[
+					createFactorGroup(
+						'g',
+						'maximum',
+						[
+							createStaticFactor('s', 1, { name: 'S', weight: 5, fallback: 9, transforms: [] }),
+							createFieldFactor('f', 'n', { name: 'F', fallback: 9, required: false }),
+						],
+						{ name: 'G', base: 0, bounds: {}, strict: false },
+					),
+				],
+				{ base: 0, precision: 1.5 },
+			)
+			expect(
+				renderAccount(new Narrator().describe(definition), { detail: 'full' }).split('\n'),
+			).toEqual([
+				'D',
+				'  Total of the values that apply',
+				'G',
+				'  Highest of the values that apply',
+				'  S',
+				'    fixed at 1',
+				'  F',
+				'    taken from n',
+			])
+		})
+
+		it('writes each equation with its own text and its target', () => {
 			const narrator = new Narrator({ glossary: WORKSHOP_GLOSSARY })
 			expect(
 				renderAccount(narrator.describe(buildWorkshopArea()), { detail: 'full' }).split('\n'),
@@ -626,11 +752,69 @@ describe('Narrator', () => {
 				'Floor area',
 				'Floor area',
 				'  The floor area is the width times the depth.',
+				'  floor area = width × depth',
 				'  solves for floor area',
 			])
+			expect(
+				renderAccount(narrator.describe(buildWorkshopCharge()), { detail: 'full' }).split('\n'),
+			).toEqual([
+				'Workshop charge',
+				'  decimal places: 2',
+				'Charge',
+				'  The charge grows with the floor and has a least value.',
+				'  charge = the higher of ((width × depth) ÷ 2) and (least fee - (-2))',
+				'  solves for charge',
+				'Deposit',
+				'  deposit = 12.5% of charge',
+				'  solves for deposit',
+			])
+		})
+
+		it('writes each inference with its conclusion, its premises, and its confidence below 1', () => {
+			const narrator = new Narrator({ glossary: WORKSHOP_GLOSSARY })
 			expect(renderAccount(narrator.describe(buildWorkshopFacts()), { detail: 'full' })).toBe(
-				'Booking facts\nStaffing\nCleaning\nClosing',
+				[
+					'Booking facts',
+					'Staffing',
+					'  ?room is staffed, when ?room is booked',
+					'Cleaning',
+					'  ?room is cleaned, when ?room is staffed',
+					'Closing',
+					'  ?room is closed, when ?room is cleaned',
+				].join('\n'),
 			)
+			const guide = narrator.describe(buildWorkshopKin())
+			expect(renderAccount(guide, { detail: 'full' }).split('\n')).toEqual([
+				'Workshop kin',
+				'Grandparents',
+				'  A parent of a parent.',
+				'  ?x is a grandparent of ?z, when ?x is a parent of ?y and ?y is a parent of ?z',
+				'  confidence: 95%',
+				'Welcome',
+				'  ?x is wELCOME, when ?x is a grandparent of ?z and wOrkshop tier is gold',
+			])
+			expect(guide.lines[1]?.lines.map(({ source }) => source)).toEqual([
+				{},
+				{ inference: 'grandparent' },
+				{ inference: 'grandparent' },
+			])
+		})
+
+		it('states an inference with no premises only where the engine concludes it', () => {
+			const inferences = [
+				createInference('i', [], createFact('c', 'ready', ['hall']), { name: 'I' }),
+			]
+			const forward = createInferentialDefinition('d', 'D', [], inferences)
+			const backward = createInferentialDefinition('d', 'D', [], inferences, {
+				strategy: 'backward',
+			})
+			const narrator = new Narrator({
+				glossary: { labels: {}, predicates: { ready: '{{1}} is ready' } },
+			})
+			expect(REASON.reason({}, forward)).toMatchObject({ success: false, derived: [] })
+			expect(renderAccount(narrator.describe(forward))).toBe('D\nI')
+			expect(REASON.reason({}, backward)).toMatchObject({ success: true })
+			expect(renderAccount(narrator.describe(backward))).toBe('D\nI\n  hall is ready')
 		})
 
 		it('words every connective, under not, and nested', () => {
@@ -1451,7 +1635,7 @@ describe('Narrator', () => {
 			])
 		})
 
-		it('writes one verdict line for a quantitative, a symbolic, and an inferential answer', () => {
+		it('writes a value, each solution, and a count of facts as verdicts', () => {
 			const narrator = new Narrator({
 				glossary: {
 					...WORKSHOP_GLOSSARY,
@@ -1470,9 +1654,15 @@ describe('Narrator', () => {
 				createEquation('w', createVariable('width'), createConstant(1200), 'width'),
 				createEquation('d', createVariable('depth'), createConstant(10), 'depth'),
 			])
-			expect(renderAccount(narrator.narrate(pair, REASON.reason({}, pair)))).toBe(
-				'width is 1,200 and depth is 10',
+			const solved = narrator.narrate(pair, REASON.reason({}, pair))
+			expect(renderAccount(solved)).toBe(
+				'width is 1,200\n  width = 1200\ndepth is 10\n  depth = 10',
 			)
+			expect(renderAccount(solved, { detail: 'line' })).toBe('width is 1,200\ndepth is 10')
+			expect(solved.lines.map(({ source, lines }) => [source, lines[0]?.source])).toEqual([
+				[{ equation: 'w' }, { equation: 'w' }],
+				[{ equation: 'd' }, { equation: 'd' }],
+			])
 			const facts = createInferentialDefinition(
 				'facts',
 				'Facts',
@@ -1485,9 +1675,36 @@ describe('Narrator', () => {
 					),
 				],
 			)
-			expect(renderAccount(narrator.narrate(facts, REASON.reason({}, facts)))).toBe(
-				'Facts derived: 1',
-			)
+			const derived = narrator.narrate(facts, REASON.reason({}, facts))
+			expect(renderAccount(derived)).toBe('Facts derived: 1\nmortal(ada)')
+			expect(renderAccount(derived, { detail: 'line' })).toBe('Facts derived: 1')
+		})
+
+		it('nests the last equation of a target, and none a result has no equation of', () => {
+			const narrator = new Narrator()
+			const twice = createSymbolicDefinition('s', 'S', [
+				createEquation('first', createVariable('x'), createConstant(1), 'x'),
+				createEquation('last', createVariable('x'), createConstant(2), 'x'),
+			])
+			const result = REASON.reason({}, twice)
+			expect(renderAccount(narrator.narrate(twice, result))).toBe('x is 2\n  x = 2')
+			const other = createSymbolicDefinition('s', 'S', [])
+			expect(renderAccount(narrator.narrate(other, result))).toBe('x is 2')
+			expect(renderAccount(narrator.narrate(buildWorkshopFacts(), result))).toBe('x is 2')
+		})
+
+		it('writes a charge as its solutions, each with its own equation', () => {
+			const narrator = new Narrator({ glossary: WORKSHOP_GLOSSARY })
+			const charge = buildWorkshopCharge()
+			const least = requireValue(WORKSHOP_CHARGES.least)
+			expect(
+				renderAccount(narrator.narrate(charge, REASON.reason(least.subject, charge))).split('\n'),
+			).toEqual([
+				'charge is $14.00',
+				'  charge = the higher of ((width × depth) ÷ 2) and (least fee - (-2))',
+				'deposit is $1.75',
+				'  deposit = 12.5% of charge',
+			])
 		})
 
 		it('prints a verdict for a symbolic result with no solution', () => {
@@ -2329,9 +2546,11 @@ describe('Narrator', () => {
 					'Hire: $105.00',
 					'  Room rate: $40.00',
 					'    hourly rate is $20.00',
+					'    changes: times 2',
 					'  Crowd charge: $15.00',
 					'    set by the first range guest count falls in',
 					'    before its changes: 5',
+					'    changes: times 3',
 					'  Deposit: $50.00',
 					'    fixed at $50.00',
 					'Share: $1.35',
@@ -2351,9 +2570,11 @@ describe('Narrator', () => {
 					'Hire: $210.00',
 					'  Room rate: $40.00',
 					'    hourly rate is $20.00',
+					'    changes: times 2',
 					'  Crowd charge: $120.00',
 					'    its fallback, because no entry matches guest count',
 					'    before its changes: 40',
+					'    changes: times 3',
 					'  Deposit: $50.00',
 					'    fixed at $50.00',
 					'Share: $0.90',
@@ -2721,8 +2942,21 @@ describe('Narrator', () => {
 			const facts = buildWorkshopFacts()
 			const fees = buildWorkshopFees()
 			const gates = buildWorkshopGates()
+			const quote = buildWorkshopQuote()
+			const charge = buildWorkshopCharge()
+			const kin = buildWorkshopKin()
+			const back = buildWorkshopKin('backward')
 			for (const narrator of [new Narrator(), new Narrator({ glossary: WORKSHOP_GLOSSARY })]) {
 				const accounts = [
+					...Object.values(WORKSHOP_QUOTES).map(({ subject }) =>
+						narrator.narrate(quote, REASON.reason(subject, quote)),
+					),
+					...Object.values(WORKSHOP_CHARGES).map(({ subject }) =>
+						narrator.narrate(charge, REASON.reason(subject, charge)),
+					),
+					...[kin, back].map((definition) =>
+						narrator.narrate(definition, REASON.reason({ member: 'gold' }, definition)),
+					),
 					...Object.values(WORKSHOP_SUBJECTS).map(({ subject }) =>
 						narrator.narrate(rules, REASON.reason(subject, rules)),
 					),
@@ -2739,7 +2973,7 @@ describe('Narrator', () => {
 						narrator.narrate(fees, REASON.reason(subject, fees)),
 					),
 					narrator.narrate(facts, REASON.reason({}, facts)),
-					...[rules, gates, score, fees, area, facts].map((definition) =>
+					...[rules, gates, score, fees, area, facts, quote, charge, kin, back].map((definition) =>
 						narrator.describe(definition),
 					),
 				]
@@ -2793,24 +3027,39 @@ describe('Narrator', () => {
 							'q',
 							'q\nq',
 							[
-								createFactorGroup('g', aggregation, [
-									createStaticFactor('s', number, {
-										name: ' ',
-										description: 'x\ny',
-										weight: number,
-										bounds: { minimum: number, maximum: number },
-									}),
-									createFieldFactor('f', 'n', {
-										transforms: [{ operation: 'multiply', operand: 10 }],
-									}),
-									createLookupFactor('l', 'n', { true: number, a: 1 }, { fallback: 2 }),
-									createRangeFactor('r', 'n', [{ value: number }]),
-									createStaticFactor('c', 1, {
-										checks: [{ field: 'n', operator: 'equals', value: number }],
-									}),
-								]),
+								createFactorGroup(
+									'g',
+									aggregation,
+									[
+										createStaticFactor('s', number, {
+											name: ' ',
+											description: 'x\ny',
+											weight: number,
+											bounds: { minimum: number, maximum: number },
+										}),
+										createFieldFactor('f', 'n', {
+											transforms: [{ operation: 'multiply', operand: 10 }],
+										}),
+										createLookupFactor(
+											'l',
+											'n',
+											{ true: number, a: 1, '': 1, ' ': 1, 'a\nb': 1 },
+											{ fallback: 2, transforms: [{ operation: 'minimum', operand: number }] },
+										),
+										createRangeFactor(
+											'r',
+											'n',
+											[{ value: number }, { bounds: { minimum: number }, value: 1 }],
+											{ fallback: number, required: true },
+										),
+										createStaticFactor('c', 1, {
+											checks: [{ field: 'n', operator: 'equals', value: number }],
+										}),
+									],
+									{ strict: number === 0, base: number },
+								),
 							],
-							{ aggregation, base: number, bounds: { maximum: number } },
+							{ aggregation, base: number, bounds: { maximum: number }, precision: number },
 						)
 						const result = createQuantitativeReasoner().reason({ n: actual }, definition)
 						if (!isQuantitativeResult(result)) throw new Error('Expected a quantitative result')
@@ -2824,6 +3073,92 @@ describe('Narrator', () => {
 			expect(
 				lines.filter((line) => BLANK_TEXT.test(line.text) || BLANK_TEXT.test(line.summary)),
 			).toEqual([])
+		})
+
+		it('prints one whole line whatever an equation, a fact, or an inference holds', () => {
+			const narrators = [
+				new Narrator(),
+				new Narrator({
+					glossary: {
+						labels: { tier: 'Tier' },
+						predicates: { known: '{{1}} is known', listed: 'known: {{terms}}' },
+					},
+				}),
+			]
+			const strange = [...STRANGE_VALUES, ...TRICKY_KEYS, 'a, b', '{{1}}', '?x']
+			const numbers = [0, -0, 1e308, -1e308, Number.NaN, Number.POSITIVE_INFINITY, 0.99999]
+			const lines: AccountLine[] = []
+			for (const narrator of narrators) {
+				for (const term of strange) {
+					for (const predicate of ['known', 'listed', 'has', 'fresh', '', ' ', 'a\nb']) {
+						for (const terms of [[], [term], ['tier', term], [term, 'a, b']]) {
+							const fact = createFact('f', predicate, terms, 0.5)
+							const definition = createInferentialDefinition(
+								'd',
+								'D',
+								[],
+								[
+									createInference('i', [fact], createFact('c', 'out', ['?x']), { name: ' ' }),
+									createInference('e', [], fact, { confidence: 0.99999 }),
+								],
+							)
+							const result: InferentialResult = {
+								reasoning: 'inferential',
+								derived: [fact],
+								success: true,
+								trace: [],
+								errors: [],
+								faults: [],
+								repairs: [],
+								defaulted: [],
+							}
+							const proof = { fact: 'f', inference: '', depth: 0 }
+							lines.push(...narrator.describe(definition).lines)
+							lines.push(...narrator.narrate(definition, result).lines)
+							lines.push(...narrator.narrate(definition, { ...result, proof }).lines)
+						}
+					}
+				}
+				for (const number of numbers) {
+					for (const operator of MATH_OPERATIONS) {
+						const side = createOperation(operator, createConstant(number))
+						const definition = createSymbolicDefinition(
+							'd',
+							'D',
+							[createEquation('e', createVariable(' '), side, 'a\nb')],
+							{ precision: number },
+						)
+						lines.push(...narrator.describe(definition).lines)
+						lines.push(
+							...narrator.narrate(definition, {
+								reasoning: 'symbolic',
+								solutions: { 'a\nb': number, '': number },
+								success: true,
+								trace: [],
+								errors: [],
+								faults: [],
+								repairs: [],
+								defaulted: [],
+							}).lines,
+						)
+					}
+				}
+			}
+			for (const line of lines) lines.push(...line.lines)
+			expect(
+				lines.filter((line) => BLANK_TEXT.test(line.text) || BLANK_TEXT.test(line.summary)),
+			).toEqual([])
+		})
+
+		it('writes an equation too deep to walk as its target alone', () => {
+			const deep = Array.from({ length: 50_000 }).reduce<SymbolicExpression>(
+				(side) => createOperation('abs', side),
+				createVariable('x'),
+			)
+			const definition = createSymbolicDefinition('d', 'D', [
+				createEquation('e', createVariable('y'), deep, 'y', { name: 'E' }),
+			])
+			expect(renderAccount(new Narrator().describe(definition))).toBe('D\nE\n  solves for y')
 		})
 
 		it('states no number for a step whose number is not finite', () => {
@@ -2895,7 +3230,25 @@ describe('Narrator', () => {
 				createEquation('e', createVariable('cost'), createConstant(1250.5), 'cost'),
 			])
 			expect(renderAccount(narrator.narrate(solved, REASON.reason({}, solved)))).toBe(
-				'cost is $1,250.50',
+				'cost is $1,250.50\n  cost = 1250.5',
+			)
+			const worn = createFact('c', 'worn', ['?x'])
+			const facts = createInferentialDefinition(
+				'f',
+				'F',
+				[],
+				[createInference('i', [createFact('p', 'has', ['cost', 1250.5])], worn, { name: 'I' })],
+			)
+			expect(renderAccount(narrator.describe(facts)).split('\n').at(-1)).toBe(
+				'  worn(?x), when cost is $1,250.50',
+			)
+			const banded = createQuantitativeDefinition('b', 'B', [
+				createFactorGroup('g', 'sum', [
+					createRangeFactor('r', 'cost', [{ bounds: { minimum: 3, maximum: 1250.5 }, value: 1 }]),
+				]),
+			])
+			expect(renderAccount(narrator.describe(banded), { detail: 'full' }).split('\n').at(-1)).toBe(
+				'      $3.00 to $1,250.50: 1',
 			)
 			expect(narrator.value('cost', 1250.5)).toBe('$1,250.50')
 			expect(narrator.value('terms.excess', 1250.5)).toBe('$1,250.50')
@@ -3008,8 +3361,36 @@ describe('Narrator', () => {
 			expect(renderAccount(narrator.describe(solved)).split('\n')).toEqual([
 				'S',
 				'eQUATION',
+				'  the X = 1',
 				'  solves for the X',
 			])
+		})
+
+		it('prints a predicate, its sentence, a term, an inference, and an entry key byte for byte', () => {
+			const read = createFact('p', 'rEad', ['?X'])
+			const facts = createInferentialDefinition(
+				'f',
+				'F',
+				[createFact('k', 'rEad', ['aDa'])],
+				[createInference('i', [read], createFact('c', 'kNown', ['?X']), { name: 'iNFER' })],
+			)
+			const sentences = new Narrator({
+				glossary: { labels: {}, predicates: { kNown: '{{1}} is kNOWN' } },
+			})
+			expect(renderAccount(sentences.describe(facts)).split('\n')).toEqual([
+				'F',
+				'iNFER',
+				'  ?X is kNOWN, when rEad(?X)',
+			])
+			expect(renderAccount(sentences.narrate(facts, REASON.reason({}, facts)))).toBe(
+				'Facts derived: 1\naDa is kNOWN',
+			)
+			const table = createQuantitativeDefinition('q', 'Q', [
+				createFactorGroup('g', 'sum', [createLookupFactor('l', 'n', { 'oAK Wood': 1 })]),
+			])
+			expect(renderAccount(sentences.describe(table), { detail: 'full' }).split('\n').at(-1)).toBe(
+				'      oAK Wood: 1',
+			)
 		})
 	})
 
@@ -3486,6 +3867,8 @@ describe('Narrator', () => {
 			const narrator = new Narrator({
 				glossary: { ...WORKSHOP_GLOSSARY, labels, units, values: { fees: 'guilder' } },
 			})
+			const guide = [...narrator.describe(fees).lines]
+			for (const line of guide) guide.push(...line.lines)
 			const gaps: readonly GlossaryGap[] = [
 				{ word: 'name', part: 'group', id: 'share' },
 				{ word: 'name', part: 'factor', id: 'towels' },
@@ -3494,6 +3877,10 @@ describe('Narrator', () => {
 				{ word: 'format', unit: 'guilder' },
 			]
 			expect(narrator.audit([fees])).toEqual(gaps)
+			// A guide prints no value of a field, so the field's unit is the worksheet's to miss.
+			expect(new Set(guide.flatMap((line) => line.gaps).map((gap) => JSON.stringify(gap)))).toEqual(
+				new Set(gaps.filter(({ word }) => word !== 'unit').map((gap) => JSON.stringify(gap))),
+			)
 			const peak = requireValue(WORKSHOP_FEES.peak)
 			const lines = [...narrator.narrate(fees, REASON.reason(peak.subject, fees)).lines]
 			for (const line of lines) lines.push(...line.lines)
@@ -3542,9 +3929,18 @@ describe('Narrator', () => {
 				...Object.values(WORKSHOP_AREA).map(
 					({ subject }) => [buildWorkshopArea(), subject] as const,
 				),
+				...Object.values(WORKSHOP_QUOTES).map(
+					({ subject }) => [buildWorkshopQuote(), subject] as const,
+				),
+				...Object.values(WORKSHOP_CHARGES).map(
+					({ subject }) => [buildWorkshopCharge(), subject] as const,
+				),
+				[{ ...buildWorkshopFacts(), depth: 10 }, {}],
+				[buildWorkshopKin(), { member: 'gold' }],
+				[buildWorkshopKin('backward'), { member: 'gold' }],
 				[quote, { guests: 1234 }],
 			]
-			const { labels, units, formats } = WORKSHOP_GLOSSARY
+			const { labels, units, formats, predicates } = WORKSHOP_GLOSSARY
 			const removals: ReadonlyArray<readonly [string, Glossary]> = [
 				...Object.keys(labels).map(
 					(key) =>
@@ -3556,16 +3952,19 @@ describe('Narrator', () => {
 							},
 						] as const,
 				),
-				...Object.keys(units).map(
-					(key) =>
-						[
-							`unit ${key}`,
-							{
-								...WORKSHOP_GLOSSARY,
-								units: Object.fromEntries(Object.entries(units).filter(([word]) => word !== key)),
-							},
-						] as const,
-				),
+				// A solution's unit is optional, as the unit of a definition's value is.
+				...Object.keys(units)
+					.filter((key) => key !== 'charge' && key !== 'deposit')
+					.map(
+						(key) =>
+							[
+								`unit ${key}`,
+								{
+									...WORKSHOP_GLOSSARY,
+									units: Object.fromEntries(Object.entries(units).filter(([word]) => word !== key)),
+								},
+							] as const,
+					),
 				...Object.keys(formats).map(
 					(key) =>
 						[
@@ -3574,6 +3973,18 @@ describe('Narrator', () => {
 								...WORKSHOP_GLOSSARY,
 								formats: Object.fromEntries(
 									Object.entries(formats).filter(([word]) => word !== key),
+								),
+							},
+						] as const,
+				),
+				...Object.keys(predicates).map(
+					(key) =>
+						[
+							`predicate ${key}`,
+							{
+								...WORKSHOP_GLOSSARY,
+								predicates: Object.fromEntries(
+									Object.entries(predicates).filter(([word]) => word !== key),
 								),
 							},
 						] as const,
@@ -3596,7 +4007,7 @@ describe('Narrator', () => {
 						const other = requireValue(requireValue(whole)[index])
 						const carried = line.gaps.map(
 							(gap) =>
-								`${gap.word} ${gap.field === undefined ? String(gap.unit) : formatField(gap.field)}`,
+								`${gap.word} ${gap.field === undefined ? String(gap.unit ?? gap.id) : formatField(gap.field)}`,
 						)
 						const changed = line.text !== other.text || line.summary !== other.summary
 						return changed && !carried.includes(removed) ? [[removed, line.text]] : []
@@ -3704,6 +4115,9 @@ describe('Narrator', () => {
 				buildWorkshopFees(),
 				buildWorkshopArea(),
 				buildWorkshopFacts(),
+				buildWorkshopQuote(),
+				buildWorkshopCharge(),
+				buildWorkshopKin(),
 			]
 			expect(narrator.audit(definitions)).toEqual([])
 			const guides = definitions.flatMap((definition) => narrator.describe(definition).lines)
@@ -3739,6 +4153,66 @@ describe('Narrator', () => {
 			])
 		})
 
+		it('reports the unit of a band, and the format of a value its entries are in', () => {
+			const narrator = new Narrator({
+				glossary: {
+					labels: WORKSHOP_GLOSSARY.labels,
+					units: { cost: 'plain', guests: 'head' },
+					values: { quote: 'guilder' },
+				},
+			})
+			const quote = buildWorkshopQuote()
+			const missed: readonly GlossaryGap[] = [
+				{ word: 'unit', field: 'hours' },
+				{ word: 'format', unit: 'head' },
+				{ word: 'format', unit: 'guilder' },
+			]
+			expect(narrator.audit([quote])).toEqual(missed)
+			const lines = [...narrator.describe(quote).lines]
+			for (const line of lines) lines.push(...line.lines)
+			const found = ['oak: 12.5', '3 to 8: 50', 'any value: 75', 'at least 20: 15.125'].map(
+				(text) => lines.find((line) => line.text === text)?.gaps,
+			)
+			expect(found).toEqual([
+				[{ word: 'format', unit: 'guilder' }],
+				[{ word: 'unit', field: 'hours' }],
+				[],
+				[
+					{ word: 'format', unit: 'head' },
+					{ word: 'format', unit: 'guilder' },
+				],
+			])
+		})
+
+		it('reports a missing name of an equation and of an inference, and asks no name of a proof line with one', () => {
+			const charge = buildWorkshopCharge()
+			const unnamed = {
+				...charge,
+				equations: charge.equations.map((equation) => ({ ...equation, name: equation.id })),
+			}
+			const narrator = new Narrator({ glossary: WORKSHOP_GLOSSARY })
+			const gaps = narrator.describe(unnamed).lines.map((line) => line.gaps)
+			expect(gaps).toEqual([
+				[],
+				[{ word: 'name', part: 'equation', id: 'charge' }],
+				[{ word: 'name', part: 'equation', id: 'deposit' }],
+			])
+			const kin = buildWorkshopKin('backward')
+			const result = REASON.reason({}, kin)
+			const nameless = {
+				...kin,
+				inferences: kin.inferences.map((inference) => ({ ...inference, name: inference.id })),
+			}
+			const proved = [kin, nameless, buildWorkshopArea()].map(
+				(definition) => narrator.narrate(definition, result).lines[0]?.lines[0],
+			)
+			expect(proved.map((line) => [line?.text, line?.gaps])).toEqual([
+				['proved through Grandparents', []],
+				['proved through grandparent', [{ word: 'name', part: 'inference', id: 'grandparent' }]],
+				['proved through grandparent', [{ word: 'name', part: 'inference', id: 'grandparent' }]],
+			])
+		})
+
 		it('counts a formatter as a format', () => {
 			const narrator = new Narrator({
 				glossary: { labels: {}, values: { score: 'acre' } },
@@ -3749,6 +4223,623 @@ describe('Narrator', () => {
 			const account = narrator.narrate(score, REASON.reason(gold.subject, score))
 			expect(account.lines[0]?.gaps).toEqual([])
 			expect(account.lines[0]?.text).toBe('Booking score: unit:165')
+		})
+	})
+
+	describe("T15: the guide's table is the definition's table", () => {
+		it('prints every entry of a lookup as the value the engine gives its key, and the fallback as that of any other', () => {
+			const tables: ReadonlyArray<Readonly<Record<string, number>>> = [
+				{ oak: 12.5, pine: 8, 'a: b': -3 },
+				{ 10: 1, 9: 2, true: 3, '1.5': 4, '-0': 5 },
+				Object.fromEntries(TRICKY_KEYS.map((key, index) => [key, index + 0.5])),
+			]
+			for (const table of tables) {
+				for (const fallback of [undefined, 99.5]) {
+					const definition = createQuantitativeDefinition('d', 'D', [
+						createFactorGroup('g', 'sum', [
+							createLookupFactor('l', 'n', table, fallback === undefined ? {} : { fallback }),
+						]),
+					])
+					const raws = [...Object.keys(table), 'no such key'].map((key) => {
+						const result = REASON.reason({ n: key }, definition)
+						if (!isQuantitativeResult(result)) throw new Error('Expected a quantitative result')
+						return [key, result.groups[0]?.factors[0]?.raw] as const
+					})
+					const printed = raws.flatMap(([key, raw]) => {
+						if (raw === undefined) return []
+						if (key === 'no such key') return [`fallback: ${String(raw)}`]
+						return [`${key === '' ? '""' : key}: ${String(raw)}`]
+					})
+					const source = new Narrator().describe(definition).lines[1]?.lines[1]?.lines[0]
+					expect(source?.text).toBe('looked up by n')
+					expect(source?.lines.map((line) => line.text)).toEqual(printed)
+					expect(printed).toHaveLength(raws.length - (fallback === undefined ? 1 : 0))
+				}
+			}
+		})
+
+		it('prints bands whose first to hold a value gives what the engine gives it, over every drawn table', () => {
+			const values = Array.from({ length: 45 }, (_, index) => index / 2 - 6)
+			const readings = buildBandTables().flatMap((definition) => {
+				const source = new Narrator().describe(definition).lines[1]?.lines[1]?.lines[0]
+				const rows = (source?.lines ?? []).map((line) => {
+					const [range = '', value = ''] = line.text.split(': ')
+					return {
+						bounds: parseWordedRange(range),
+						fallback: range === 'fallback',
+						value: Number(value),
+					}
+				})
+				return values.map((value) => {
+					const result = REASON.reason({ n: value }, definition)
+					if (!isQuantitativeResult(result)) throw new Error('Expected a quantitative result')
+					const row =
+						rows.find(
+							({ bounds }) =>
+								bounds !== undefined &&
+								value >= (bounds.minimum ?? Number.NEGATIVE_INFINITY) &&
+								value <= (bounds.maximum ?? Number.POSITIVE_INFINITY),
+						) ?? rows.find(({ fallback }) => fallback)
+					return { read: row?.value, raw: result.groups[0]?.factors[0]?.raw }
+				})
+			})
+			expect(readings.filter(({ read, raw }) => read !== raw)).toEqual([])
+			expect(readings.filter(({ raw }) => raw === 99.5).length).toBeGreaterThan(100)
+			expect(readings.filter(({ raw }) => raw === undefined).length).toBeGreaterThan(100)
+		})
+
+		it('prints an entry before the changes its factor makes, whatever the unit of the value', () => {
+			const narrator = new Narrator({ glossary: WORKSHOP_GLOSSARY })
+			const quote = buildWorkshopQuote()
+			const result = REASON.reason(requireValue(WORKSHOP_QUOTES.oak).subject, quote)
+			if (!isQuantitativeResult(result)) throw new Error('Expected a quantitative result')
+			expect(result.groups[0]?.factors.map(({ raw, value }) => [raw, value])).toEqual([
+				[12.5, 12.5],
+				[30, 28],
+				[50, 50],
+			])
+			const texts = renderAccount(narrator.describe(quote), { detail: 'full' }).split('\n')
+			expect(texts).toContain('      oak: $12.50')
+			expect(texts).toContain('      at most 4: 30')
+		})
+
+		it('prints no entry, band, or fallback but at full detail', () => {
+			for (const definition of [buildWorkshopQuote(), buildWorkshopFees(), buildWorkshopScore()]) {
+				const account = new Narrator().describe(definition)
+				const lines = [...account.lines]
+				for (const line of lines) lines.push(...line.lines)
+				const tables = lines.filter((line) => / by | range /u.test(line.text))
+				const entries = tables.flatMap((line) => line.lines)
+				const full = renderAccount(account, { detail: 'full' }).split('\n')
+				const reasons = renderAccount(account).split('\n')
+				expect(entries.length).toBeGreaterThan(2)
+				expect(entries.filter(({ text }) => !full.includes(`      ${text}`))).toEqual([])
+				expect(entries.filter(({ text }) => reasons.includes(`      ${text}`))).toEqual([])
+			}
+		})
+	})
+
+	describe("T16: a worksheet's changes account for its number", () => {
+		it('words each operation as plain arithmetic that gives the engine its value', () => {
+			for (const [operation, value, operand, text, changed] of TRANSFORM_READINGS) {
+				const definition = createQuantitativeDefinition('d', 'D', [
+					createFactorGroup('g', 'sum', [
+						createFieldFactor('f', 'n', {
+							transforms: [{ operation, ...(operand === undefined ? {} : { operand }) }],
+						}),
+					]),
+				])
+				expect(
+					renderAccount(new Narrator().narrate(definition, REASON.reason({ n: value }, definition)))
+						.split('\n')
+						.slice(2, 5),
+				).toEqual([`  f: ${String(changed)}`, `    n is ${String(value)}`, `    changes: ${text}`])
+			}
+		})
+
+		it('words an operand left out as the engine takes it', () => {
+			for (const [operation, text, changed] of ABSENT_OPERAND_READINGS) {
+				const definition = createQuantitativeDefinition('d', 'D', [
+					createFactorGroup('g', 'sum', [
+						createStaticFactor('f', 7, { transforms: [{ operation }] }),
+					]),
+				])
+				const account = new Narrator().narrate(definition, REASON.reason({}, definition))
+				expect(renderAccount(account).split('\n').slice(2, 5)).toEqual([
+					`  f: ${String(changed)}`,
+					'    fixed at 7',
+					`    changes: ${text}`,
+				])
+			}
+		})
+
+		it('gives the engine its value from the number, the changes, and the bounds it prints, over drawn chains', () => {
+			const next = seededRandom(WORKSHOP_TREE_SEED)
+			const operands: readonly [number, ...number[]] = [0.5, 2, 3, 10, -4, 25]
+			const bounds: readonly [Bounds, ...Bounds[]] = [
+				{},
+				{ minimum: 2 },
+				{ maximum: 9.5 },
+				{ minimum: -1, maximum: 30 },
+			]
+			const readings = Array.from({ length: 400 }, () => {
+				const overrides = {
+					transforms: Array.from({ length: 1 + Math.floor(next() * 3) }, () => ({
+						operation: pickMember(MATH_OPERATIONS, next),
+						operand: pickMember(operands, next),
+					})),
+					bounds: pickMember(bounds, next),
+				}
+				const number = pickMember(operands, next)
+				const factor = pickMember(
+					[
+						createStaticFactor('f', number, overrides),
+						createFieldFactor('f', 'n', overrides),
+						createLookupFactor('f', 'n', { [String(number)]: 6.25 }, overrides),
+						createRangeFactor('f', 'n', [{ bounds: { maximum: -90 }, value: 1 }], {
+							...overrides,
+							fallback: 1.75,
+						}),
+					],
+					next,
+				)
+				const definition = createQuantitativeDefinition('d', 'D', [
+					createFactorGroup('g', 'sum', [factor]),
+				])
+				const result = REASON.reason({ n: number }, definition)
+				if (!isQuantitativeResult(result)) throw new Error('Expected a quantitative result')
+				const texts = renderAccount(new Narrator().narrate(definition, result)).split('\n')
+				const raw = texts.flatMap((text) => {
+					const read = /^ {4}(?:n is|fixed at|before its changes:) (.+)$/u.exec(text)?.[1]
+					return read === undefined ? [] : [Number(read)]
+				})
+				const [changes] = texts.flatMap((text) => /^ {4}changes: (.+)$/u.exec(text)?.[1] ?? [])
+				const [range] = texts.flatMap((text) => /^ {4}bounds: (.+)$/u.exec(text)?.[1] ?? [])
+				const { minimum, maximum } = parseWordedRange(range ?? 'any value') ?? {}
+				const changed = computeChanges(raw[0] ?? Number.NaN, changes ?? '')
+				const least = Math.max(changed, minimum ?? Number.NEGATIVE_INFINITY)
+				return {
+					answered: result.success,
+					sources: raw.length,
+					read: Math.min(least, maximum ?? Number.POSITIVE_INFINITY),
+					value: result.groups[0]?.factors[0]?.value ?? Number.NaN,
+				}
+			}).filter(({ answered }) => answered)
+			expect(readings.length).toBeGreaterThan(300)
+			expect(readings.filter(({ sources }) => sources !== 1)).toEqual([])
+			expect(
+				readings.filter(
+					({ read, value }) => !(Math.abs(read - value) <= 1e-9 * Math.max(1, Math.abs(value))),
+				),
+			).toEqual([])
+		})
+
+		it('prints the number before its changes beside every change, even where they leave it as it was', () => {
+			const definition = createQuantitativeDefinition('d', 'D', [
+				createFactorGroup('g', 'sum', [
+					createLookupFactor(
+						'l',
+						'n',
+						{ a: 10 },
+						{ transforms: [{ operation: 'multiply', operand: 3 }], bounds: { maximum: 10 } },
+					),
+				]),
+			])
+			const account = new Narrator().narrate(definition, REASON.reason({ n: 'a' }, definition))
+			expect(renderAccount(account).split('\n').slice(2, 7)).toEqual([
+				'  l: 10',
+				'    looked up by n',
+				'    before its changes: 10',
+				'    changes: times 3',
+				'    bounds: at most 10',
+			])
+		})
+
+		it('prints no change of a result that holds no number before it, of a refused run, or of a factor that did not apply', () => {
+			const quote = buildWorkshopQuote()
+			const result = REASON.reason(requireValue(WORKSHOP_QUOTES.oak).subject, quote)
+			if (!isQuantitativeResult(result)) throw new Error('Expected a quantitative result')
+			const dropped = {
+				...result,
+				groups: result.groups.map((group) => ({
+					...group,
+					factors: group.factors.map(({ id, applied, value }) => ({ id, applied, value })),
+				})),
+			}
+			const costly = REASON.reason(requireValue(WORKSHOP_QUOTES.costly).subject, quote)
+			const texts = [dropped, costly].map((read) =>
+				renderAccount(new Narrator().narrate(quote, read), { detail: 'full' }),
+			)
+			expect(texts.filter((text) => text.includes('changes'))).toEqual([])
+			expect(renderAccount(new Narrator().narrate(quote, result))).toContain(
+				'    changes: 90% of it',
+			)
+		})
+
+		it('writes the whole worksheet of a score', () => {
+			const narrator = new Narrator({ glossary: WORKSHOP_GLOSSARY })
+			const quote = buildWorkshopQuote()
+			const ash = REASON.reason(requireValue(WORKSHOP_QUOTES.ash).subject, quote)
+			expect(renderAccount(narrator.narrate(quote, ash)).split('\n')).toEqual([
+				'Workshop quote: $137.00',
+				'base: $10.00',
+				'Hire: $127.00',
+				'  base: $5.00',
+				'  Material rate: $6.00',
+				'    its fallback, because no entry matches material',
+				'    weight: 2',
+				'  Session charge: $60.00',
+				'    set by the first range hours booked falls in',
+				'    before its changes: 75',
+				'    changes: 90% of it, then plus 0.4, then rounded up to a whole number',
+				'    bounds: $28.00 to $60.00',
+				'  Deposit: $50.00',
+				'    fixed at $50.00',
+				'  bounds: at most $500.00',
+				'Crowd: $0.00',
+				'  Crowd charge: $0.00',
+				'    its fallback, because no entry matches guest count',
+				'bounds: at least $25.00',
+			])
+		})
+	})
+
+	describe('T17: an equation prints its own tree', () => {
+		const names = new Map([
+			['first amount', 'a'],
+			['second amount', 'b'],
+			['outcome', 'out'],
+		])
+		const labels = Object.fromEntries([...names].map(([label, name]) => [name, label]))
+		const narrator = new Narrator({ glossary: { labels } })
+		const equations = buildSymbolicTrees().flatMap((tree) => [
+			createEquation('e', createVariable('out'), tree, 'out', { name: 'E' }),
+			createEquation('e', tree, createVariable('out'), 'out', { name: 'E' }),
+		])
+
+		it('reads back, from its text alone, as the tree it was written from, over every tree on each side', () => {
+			const readings = equations.map((equation) => {
+				const guide = narrator.describe(createSymbolicDefinition('s', 'S', [equation]))
+				const [left = '', right = ''] = guide.lines[1]?.lines[0]?.text.split(' = ') ?? []
+				return { equation, left: parseSide(left, names), right: parseSide(right, names) }
+			})
+			expect(readings).toHaveLength(1300)
+			expect(
+				readings.filter(
+					({ equation, left, right }) =>
+						canonicalize([left, right]) !== canonicalize([equation.left, equation.right]),
+				),
+			).toEqual([])
+		})
+
+		it('puts every nested operation and negative constant in parentheses, and nothing else', () => {
+			const counts = equations.map(({ left, right }) => {
+				const nodes = [left, right].flatMap((side) => (side.form === 'operation' ? [side] : []))
+				const pending = nodes.flatMap((node) => [node.left, ...(node.right ? [node.right] : [])])
+				for (const node of pending) {
+					if (node.form !== 'operation') continue
+					pending.push(node.left, ...(node.right === undefined ? [] : [node.right]))
+				}
+				const grouped = pending.filter(
+					(node) =>
+						node.form === 'operation' || (node.form === 'constant' && Object.is(node.value, -3)),
+				)
+				const text = renderAccount(
+					narrator.describe(
+						createSymbolicDefinition('s', 'S', [createEquation('e', left, right, 'out')]),
+					),
+				)
+				return [text.split('(').length - 1, text.split(')').length - 1, grouped.length]
+			})
+			expect(
+				counts.filter(([open, close, grouped]) => open !== grouped || close !== grouped),
+			).toEqual([])
+			expect(counts.some(([open]) => (open ?? 0) > 3)).toBe(true)
+		})
+
+		it('prints one text in the guide and under its solution', () => {
+			const charge = buildWorkshopCharge()
+			const writer = new Narrator({ glossary: WORKSHOP_GLOSSARY })
+			const solved = REASON.reason(requireValue(WORKSHOP_CHARGES.floor).subject, charge)
+			const account = writer.narrate(charge, solved).lines.map((line) => line.lines[0]?.text)
+			const guide = writer.describe(charge).lines.slice(1)
+			expect(account).toEqual(
+				guide.map(({ lines }) => lines.find(({ text }) => text.includes(' = '))?.text),
+			)
+			expect(account).toHaveLength(2)
+		})
+
+		it('prints no value of an input, and none that its solutions do not hold', () => {
+			const charge = buildWorkshopCharge()
+			const solved = REASON.reason({ width: 777, depth: 888 }, charge)
+			const text = renderAccount(new Narrator().narrate(charge, solved), { detail: 'full' })
+			expect(text).not.toMatch(/777|888/u)
+			expect(text.split('\n')[0]).toBe('charge is 344988')
+		})
+
+		it('asks a label for every variable an equation names, a seeded one included, from audit and on the line', () => {
+			const charge = buildWorkshopCharge()
+			const bare = new Narrator()
+			const gaps = ['charge', 'deposit', 'width', 'depth', 'minimum'].map((field) => ({
+				word: 'label',
+				field,
+			}))
+			expect(bare.audit([charge])).toEqual(gaps)
+			const lines = [...bare.describe(charge).lines]
+			for (const line of lines) lines.push(...line.lines)
+			const carried = new Set(lines.flatMap((line) => line.gaps).map((gap) => JSON.stringify(gap)))
+			expect(carried).toEqual(new Set(gaps.map((gap) => JSON.stringify(gap))))
+			const { minimum: _minimum, ...rest } = WORKSHOP_GLOSSARY.labels
+			const lacking = new Narrator({ glossary: { ...WORKSHOP_GLOSSARY, labels: rest } })
+			expect(lacking.audit([charge])).toEqual([{ word: 'label', field: 'minimum' }])
+		})
+
+		it('prints no right side of an operation the engine reads none of, and the missing word for one it needs', () => {
+			const ignored = createOperation('round', createVariable('a'), createVariable('b'))
+			const needed = createOperation('add', createVariable('a'))
+			const texts = [ignored, needed].map((side) => {
+				const equation = createEquation('e', createVariable('out'), side, 'out')
+				const line = narrator.describe(createSymbolicDefinition('s', 'S', [equation])).lines[1]
+				return line?.lines[0]
+			})
+			expect(texts.map((line) => line?.text)).toEqual([
+				'outcome = first amount rounded to a whole number',
+				'outcome = first amount + not known',
+			])
+			const unlabelled = new Narrator({
+				glossary: { labels: { a: 'first amount', out: 'outcome' } },
+			})
+			const equation = createEquation('e', createVariable('out'), ignored, 'out')
+			const guide = unlabelled.describe(createSymbolicDefinition('s', 'S', [equation]))
+			expect(guide.lines[1]?.lines[0]?.gaps).toEqual([])
+		})
+	})
+
+	describe('T18: a derived fact prints its own terms and confidence', () => {
+		const { predicates } = WORKSHOP_GLOSSARY
+
+		it('states each derived fact of a forward run, every term in its order, with a confidence below 1', () => {
+			const kin = buildWorkshopKin()
+			const result = REASON.reason({ member: 'gold' }, kin)
+			const account = new Narrator({ glossary: WORKSHOP_GLOSSARY }).narrate(kin, result)
+			expect(renderAccount(account).split('\n')).toEqual([
+				'Facts derived: 2',
+				'alice is a grandparent of cara (confidence 85.5%)',
+				'alice is wELCOME (confidence 85.5%)',
+			])
+			expect(account.lines.map(({ role, source }) => [role, source])).toEqual([
+				['verdict', {}],
+				['step', { fact: 'grandparent-conclusion' }],
+				['step', { fact: 'welcome-conclusion' }],
+			])
+			const sure = {
+				...kin,
+				facts: kin.facts.map(({ confidence: _confidence, ...fact }) => fact),
+				inferences: kin.inferences.map(({ confidence: _confidence, ...inference }) => inference),
+			}
+			const certain = new Narrator({ glossary: WORKSHOP_GLOSSARY })
+			expect(
+				renderAccount(certain.narrate(sure, REASON.reason({ member: 'silver' }, sure))).split('\n'),
+			).toEqual(['Facts derived: 1', 'alice is a grandparent of cara'])
+		})
+
+		it("takes the order of a sentence's slots, and every term by {{terms}}", () => {
+			const kin = buildWorkshopKin()
+			const result = REASON.reason({ member: 'gold' }, kin)
+			const sentences: ReadonlyArray<readonly [string, string]> = [
+				['{{2}} descends from {{1}}', 'cara descends from alice (confidence 85.5%)'],
+				['line of {{terms}}', 'line of alice, cara (confidence 85.5%)'],
+				['{{1}} alone', 'grandparent(alice, cara) (confidence 85.5%)'],
+				['{{1}}, {{2}}, and {{3}}', 'grandparent(alice, cara) (confidence 85.5%)'],
+			]
+			for (const [grandparent, text] of sentences) {
+				const glossary = { labels: {}, predicates: { ...predicates, grandparent } }
+				const narrator = new Narrator({ glossary })
+				expect(narrator.narrate(kin, result).lines[1]?.text).toBe(text)
+				const gap = text.startsWith('grandparent(')
+					? [{ word: 'predicate', id: 'grandparent' }]
+					: []
+				expect(narrator.narrate(kin, result).lines[1]?.gaps).toEqual(gap)
+			}
+		})
+
+		it('states a fact as it is authored where its sentence is removed, with exactly that gap, from audit and on the line', () => {
+			const { grandparent: _grandparent, ...rest } = predicates
+			const narrator = new Narrator({ glossary: { ...WORKSHOP_GLOSSARY, predicates: rest } })
+			const gap = { word: 'predicate', id: 'grandparent' }
+			for (const kin of [buildWorkshopKin(), buildWorkshopKin('backward')]) {
+				expect(narrator.audit([kin])).toEqual([gap])
+				const account = narrator.narrate(kin, REASON.reason({ member: 'gold' }, kin))
+				const lines = [...account.lines, ...narrator.describe(kin).lines]
+				for (const line of lines) lines.push(...line.lines)
+				const carried = lines.flatMap((line) => line.gaps)
+				expect(carried.length).toBeGreaterThan(2)
+				expect(carried.filter((entry) => JSON.stringify(entry) !== JSON.stringify(gap))).toEqual([])
+			}
+			const forward = buildWorkshopKin()
+			const texts = renderAccount(
+				narrator.narrate(forward, REASON.reason({ member: 'gold' }, forward)),
+			)
+			expect(texts.split('\n')[1]).toBe('grandparent(alice, cara) (confidence 85.5%)')
+			expect(renderAccount(narrator.describe(forward)).split('\n').at(-1)).toBe(
+				'  ?x is wELCOME, when grandparent(?x, ?z) and wOrkshop tier is gold',
+			)
+		})
+
+		it('writes the conclusion of a backward run, unbound as the result holds it, and what proved it', () => {
+			const kin = buildWorkshopKin('backward')
+			const account = new Narrator({ glossary: WORKSHOP_GLOSSARY }).narrate(
+				kin,
+				REASON.reason({}, kin),
+			)
+			expect(renderAccount(account, { detail: 'full' }).split('\n')).toEqual([
+				'?x is a grandparent of ?z (confidence 95%)',
+				'  proved through Grandparents',
+			])
+			expect(renderAccount(account, { detail: 'line' })).toBe(
+				'?x is a grandparent of ?z (confidence 95%)',
+			)
+			expect(account.lines[0]?.source).toEqual({ fact: 'grandparent-conclusion' })
+			expect(account.lines[0]?.lines[0]?.source).toEqual({ inference: 'grandparent' })
+		})
+
+		it('names the inference of the proof, not of the goal, and none where a known fact is the proof', () => {
+			const first = createInference(
+				'first',
+				[createFact('p', 'known', ['?x'])],
+				createFact('a', 'out', ['ada']),
+				{ name: 'First' },
+			)
+			const goal = createInference(
+				'goal',
+				[createFact('q', 'never', ['?x'])],
+				createFact('b', 'out', ['?who']),
+				{ name: 'Goal', confidence: 0.5 },
+			)
+			const known = createFact('k', 'known', ['ada'])
+			const narrator = new Narrator({
+				glossary: { labels: {}, predicates: { out: '{{1}} is out' } },
+			})
+			const through = createInferentialDefinition('d', 'D', [known], [first], {
+				strategy: 'backward',
+			})
+			expect(renderAccount(narrator.narrate(through, REASON.reason({}, through)))).toBe(
+				'ada is out\n  proved through First',
+			)
+			const bo = createFact('o', 'out', ['bo'])
+			const stated = createInferentialDefinition('d', 'D', [bo], [goal], { strategy: 'backward' })
+			expect(renderAccount(narrator.narrate(stated, REASON.reason({}, stated)))).toBe(
+				'?who is out (confidence 50%)',
+			)
+			const other = createInferentialDefinition(
+				'd',
+				'D',
+				[known],
+				[
+					{ ...first, premises: [createFact('n', 'never', [])], name: 'Blocked' },
+					goal,
+					{ ...first, id: 'last', name: 'Last' },
+				],
+				{ strategy: 'backward' },
+			)
+			expect(renderAccount(narrator.narrate(other, REASON.reason({}, other)))).toBe(
+				'ada is out\n  proved through Last',
+			)
+			const unproved = createInferentialDefinition('d', 'D', [], [goal], { strategy: 'backward' })
+			expect(renderAccount(narrator.narrate(unproved, REASON.reason({}, unproved)))).toBe(
+				'Facts derived: 0',
+			)
+		})
+
+		it("prints a has fact as a field only where it can only be the subject's", () => {
+			const pets = createInferentialDefinition(
+				'pets',
+				'Pets',
+				[createFact('pet', 'has', ['alice', 'dog'])],
+				[
+					createInference(
+						'owner',
+						[createFact('p', 'has', ['?who', 'dog'])],
+						createFact('c', 'has', ['?who', 'lead']),
+						{ name: 'Owner' },
+					),
+				],
+			)
+			const narrator = new Narrator({ glossary: { labels: { alice: 'Alice' } } })
+			expect(renderAccount(narrator.narrate(pets, REASON.reason({}, pets)))).toBe(
+				'Facts derived: 1\nhas(alice, lead)',
+			)
+			expect(narrator.audit([pets])).toEqual([{ word: 'predicate', id: 'has' }])
+			const worded = new Narrator({
+				glossary: { labels: {}, predicates: { has: '{{1}} owns a {{2}}' } },
+			})
+			expect(renderAccount(worded.narrate(pets, REASON.reason({}, pets)))).toBe(
+				'Facts derived: 1\nalice owns a lead',
+			)
+			expect(renderAccount(worded.describe(pets)).split('\n').at(-1)).toBe(
+				'  ?who owns a lead, when ?who owns a dog',
+			)
+		})
+
+		it('quotes every term of a stated fact where one holds the text between terms', () => {
+			const build = [
+				['alice', 'bob'],
+				['alice, bob', 5],
+				['alice,', true],
+				['', null],
+			].map((terms) =>
+				createInferentialDefinition(
+					'd',
+					'D',
+					[createFact('k', 'go', [])],
+					[createInference('i', [createFact('p', 'go', [])], createFact('c', 'out', terms))],
+				),
+			)
+			const texts = build.map(
+				(definition) =>
+					new Narrator().narrate(definition, REASON.reason({}, definition)).lines[1]?.text,
+			)
+			expect(texts).toEqual([
+				'out(alice, bob)',
+				'out("alice, bob", "5")',
+				'out("alice,", "true")',
+				'out("", none)',
+			])
+			const other = new Narrator({ lexicon: { joins: { terms: ' / ' } } })
+			const held = requireValue(build[1])
+			expect(other.narrate(held, REASON.reason({}, held)).lines[1]?.text).toBe(
+				'out(alice, bob / 5)',
+			)
+		})
+
+		it('states a fact of no terms by its predicate alone', () => {
+			const rain = createInferentialDefinition(
+				'd',
+				'D',
+				[createFact('k', 'cloud', [])],
+				[createInference('i', [createFact('p', 'cloud', [])], createFact('c', 'rain', []))],
+			)
+			expect(renderAccount(new Narrator().narrate(rain, REASON.reason({}, rain)))).toBe(
+				'Facts derived: 1\nrain',
+			)
+		})
+
+		it('prints a confidence the percent would round as it is, and none from 1', () => {
+			const confidences: ReadonlyArray<readonly [number, string]> = [
+				[0.855, ' (confidence 85.5%)'],
+				[0.8575, ' (confidence 85.75%)'],
+				[0.99999, ' (confidence 0.99999)'],
+				[0.00001, ' (confidence 0.00001)'],
+				[0, ' (confidence 0%)'],
+				[1, ''],
+			]
+			const narrator = new Narrator({
+				glossary: { labels: {}, formats: { percent: { style: 'unit', unit: 'percent' } } },
+			})
+			for (const [confidence, text] of confidences) {
+				const known = createFact('k', 'known', [])
+				const inference = createInference('i', [known], createFact('c', 'out', []), { confidence })
+				const definition = createInferentialDefinition('d', 'D', [known], [inference], {
+					strategy: 'backward',
+				})
+				const account = narrator.narrate(definition, REASON.reason({}, definition))
+				expect(account.lines[0]?.text).toBe(`out${text}`)
+				const rendered = renderAccount(narrator.describe(definition))
+				expect(rendered.split('\n').slice(3)).toEqual(
+					text === '' ? [] : [`  confidence: ${text.slice(13, -1)}`],
+				)
+			}
+		})
+
+		it('states nothing a capped run derived', () => {
+			const facts = buildWorkshopFacts()
+			for (const strategy of ['forward', 'backward'] as const) {
+				const capped = { ...facts, strategy, depth: strategy === 'forward' ? 1 : 0 }
+				const result = REASON.reason({}, capped)
+				expect(result.success).toBe(false)
+				const account = new Narrator({ glossary: WORKSHOP_GLOSSARY }).narrate(capped, result)
+				expect(renderAccount(account, { detail: 'full' })).toBe('Booking facts gave no answer')
+			}
 		})
 	})
 })

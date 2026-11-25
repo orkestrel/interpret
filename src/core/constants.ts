@@ -235,7 +235,7 @@ export const DEFAULT_LEXICON: Lexicon = Object.freeze({
 		submitted: 'submitted for review',
 	}),
 	values: Object.freeze({ true: 'true', false: 'false', null: 'none' }),
-	joins: Object.freeze({ reasons: '; ', last: '; and ', steps: ', then ' }),
+	joins: Object.freeze({ reasons: '; ', last: '; and ', steps: ', then ', terms: ', ' }),
 	frames: Object.freeze({
 		'fact.equal': '{{label}} is {{actual}}',
 		'fact.compared': '{{label}} is {{actual}}, which {{comparison}} {{expected}}',

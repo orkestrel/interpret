@@ -19,25 +19,31 @@ import { createProgram, STATUSES } from '@orkestrel/program'
 import { createQualifier, findMessageTokens, findRule } from '@orkestrel/qualifier'
 import { createRater } from '@orkestrel/rater'
 import {
+	applyOperation,
 	collectVariables,
 	createAtom,
 	createCompound,
+	createConstant,
 	createInferentialReasoner,
 	createLogicalDefinition,
 	createLogicalReasoner,
+	createOperation,
 	createQuantitativeReasoner,
 	createReason,
 	createRule,
 	createSymbolicReasoner,
+	createVariable,
 	extractAtoms,
 	formatField,
 	isInferentialResult,
 	isLogicalResult,
 	isQuantitativeResult,
 	isSymbolicResult,
+	MATH_OPERATIONS,
 } from '@orkestrel/reason'
 import { describe, expect, it } from 'vitest'
 import {
+	buildBandTables,
 	buildEligibilityRecipe,
 	buildExpressionTrees,
 	buildFamilyProgram,
@@ -48,10 +54,14 @@ import {
 	buildInterpretSolvedDefinition,
 	buildLoanRecipe,
 	buildStatisticsRecipe,
+	buildSymbolicTrees,
 	buildWorkshopArea,
+	buildWorkshopCharge,
 	buildWorkshopFacts,
 	buildWorkshopFees,
 	buildWorkshopGates,
+	buildWorkshopKin,
+	buildWorkshopQuote,
 	buildWorkshopRules,
 	buildWorkshopScore,
 	collectConnectives,
@@ -64,6 +74,7 @@ import {
 	collectFamilyUnique,
 	collectInterpretCorpusRecipes,
 	collectTreeSubjects,
+	computeChanges,
 	createCorpusExtractor,
 	EXTREME_NUMBERS,
 	expectSymbolic,
@@ -76,12 +87,21 @@ import {
 	INTERPRET_ACTIONS,
 	INTERPRET_DOMAINS,
 	measureDepth,
+	measureTree,
+	parseWordedRange,
+	parseSide,
 	seedInterpretContext,
+	SIDE_READINGS,
+	splitGroups,
+	TABLE_BANDS,
+	TRANSFORM_READINGS,
 	TRICKY_KEYS,
 	WORKSHOP_AREA,
+	WORKSHOP_CHARGES,
 	WORKSHOP_FEES,
 	WORKSHOP_GATES,
 	WORKSHOP_GLOSSARY,
+	WORKSHOP_QUOTES,
 	WORKSHOP_RESTRICTED,
 	WORKSHOP_SCORES,
 	WORKSHOP_SUBJECTS,
@@ -808,6 +828,231 @@ describe('buildWorkshopFacts', () => {
 	})
 })
 
+describe('buildWorkshopQuote', () => {
+	const reasoner = createQuantitativeReasoner()
+
+	it('is a valid definition that authors every setting it names', () => {
+		const definition = buildWorkshopQuote()
+		const factors = definition.groups.flatMap((group) => group.factors)
+
+		expect(reasoner.validate(definition).valid).toBe(true)
+		expect([definition.base, definition.bounds, definition.precision]).toEqual([
+			10,
+			{ minimum: 25 },
+			2,
+		])
+		expect(definition.groups.map(({ strict, base }) => [strict, base])).toEqual([
+			[true, 5],
+			[undefined, undefined],
+		])
+		expect(factors.map(({ weight, fallback, required }) => [weight, fallback, required])).toEqual([
+			[2, 6, undefined],
+			[undefined, undefined, undefined],
+			[undefined, undefined, true],
+			[undefined, 0, undefined],
+		])
+	})
+
+	it.each(Object.entries(WORKSHOP_QUOTES))(
+		'prices the %s subject as expected, as the real engine reads it',
+		(_name, expected) => {
+			const result = reasoner.reason(expected.subject, buildWorkshopQuote())
+			if (!isQuantitativeResult(result)) throw new Error('Expected a quantitative result')
+
+			expect(result.success).toBe(expected.success)
+			expect(result.value).toBeCloseTo(expected.value, 9)
+		},
+	)
+
+	it('leaves a strict group and its base out of the total where a factor did not apply', () => {
+		const result = reasoner.reason(WORKSHOP_QUOTES.costly?.subject ?? {}, buildWorkshopQuote())
+		if (!isQuantitativeResult(result)) throw new Error('Expected a quantitative result')
+
+		expect(result.groups.map(({ id, applied, value }) => [id, applied, value])).toEqual([
+			['hire', false, 5],
+			['crowd', true, 15.125],
+		])
+		expect(result.count).toBe(1)
+	})
+})
+
+describe('buildWorkshopCharge', () => {
+	it('is a valid definition whose first equation nests three operations', () => {
+		const definition = buildWorkshopCharge()
+		const [charge] = definition.equations
+
+		expect(createSymbolicReasoner().validate(definition).valid).toBe(true)
+		expect(collectVariables(charge?.right ?? createConstant(0))).toEqual([
+			'width',
+			'depth',
+			'minimum',
+		])
+		expect(measureTree(charge?.right ?? createConstant(0))).toBe(3)
+	})
+
+	it.each(Object.entries(WORKSHOP_CHARGES))(
+		'reads the %s subject as expected, as the real engine reads it',
+		(_name, expected) => {
+			const result = createSymbolicReasoner().reason(expected.subject, buildWorkshopCharge())
+			if (!isSymbolicResult(result)) throw new Error('Expected a symbolic result')
+
+			expect(result.success).toBe(expected.success)
+			expect(result.solutions).toEqual(expected.solutions)
+		},
+	)
+})
+
+describe('buildWorkshopKin', () => {
+	it('derives each fact with the product of its confidences, going forward', () => {
+		const definition = buildWorkshopKin()
+		const result = createInferentialReasoner().reason({ member: 'gold' }, definition)
+		if (!isInferentialResult(result)) throw new Error('Expected an inferential result')
+
+		expect(createInferentialReasoner().validate(definition).valid).toBe(true)
+		expect(result.success).toBe(true)
+		expect(
+			result.derived.map(({ predicate, terms, confidence }) => [predicate, terms, confidence]),
+		).toEqual([
+			['grandparent', ['alice', 'cara'], 0.855],
+			['welcome', ['alice'], 0.855],
+		])
+	})
+
+	it('proves the first conclusion, its variables unbound and its confidence its own, going backward', () => {
+		const result = createInferentialReasoner().reason({}, buildWorkshopKin('backward'))
+		if (!isInferentialResult(result)) throw new Error('Expected an inferential result')
+
+		expect(
+			result.derived.map(({ predicate, terms, confidence }) => [predicate, terms, confidence]),
+		).toEqual([['grandparent', ['?x', '?z'], 0.95]])
+		expect(result.proof?.inference).toBe('grandparent')
+		expect(result.proof?.children?.map(({ fact }) => fact)).toEqual(['ab', 'ab'])
+	})
+})
+
+describe('buildSymbolicTrees', () => {
+	const trees = buildSymbolicTrees()
+
+	it('holds the leaves, every depth 1 and 2 shape, and the draws of depth 3, counted by hand', () => {
+		const counts = [0, 1, 2, 3].map(
+			(depth) => trees.filter((tree) => measureTree(tree) === depth).length,
+		)
+
+		expect(counts).toEqual([4, 160, 286, 200])
+		expect(trees).toHaveLength(650)
+	})
+
+	it('nests every operation inside every operation', () => {
+		const pairs = trees
+			.slice(164, 450)
+			.flatMap((tree) =>
+				tree.form !== 'operation'
+					? []
+					: [tree.left, tree.right].flatMap((side) =>
+							side?.form === 'operation' ? [`${tree.operator} ${side.operator}`] : [],
+						),
+			)
+
+		expect(new Set(pairs).size).toBe(MATH_OPERATIONS.length ** 2)
+	})
+
+	it('leaves a right side out of the operations that read none, and of no other', () => {
+		const pending = [...trees]
+		for (const node of pending) {
+			if (node.form !== 'operation') continue
+			pending.push(node.left, ...(node.right === undefined ? [] : [node.right]))
+		}
+
+		expect(
+			pending.filter(
+				(node) =>
+					node.form === 'operation' &&
+					(node.right === undefined) !== ['round', 'ceil', 'floor', 'abs'].includes(node.operator),
+			),
+		).toEqual([])
+	})
+})
+
+describe('parseSide', () => {
+	const names = new Map([
+		['a label', 'a'],
+		['b', 'b'],
+	])
+
+	it('reads a text back into its tree, and a swapped operand back into its place', () => {
+		expect(parseSide('a label', names)).toEqual(createVariable('a'))
+		expect(parseSide('-2.5', names)).toEqual(createConstant(-2.5))
+		expect(parseSide('10% of (a label + (-3))', names)).toEqual(
+			createOperation(
+				'percentage',
+				createOperation('add', createVariable('a'), createConstant(-3)),
+				createConstant(10),
+			),
+		)
+		expect(parseSide('(a label) rounded to a whole number', names)).toEqual(
+			createOperation('round', createVariable('a')),
+		)
+	})
+
+	it('has no reading of a text with two, of an unknown name, or of a blank', () => {
+		expect(parseSide('a label + b × b', names)).toBeUndefined()
+		expect(parseSide('c', names)).toBeUndefined()
+		expect(parseSide('', names)).toBeUndefined()
+		expect(parseSide('a label + c', names)).toBeUndefined()
+	})
+
+	it('reads each operation the engine has once', () => {
+		expect(SIDE_READINGS.map(([operator]) => operator)).toEqual([...MATH_OPERATIONS])
+	})
+})
+
+describe('splitGroups', () => {
+	it('marks each outermost group, and keeps its own text', () => {
+		expect(splitGroups('(a (b)) + (c)')).toEqual({ flat: '§0 + §1', groups: ['a (b)', 'c'] })
+		expect(splitGroups('a + b')).toEqual({ flat: 'a + b', groups: [] })
+	})
+})
+
+describe('computeChanges', () => {
+	it('computes each change the engine has, as the engine computes it', () => {
+		for (const [operation, value, operand, text, changed] of TRANSFORM_READINGS) {
+			expect([operation, computeChanges(value, text)]).toEqual([operation, changed])
+			expect(applyOperation(operation, value, operand ?? 0)).toBe(changed)
+		}
+		expect(computeChanges(2, 'plus 3, then times 4')).toBe(20)
+	})
+
+	it('has no answer for a change it cannot read', () => {
+		expect(computeChanges(2, 'plus')).toBeNaN()
+		expect(computeChanges(2, '')).toBeNaN()
+	})
+})
+
+describe('parseWordedRange', () => {
+	it('reads every form a range prints in, and no other text', () => {
+		expect(parseWordedRange('any value')).toEqual({})
+		expect(parseWordedRange('at least 5')).toEqual({ minimum: 5 })
+		expect(parseWordedRange('at most -2.5')).toEqual({ maximum: -2.5 })
+		expect(parseWordedRange('3 to 8')).toEqual({ minimum: 3, maximum: 8 })
+		expect(parseWordedRange('near 5')).toBeUndefined()
+	})
+})
+
+describe('buildBandTables', () => {
+	it('draws valid tables that hold every band, some with a fallback and some with none', () => {
+		const tables = buildBandTables()
+		const factors = tables.flatMap((table) => table.groups.flatMap((group) => group.factors))
+		const bands = factors.flatMap(({ source }) => (source.origin === 'range' ? source.ranges : []))
+		const reasoner = createQuantitativeReasoner()
+
+		expect(tables.filter((table) => !reasoner.validate(table).valid)).toEqual([])
+		expect(new Set(bands.map(({ bounds }) => JSON.stringify(bounds)))).toEqual(
+			new Set(TABLE_BANDS.map(({ bounds }) => JSON.stringify(bounds))),
+		)
+		expect(new Set(factors.map(({ fallback }) => fallback))).toEqual(new Set([undefined, 99.5]))
+	})
+})
+
 describe('WORKSHOP_GLOSSARY', () => {
 	const compared = ['above', 'below', 'from', 'to', 'between', 'outside']
 
@@ -821,13 +1066,16 @@ describe('WORKSHOP_GLOSSARY', () => {
 				...(factor.source.origin === 'static' ? [] : [formatField(factor.source.field)]),
 				...(factor.checks ?? []).map((check) => formatField(check.field)),
 			])
-		const symbolic = buildWorkshopArea().equations.flatMap((equation) => [
-			...collectVariables(equation.left),
-			...collectVariables(equation.right),
-			equation.target,
-		])
-		const fees = buildWorkshopFees()
-			.groups.flatMap((group) => group.factors)
+		const symbolic = [buildWorkshopArea(), buildWorkshopCharge()]
+			.flatMap((definition) => definition.equations)
+			.flatMap((equation) => [
+				...collectVariables(equation.left),
+				...collectVariables(equation.right),
+				equation.target,
+			])
+		const fees = [buildWorkshopFees(), buildWorkshopQuote()]
+			.flatMap((definition) => definition.groups)
+			.flatMap((group) => group.factors)
 			.flatMap(({ source, checks }) => [
 				...(source.origin === 'static' ? [] : [formatField(source.field)]),
 				...(checks ?? []).map((check) => formatField(check.field)),
@@ -863,8 +1111,24 @@ describe('WORKSHOP_GLOSSARY', () => {
 			start: 'plain',
 			score: 'count',
 			guests: 'count',
+			hours: 'count',
+			charge: 'money',
+			deposit: 'money',
 		})
-		expect(WORKSHOP_GLOSSARY.values).toEqual({ score: 'count', fees: 'money' })
+		expect(WORKSHOP_GLOSSARY.values).toEqual({ score: 'count', fees: 'money', quote: 'money' })
+	})
+
+	it('gives a sentence to every predicate the inferential definitions name, but the subject one', () => {
+		const named = [buildWorkshopFacts(), buildWorkshopKin()].flatMap(({ facts, inferences }) => [
+			...facts,
+			...inferences.flatMap(({ premises, conclusion }) => [...premises, conclusion]),
+		])
+
+		expect(
+			[...new Set(named.map(({ predicate }) => predicate))]
+				.filter((predicate) => predicate !== 'has')
+				.toSorted(),
+		).toEqual(Object.keys(WORKSHOP_GLOSSARY.predicates).toSorted())
 	})
 
 	it('formats each unit past the shipped plain and count with a real Intl format', () => {

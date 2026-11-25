@@ -2,14 +2,21 @@ import type { AuditFault, FaultKind, FieldPath } from '@orkestrel/contract'
 import type {
 	Aggregation,
 	Bounds,
+	ChainStrategy,
 	Check,
 	CheckState,
 	Definition,
+	Equation,
 	Expression,
+	Fact,
 	Factor,
 	FactorGroup,
+	FactorRange,
 	FactorResult,
 	GroupResult,
+	Inference,
+	InferentialDefinition,
+	InferentialResult,
 	LogicalDefinition,
 	LogicalResult,
 	QuantitativeDefinition,
@@ -17,11 +24,15 @@ import type {
 	ReasonResult,
 	Rule,
 	RuleResult,
+	SymbolicExpression,
+	SymbolicResult,
+	Transform,
 } from '@orkestrel/reason'
 import type {
 	Account,
 	AccountContext,
 	AccountLine,
+	AccountRole,
 	AccountSource,
 	AccountText,
 	FrameName,
@@ -41,6 +52,7 @@ import {
 	isAuditFault,
 	isBoolean,
 	isFiniteNumber,
+	isInteger,
 	isNull,
 	isNumber,
 	isString,
@@ -51,27 +63,36 @@ import {
 import {
 	collectConcluders,
 	combineStates,
+	CONFIDENCE_PRECISION,
 	formatField,
 	readClosedState,
 	readExpectedKind,
+	resolveOperand,
+	roundTo,
 } from '@orkestrel/reason'
 import { fillTemplate } from '@orkestrel/template'
 import { DEFAULT_FORMATS, TEXT_BREAK_PATTERN } from './constants.js'
 import {
 	buildAccountLine,
+	collectFactGaps,
 	collectFaultFields,
 	collectFieldGaps,
 	collectGaps,
 	collectListJoins,
 	collectNameGaps,
 	collectReasons,
+	collectSlots,
 	collectUnitGaps,
 	findConditionRules,
 	findDecidingOperands,
+	findFactSentence,
 	findGoalRule,
 	findSoleExpression,
+	findSubjectKey,
 	findWord,
+	matchesChangedFactor,
 	matchesNumericCheck,
+	matchesSubjectKeys,
 	normalizeLine,
 	readNarratorOption,
 	renderCitedReasons,
@@ -118,6 +139,7 @@ export class Narrator implements NarratorInterface {
 	readonly #formatters: ReadonlyMap<string, NarratorFormatter>
 	readonly #formats: ReadonlyMap<string, Intl.NumberFormat>
 	readonly #plain: Intl.NumberFormat
+	readonly #percent: Intl.NumberFormat
 	readonly #every: Intl.ListFormat
 	readonly #either: Intl.ListFormat
 	readonly #units: ReadonlySet<string>
@@ -134,6 +156,7 @@ export class Narrator implements NarratorInterface {
 			]),
 		)
 		this.#plain = new Intl.NumberFormat(this.#locale, DEFAULT_FORMATS.plain)
+		this.#percent = new Intl.NumberFormat(this.#locale, DEFAULT_FORMATS.percent)
 		this.#every = new Intl.ListFormat(this.#locale, { type: 'conjunction' })
 		this.#either = new Intl.ListFormat(this.#locale, { type: 'disjunction' })
 		this.#units = new Set([...this.#formats.keys(), ...this.#formatters.keys()])
@@ -163,13 +186,14 @@ export class Narrator implements NarratorInterface {
 
 	describe(definition: Definition): Account {
 		const named = this.#writeName('definition', definition)
-		const aggregation =
-			definition.reasoning === 'quantitative' ? [this.#aggregationLine(definition)] : []
 		const title = buildAccountLine({
 			role: 'verdict',
 			decisive: true,
 			...named,
-			lines: [...this.#descriptionLines(definition.description), ...aggregation],
+			lines: [
+				...this.#descriptionLines(definition.description),
+				...this.#definitionGuide(definition),
+			],
 		})
 		return {
 			id: definition.id,
@@ -264,10 +288,12 @@ export class Narrator implements NarratorInterface {
 	}
 
 	// A blank string prints quoted, because a blank slot reads as a missing word.
-	#writeScalar(field: FieldPath, raw: unknown): string {
+	#writeScalar(field: FieldPath | undefined, raw: unknown): string {
 		if (isString(raw)) return raw.trim() === '' ? preview(raw) : raw
 		if (isNumber(raw)) {
-			return this.#writeNumber(findWord(this.#glossary.units, formatField(field)), raw)
+			const unit =
+				field === undefined ? undefined : findWord(this.#glossary.units, formatField(field))
+			return this.#writeNumber(unit, raw)
 		}
 		if (isBoolean(raw)) return raw ? this.#lexicon.values.true : this.#lexicon.values.false
 		if (isNull(raw)) return this.#lexicon.values.null
@@ -311,38 +337,171 @@ export class Narrator implements NarratorInterface {
 			case 'quantitative':
 				return this.#worksheetLines(definition, result)
 			default: {
-				const answer = result.success ? this.#writeAnswer(result) : undefined
-				if (answer !== undefined) {
-					return [buildAccountLine({ role: 'verdict', decisive: true, ...answer })]
-				}
+				const answered = result.success ? this.#answerLines(definition, result) : []
+				if (answered.length > 0) return answered
 				const lines = result.faults.map((fault) => this.#faultLine(fault))
 				return [this.#refusedLine(definition, lines, lines)]
 			}
 		}
 	}
 
-	#writeAnswer(
-		result: Exclude<ReasonResult, LogicalResult | QuantitativeResult>,
-	): AccountText | undefined {
-		if (result.reasoning === 'inferential') {
-			const count = this.#plain.format(result.derived.length)
-			return { text: this.line('result.derived', { count }), gaps: [] }
+	#answerLines(
+		definition: Definition,
+		result: SymbolicResult | InferentialResult,
+	): readonly AccountLine[] {
+		return result.reasoning === 'symbolic'
+			? this.#solutionLines(definition, result)
+			: this.#derivedLines(definition, result)
+	}
+
+	// A later equation solves its target again, so a solution is the last one's of its target.
+	#solutionLines(definition: Definition, result: SymbolicResult): readonly AccountLine[] {
+		const equations = definition.reasoning === 'symbolic' ? definition.equations : []
+		return Object.entries(result.solutions).map(([target, value]) => {
+			const equation = equations.findLast((entry) => entry.target === target)
+			return buildAccountLine({
+				role: 'verdict',
+				decisive: true,
+				text: this.line('result.solution', {
+					label: this.label(target),
+					value: this.value(target, value),
+				}),
+				...(equation === undefined ? {} : { source: { equation: equation.id } }),
+				gaps: collectFieldGaps(target, false, this.#glossary, this.#units),
+				lines: equation === undefined ? [] : this.#equationLines(equation, 'reason'),
+			})
+		})
+	}
+
+	// A proof stands for the one conclusion it proved, and any other run counts what it derived.
+	#derivedLines(definition: Definition, result: InferentialResult): readonly AccountLine[] {
+		const authored = definition.reasoning === 'inferential' ? definition : undefined
+		const keyed = authored !== undefined && matchesSubjectKeys(authored, this.#glossary)
+		const { derived, proof } = result
+		const proved = proof !== undefined && derived.length === 1
+		const inference = proved ? proof.inference : undefined
+		const facts = derived.map((fact) =>
+			buildAccountLine({
+				role: proved ? 'verdict' : 'step',
+				decisive: true,
+				...this.#writeDerived(fact, keyed),
+				source: { fact: fact.id },
+				lines: inference === undefined ? [] : [this.#provedLine(inference, authored)],
+			}),
+		)
+		if (proved) return facts
+		const count = this.#plain.format(derived.length)
+		const text = this.line('result.derived', { count })
+		return [buildAccountLine({ role: 'verdict', decisive: true, text }), ...facts]
+	}
+
+	#provedLine(inference: string, definition: InferentialDefinition | undefined): AccountLine {
+		const named = this.#writeName(
+			'inference',
+			definition?.inferences.find((entry) => entry.id === inference && entry.enabled !== false) ?? {
+				id: inference,
+				name: inference,
+			},
+		)
+		return buildAccountLine({
+			role: 'reason',
+			decisive: true,
+			text: this.line('fact.proved', { name: named.text }),
+			source: { inference },
+			gaps: named.gaps,
+		})
+	}
+
+	#writeDerived(fact: Fact, keyed: boolean): AccountText {
+		const written = this.#writeStatement(fact, keyed)
+		const confidence = this.#writeConfidence(fact.confidence)
+		return confidence === undefined
+			? written
+			: { ...written, text: this.line('fact.confidence', { fact: written.text, confidence }) }
+	}
+
+	// A confidence the percent format would round prints as it is, so that none below 1 reads as 100%.
+	#writeConfidence(confidence: number | undefined): string | undefined {
+		if (!isFiniteNumber(confidence) || confidence >= 1) return undefined
+		return roundTo(confidence, CONFIDENCE_PRECISION) === confidence
+			? this.#percent.format(confidence)
+			: this.#plain.format(confidence)
+	}
+
+	// States a fact as its predicate's sentence, as its subject's field, or as it is authored.
+	#writeStatement(fact: Fact, keyed: boolean): AccountText {
+		const gaps = collectFactGaps(fact, keyed, this.#glossary, this.#units)
+		const key = keyed ? findSubjectKey(fact) : undefined
+		if (key !== undefined) {
+			const actual = this.value(key, fact.terms[1])
+			return { text: this.line('fact.equal', { label: this.label(key), actual }), gaps }
 		}
-		const solutions = Object.entries(result.solutions)
-		if (solutions.length === 0) return undefined
+		const texts = fact.terms.map((term) =>
+			isArray(term) ? preview(term) : this.#writeScalar(undefined, term),
+		)
+		const join = this.#lexicon.joins.terms
+		const quoted = texts.some((text) => ` ${text} `.includes(join))
+		const terms = texts
+			.map((text, index) => {
+				const term = fact.terms[index]
+				return quoted ? this.line('value.quoted', { value: isString(term) ? term : text }) : text
+			})
+			.join(join)
+		const sentence = findFactSentence(fact, this.#glossary.predicates)
+		if (sentence !== undefined) {
+			const slots = texts.map((text, index) => [String(index + 1), text])
+			return { text: this.#fill(sentence, { ...Object.fromEntries(slots), terms }), gaps }
+		}
+		const predicate = this.#writeScalar(undefined, fact.predicate)
 		return {
-			text: this.#every.format(
-				solutions.map(([target, value]) =>
-					this.line('result.solution', {
-						label: this.label(target),
-						value: this.value(target, value),
-					}),
-				),
-			),
-			gaps: solutions.flatMap(([target]) =>
-				collectFieldGaps(target, false, this.#glossary, this.#units),
-			),
+			text: terms === '' ? predicate : this.line('fact.stated', { predicate, terms }),
+			gaps,
 		}
+	}
+
+	// Writes an equation as its own tree. A tree too deep to walk has no text to print.
+	#equationLines(equation: Equation, role: AccountRole): readonly AccountLine[] {
+		const written = attempt(() =>
+			[equation.left, equation.right].map((side) => this.#writeSide(side, false)),
+		)
+		if (!isSuccess(written)) return []
+		const [left, right] = written.value
+		return [
+			buildAccountLine({
+				role,
+				decisive: true,
+				text: this.line('equation.form', { left: left?.text, right: right?.text }),
+				source: { equation: equation.id },
+				gaps: written.value.flatMap((side) => side.gaps),
+			}),
+		]
+	}
+
+	// An operation inside another is parenthesized, and so is a negative constant, so that the text
+	// has one reading. An operation the engine reads no right side of prints none.
+	#writeSide(expression: SymbolicExpression, inner: boolean): AccountText {
+		if (expression.form === 'variable') {
+			const { name } = expression
+			return { text: this.label(name), gaps: this.#collectLabelGaps(name) }
+		}
+		if (expression.form === 'constant') {
+			const { value } = expression
+			const text = this.#writeNumber(undefined, value)
+			return this.#writeNested(text, [], inner && (value < 0 || Object.is(value, -0)))
+		}
+		const template = findWord(this.#lexicon.operations, expression.operator) ?? ''
+		const slots = collectSlots(template)
+		const left = this.#writeSide(expression.left, true)
+		const right =
+			expression.right === undefined || !slots.includes('right')
+				? { text: this.#lexicon.missing, gaps: [] }
+				: this.#writeSide(expression.right, true)
+		const text = this.#fill(template, { left: left.text, right: right.text })
+		return this.#writeNested(text, [...left.gaps, ...right.gaps], inner)
+	}
+
+	#writeNested(expression: string, gaps: readonly GlossaryGap[], inner: boolean): AccountText {
+		return { text: inner ? this.line('equation.group', { expression }) : expression, gaps }
 	}
 
 	// A refused run states no value, count, or solution: only the causes its evidence holds.
@@ -823,7 +982,7 @@ export class Narrator implements NarratorInterface {
 			groups: new Map((authored?.groups ?? []).map((group) => [group.id, group])),
 			faults: result.faults,
 			stated: result.success && isFiniteNumber(result.value),
-			unit: authored?.aggregation === 'product' ? undefined : unit,
+			unit: authored === undefined ? unit : this.#findValueUnit(authored),
 		}
 		const groups = result.groups.map((group) => this.#groupLine(group, context))
 		if (!context.stated) return [this.#causeLine(definition, result, context), ...groups]
@@ -895,6 +1054,28 @@ export class Narrator implements NarratorInterface {
 			: this.line('value.range', { minimum, maximum })
 	}
 
+	// An operand the engine defaults prints as the engine takes it.
+	#changesLines(
+		transforms: readonly Transform[] | undefined,
+		source: AccountSource,
+	): readonly AccountLine[] {
+		if (transforms === undefined || transforms.length === 0) return []
+		const changes = transforms
+			.map(({ operation, operand }) =>
+				this.#fill(findWord(this.#lexicon.transforms, operation) ?? '', {
+					operand: this.#writeNumber(undefined, resolveOperand(operation, operand)),
+				}),
+			)
+			.join(this.#lexicon.joins.steps)
+		return [this.#settingLine(this.line('worksheet.changes', { changes }), undefined, source)]
+	}
+
+	#precisionLines(precision: number | undefined): readonly AccountLine[] {
+		if (!isInteger(precision)) return []
+		const places = this.#plain.format(precision)
+		return [this.#settingLine(this.line('worksheet.precision', { places }), undefined, {})]
+	}
+
 	#settingLine(text: string, unit: string | undefined, source: AccountSource): AccountLine {
 		return buildAccountLine({
 			role: 'step',
@@ -903,6 +1084,11 @@ export class Narrator implements NarratorInterface {
 			source,
 			gaps: collectUnitGaps(unit, this.#units),
 		})
+	}
+
+	// A guide prints its settings at full detail alone.
+	#guideLines(settings: readonly AccountLine[]): readonly AccountLine[] {
+		return settings.map((line) => ({ ...line, role: 'condition', decisive: false }))
 	}
 
 	// The total prints only where the aggregation alone gives the value, because a bound or a base
@@ -1039,8 +1225,11 @@ export class Narrator implements NarratorInterface {
 		const step = this.#writeStep('worksheet.factor', named, factor, context.stated, context.unit)
 		if (factor.applied) {
 			const aggregation = context.groups.get(group.id)?.aggregation
+			// The changes account for the number only beside the one they start from.
+			const transforms = isFiniteNumber(factor.raw) ? authored?.transforms : undefined
 			const settings = context.stated
 				? [
+						...this.#changesLines(transforms, source),
 						...this.#boundsLines(authored?.bounds, context.unit, source),
 						...this.#weightLines(authored?.weight, aggregation, source),
 					]
@@ -1131,8 +1320,7 @@ export class Narrator implements NarratorInterface {
 		const raw = result?.raw
 		if (source.origin === 'static') {
 			if (!isFiniteNumber(source.value)) return []
-			const changed = factor.transforms !== undefined || factor.bounds !== undefined
-			const kept = changed ? undefined : unit
+			const kept = matchesChangedFactor(factor) ? undefined : unit
 			const value = this.#writeNumber(kept, source.value)
 			const gaps = collectUnitGaps(kept, this.#units)
 			return [{ text: this.line('source.static', { value }), gaps }]
@@ -1158,8 +1346,9 @@ export class Narrator implements NarratorInterface {
 		const missed: FrameName = either ? 'source.either' : 'source.fallback'
 		const frame: FrameName = fallback ? missed : `source.${source.origin}`
 		const chosen = { text: this.line(frame, { label }), gaps }
-		const applied = result?.applied === true
-		if (!applied || raw === result.value || !isFiniteNumber(raw)) return [chosen]
+		const authored = (factor.transforms ?? []).length > 0
+		const kept = raw === result?.value && !authored
+		if (result?.applied !== true || kept || !isFiniteNumber(raw)) return [chosen]
 		const value = this.#writeNumber(undefined, raw)
 		return [chosen, { text: this.line('worksheet.raw', { value }), gaps: [] }]
 	}
@@ -1173,23 +1362,87 @@ export class Narrator implements NarratorInterface {
 					.filter((group) => group.enabled !== false)
 					.map((group) => this.#groupGuide(group, definition))
 			case 'symbolic':
-				return definition.equations.map((equation) =>
-					this.#partLine(this.#writeName('equation', equation), {}, equation.description, [
+				return definition.equations.map((equation) => this.#equationGuide(equation))
+			case 'inferential': {
+				const keyed = matchesSubjectKeys(definition, this.#glossary)
+				return definition.inferences
+					.filter((inference) => inference.enabled !== false)
+					.map((inference) => this.#inferenceGuide(inference, definition.strategy, keyed))
+			}
+		}
+	}
+
+	#definitionGuide(definition: Definition): readonly AccountLine[] {
+		if (definition.reasoning === 'symbolic') {
+			return this.#guideLines(this.#precisionLines(definition.precision))
+		}
+		if (definition.reasoning !== 'quantitative') return []
+		const unit = this.#findValueUnit(definition)
+		return [
+			this.#aggregationLine(definition),
+			...this.#guideLines([
+				...this.#baseLines(definition.base, unit),
+				...this.#boundsLines(definition.bounds, unit),
+				...this.#precisionLines(definition.precision),
+			]),
+		]
+	}
+
+	// A part of a product is no amount, so its number prints plain.
+	#findValueUnit(definition: QuantitativeDefinition): string | undefined {
+		return definition.aggregation === 'product'
+			? undefined
+			: findWord(this.#glossary.values, definition.id)
+	}
+
+	#equationGuide(equation: Equation): AccountLine {
+		const source = { equation: equation.id }
+		return this.#partLine(this.#writeName('equation', equation), source, equation.description, [
+			...this.#equationLines(equation, 'condition'),
+			buildAccountLine({
+				role: 'condition',
+				decisive: true,
+				text: this.line('equation.target', { label: this.label(equation.target) }),
+				source,
+				gaps: this.#collectLabelGaps(equation.target),
+			}),
+		])
+	}
+
+	// A forward run skips an inference with no premises, so it concludes nothing there.
+	#inferenceGuide(inference: Inference, strategy: ChainStrategy, keyed: boolean): AccountLine {
+		const source = { inference: inference.id }
+		const conclusion = this.#writeStatement(inference.conclusion, keyed)
+		const premises = inference.premises.map((premise) => this.#writeStatement(premise, keyed))
+		const rule = this.line('inference.rule', {
+			conclusion: conclusion.text,
+			premises: this.#every.format(premises.map((premise) => premise.text)),
+		})
+		const confidence = this.#writeConfidence(inference.confidence)
+		const stated = premises.length > 0 || strategy === 'backward'
+		return this.#partLine(this.#writeName('inference', inference), source, inference.description, [
+			...(stated
+				? [
 						buildAccountLine({
 							role: 'condition',
 							decisive: true,
-							text: this.line('equation.target', { label: this.label(equation.target) }),
-							gaps: this.#collectLabelGaps(equation.target),
+							text: premises.length === 0 ? conclusion.text : rule,
+							source,
+							gaps: [...conclusion.gaps, ...premises.flatMap((premise) => premise.gaps)],
+						}),
+					]
+				: []),
+			...(confidence === undefined
+				? []
+				: [
+						buildAccountLine({
+							role: 'condition',
+							decisive: true,
+							text: this.line('inference.confidence', { confidence }),
+							source,
 						}),
 					]),
-				)
-			case 'inferential':
-				return definition.inferences
-					.filter((inference) => inference.enabled !== false)
-					.map((inference) =>
-						this.#partLine(this.#writeName('inference', inference), {}, inference.description, []),
-					)
-		}
+		])
 	}
 
 	// A part's line names it once, so the condition nested beneath leaves the name out.
@@ -1255,15 +1508,21 @@ export class Narrator implements NarratorInterface {
 	}
 
 	#groupGuide(group: FactorGroup, definition: QuantitativeDefinition): AccountLine {
-		const unit =
-			definition.aggregation === 'product' || group.aggregation === 'product'
-				? undefined
-				: findWord(this.#glossary.values, definition.id)
+		const source = { group: group.id }
+		const total = this.#findValueUnit(definition)
+		const unit = group.aggregation === 'product' ? undefined : total
+		const strict = this.#settingLine(this.line('worksheet.strict', {}), undefined, source)
+		const settings = [
+			...this.#baseLines(group.base, total, source),
+			...this.#boundsLines(group.bounds, total, source),
+			...(group.strict === true ? [strict] : []),
+		]
 		const factors = group.factors
 			.filter((factor) => factor.enabled !== false)
 			.map((factor) => this.#factorGuide(factor, group, unit))
-		return this.#partLine(this.#writeName('group', group), { group: group.id }, group.description, [
+		return this.#partLine(this.#writeName('group', group), source, group.description, [
 			this.#aggregationLine(group),
+			...this.#guideLines(settings),
 			...factors,
 		])
 	}
@@ -1272,11 +1531,79 @@ export class Narrator implements NarratorInterface {
 		const source = { group: group.id, factor: factor.id }
 		const named = this.#writeName('factor', factor)
 		const origin = this.#writeSource(factor, unit).map((entry) =>
-			buildAccountLine({ role: 'condition', decisive: true, ...entry, source }),
+			buildAccountLine({
+				role: 'condition',
+				decisive: true,
+				...entry,
+				source,
+				lines: this.#guideLines(this.#tableLines(factor, unit, source)),
+			}),
 		)
+		const required = this.#settingLine(this.line('worksheet.required', {}), undefined, source)
+		const settings = [
+			...this.#changesLines(factor.transforms, source),
+			...this.#boundsLines(factor.bounds, unit, source),
+			...this.#weightLines(factor.weight, group.aggregation, source),
+			...(factor.required === true ? [required] : []),
+		]
 		const checks = (factor.checks ?? []).map((check): Expression => ({ form: 'atom', check }))
 		const gate = this.#writePremises(checks, new Map())
-		return this.#partLine(named, source, factor.description, origin, gate)
+		const lines = [...origin, ...this.#guideLines(settings)]
+		return this.#partLine(named, source, factor.description, lines, gate)
+	}
+
+	// Every entry of a lookup or band of a range, in the order the engine reads them, and the fallback
+	// both can take. Their numbers stand before the factor's changes.
+	#tableLines(
+		factor: Factor,
+		unit: string | undefined,
+		source: AccountSource,
+	): readonly AccountLine[] {
+		const { source: table, fallback } = factor
+		if (table.origin === 'static' || table.origin === 'field') return []
+		const kept = matchesChangedFactor(factor) ? undefined : unit
+		const entries =
+			table.origin === 'range'
+				? table.ranges.map((range) => this.#bandLine(range, table.field, kept, source))
+				: Object.entries(table.table).map(([key, entry]) =>
+						this.#settingLine(
+							this.line('source.entry', {
+								key: this.#writeScalar(undefined, key),
+								value: this.#writeNumber(kept, entry),
+							}),
+							kept,
+							source,
+						),
+					)
+		if (!isFiniteNumber(fallback)) return entries
+		const value = this.#writeNumber(kept, fallback)
+		return [...entries, this.#settingLine(this.line('worksheet.fallback', { value }), kept, source)]
+	}
+
+	#bandLine(
+		band: FactorRange,
+		field: FieldPath,
+		unit: string | undefined,
+		source: AccountSource,
+	): AccountLine {
+		const bounds = this.#writeBounds(
+			band.bounds,
+			findWord(this.#glossary.units, formatField(field)),
+		)
+		const gaps = collectFieldGaps(field, true, this.#glossary, this.#units)
+		return buildAccountLine({
+			role: 'step',
+			decisive: true,
+			text: this.line('source.band', {
+				range: bounds ?? this.line('value.any', {}),
+				value: this.#writeNumber(unit, band.value),
+			}),
+			source,
+			gaps: [
+				...(bounds === undefined ? [] : gaps.filter((gap) => gap.word !== 'label')),
+				...collectUnitGaps(unit, this.#units),
+			],
+		})
 	}
 
 	// A tree too deep to walk has no condition to print.

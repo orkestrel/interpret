@@ -1,5 +1,5 @@
-import type { Check, Expression } from '@orkestrel/reason'
-import type { Account, Entity, NarratorFormatter, NarratorOptions } from '@src/core'
+import type { Check, Expression, Fact, Inference } from '@orkestrel/reason'
+import type { Account, Entity, Glossary, NarratorFormatter, NarratorOptions } from '@src/core'
 import {
 	arrayShape,
 	FAULT_CONSTRAINTS,
@@ -31,8 +31,10 @@ import {
 	createInference,
 	createInferentialDefinition,
 	createLogicalDefinition,
+	createLookupFactor,
 	createOperation,
 	createQuantitativeDefinition,
+	createRangeFactor,
 	createRule,
 	createStaticFactor,
 	createSymbolicDefinition,
@@ -59,6 +61,7 @@ import {
 	cloneGlossaryGap,
 	collapseWhitespace,
 	collectAccountText,
+	collectFactGaps,
 	collectFaultFields,
 	collectFieldGaps,
 	collectGaps,
@@ -81,16 +84,21 @@ import {
 	findAnchoredNumber,
 	findLinkedNumbers,
 	findSpanOffset,
+	findFactSentence,
 	findFieldDescription,
 	findGoalRule,
 	findSoleExpression,
+	findSubjectKey,
 	findUnclaimedNumbers,
 	findWord,
 	FRAME_SLOTS,
 	isFrameName,
 	matchesArrayField,
+	matchesChangedFactor,
 	matchesFilledField,
 	matchesNumericCheck,
+	matchesNumericSource,
+	matchesSubjectKeys,
 	mergeLexicon,
 	isInterpretError,
 	matchRecipe,
@@ -137,6 +145,7 @@ import {
 	OPEN_SHAPE,
 	OPERATION_READINGS,
 	TRANSFORM_READINGS,
+	TRICKY_KEYS,
 	UNBOUND_LINK_READINGS,
 	NUMBER_LINK_READINGS,
 	UNCOMPILABLE_SHAPE,
@@ -1102,7 +1111,7 @@ describe('the words', () => {
 		[{ checks: { read: 'x' } }, 'checks.read is not one of met, unmet, unread'],
 		[{ rules: { met: 5 } }, 'rules.met is not text'],
 		[{ verdicts: { won: 'x' } }, 'verdicts.won is not one of met, unmet, unread'],
-		[{ joins: { first: 'x' } }, 'joins.first is not one of reasons, last, steps'],
+		[{ joins: { first: 'x' } }, 'joins.first is not one of reasons, last, steps, terms'],
 		[{ joins: { last: ' ' } }, 'joins.last is empty'],
 		[
 			{ aggregations: { mode: 'x' } },
@@ -1257,7 +1266,7 @@ describe('the words', () => {
 				from: { holds: 'is at least', fails: 'is below' },
 			},
 			rules: { met: 'fires', unmet: 'does not apply', unread: 'cannot be decided' },
-			joins: { reasons: '; ', last: ' plus ', steps: ', then ' },
+			joins: { reasons: '; ', last: ' plus ', steps: ', then ', terms: ', ' },
 			limits: { list: 2, reasons: 4 },
 			missing: 'is unknown',
 		})
@@ -1622,17 +1631,153 @@ describe('the gaps', () => {
 		expect(collectGaps([symbolic], { labels: {} }, formats)).toEqual([
 			{ word: 'name', part: 'equation', id: 'e' },
 			{ word: 'label', field: 'x' },
+			{ word: 'label', field: 'seeded' },
 			{ word: 'label', field: 'y' },
+		])
+		const banded = createQuantitativeDefinition('b', 'B', [
+			createFactorGroup(
+				'g',
+				'sum',
+				[
+					createRangeFactor('open', 'm', [{ value: 5 }], { name: 'Open' }),
+					createRangeFactor('band', 'n', [{ bounds: { maximum: 5 }, value: 5 }], { name: 'Band' }),
+				],
+				{ name: 'Group' },
+			),
+		])
+		expect(collectGaps([banded], { labels: {} }, formats)).toEqual([
+			{ word: 'label', field: 'm' },
+			{ word: 'label', field: 'n' },
+			{ word: 'unit', field: 'n' },
 		])
 		const inferential = createInferentialDefinition(
 			'i',
 			'I',
-			[],
-			[createInference('n', [], createFact('c', 'p', []))],
+			[createFact('f', 'known', ['a'])],
+			[
+				createInference(
+					'n',
+					[createFact('p', 'read', ['?x']), createFact('h', 'has', ['tier', 5])],
+					createFact('c', 'p', []),
+				),
+				createInference('off', [createFact('o', 'never', [])], createFact('q', 'never', []), {
+					enabled: false,
+				}),
+			],
 		)
 		expect(collectGaps([inferential], { labels: {} }, formats)).toEqual([
 			{ word: 'name', part: 'inference', id: 'n' },
+			{ word: 'predicate', id: 'known' },
+			{ word: 'predicate', id: 'read' },
+			{ word: 'label', field: 'tier' },
+			{ word: 'unit', field: 'tier' },
+			{ word: 'predicate', id: 'p' },
 		])
+	})
+
+	it('matchesNumericSource reads which sources print a number of their field', () => {
+		const sources = [
+			createStaticFactor('s', 1),
+			createFieldFactor('f', 'n'),
+			createLookupFactor('l', 'n', { a: 1 }),
+			createRangeFactor('o', 'n', [{ value: 1 }, { bounds: {}, value: 2 }]),
+			createRangeFactor('r', 'n', [{ value: 1 }, { bounds: { minimum: 0 }, value: 2 }]),
+			createRangeFactor('m', 'n', [{ bounds: { maximum: -1 }, value: 2 }]),
+		].map(({ source }) => matchesNumericSource(source))
+		expect(sources).toEqual([false, true, false, false, true, true])
+	})
+
+	it('matchesChangedFactor reads a change or a bound, and no empty list of changes', () => {
+		expect(matchesChangedFactor(createStaticFactor('s', 1))).toBe(false)
+		expect(matchesChangedFactor(createStaticFactor('s', 1, { transforms: [] }))).toBe(false)
+		expect(
+			matchesChangedFactor(createStaticFactor('s', 1, { transforms: [{ operation: 'abs' }] })),
+		).toBe(true)
+		expect(matchesChangedFactor(createStaticFactor('s', 1, { bounds: { maximum: 5 } }))).toBe(true)
+	})
+
+	it('findSubjectKey reads a key of a two-term has fact alone', () => {
+		const facts = [
+			createFact('f', 'has', ['tier', 'gold']),
+			createFact('f', 'has', ['', 5]),
+			createFact('f', 'has', ['?key', 'gold']),
+			createFact('f', 'has', [5, 'gold']),
+			createFact('f', 'has', ['tier']),
+			createFact('f', 'has', ['tier', 'gold', 'since']),
+			createFact('f', 'owns', ['tier', 'gold']),
+		]
+		expect(facts.map(findSubjectKey)).toEqual([
+			'tier',
+			'',
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+		])
+	})
+
+	it('matchesSubjectKeys holds where only a subject states a has fact, and nothing words one', () => {
+		const pet = createFact('pet', 'has', ['alice', 'dog'])
+		const read = createInference('i', [pet], createFact('c', 'owner', ['alice']))
+		const concluded = createInference('i', [createFact('p', 'owner', ['?x'])], pet)
+		const off = { ...concluded, enabled: false }
+		const sole = createFact('sole', 'has', ['alice'])
+		const worded = { has: '{{1}} has {{2}}' }
+		const cases: ReadonlyArray<
+			readonly [readonly Fact[], readonly Inference[], Glossary['predicates'], boolean]
+		> = [
+			[[], [read, off], {}, true],
+			[[sole], [read], {}, true],
+			[[pet], [read], {}, false],
+			[[], [concluded], {}, false],
+			[[], [read], worded, false],
+		]
+		for (const [facts, inferences, predicates = {}, matched] of cases) {
+			const definition = createInferentialDefinition('d', 'D', facts, inferences)
+			expect(matchesSubjectKeys(definition, { labels: {}, predicates })).toBe(matched)
+		}
+	})
+
+	it('findFactSentence finds a sentence that names every term and no other', () => {
+		const fact = createFact('f', 'p', ['a', 'b'])
+		const sentences: ReadonlyArray<readonly [string, boolean]> = [
+			['{{1}} over {{2}}', true],
+			['{{ 2 }} under {{1}}, {{2}}', true],
+			['of {{terms}}', true],
+			['{{1}} of {{terms}}', true],
+			['{{1}} alone', false],
+			['plain', false],
+			['{{1}} over {{2}} over {{3}}', false],
+			['{{terms}} over {{3}}', false],
+		]
+		for (const [sentence, whole] of sentences) {
+			expect(findFactSentence(fact, { p: sentence })).toBe(whole ? sentence : undefined)
+		}
+		const bare = createFact('f', 'p', [])
+		expect(findFactSentence(bare, { p: 'it rains' })).toBe('it rains')
+		expect(findFactSentence(bare, { p: 'of {{terms}}' })).toBeUndefined()
+		expect(findFactSentence(fact, undefined)).toBeUndefined()
+		for (const key of TRICKY_KEYS) {
+			expect(findFactSentence(createFact('f', key, ['a']), {})).toBeUndefined()
+		}
+	})
+
+	it('collectFactGaps names a missing sentence, or the words of a field of the subject', () => {
+		const formats = new Set(['count'])
+		const glossary = { labels: { tier: 'Tier' }, predicates: { p: '{{1}} is here' } }
+		expect(collectFactGaps(createFact('f', 'p', ['a']), true, glossary, formats)).toEqual([])
+		expect(collectFactGaps(createFact('f', 'p', ['a', 'b']), true, glossary, formats)).toEqual([
+			{ word: 'predicate', id: 'p' },
+		])
+		const has = createFact('f', 'has', ['tier', 5])
+		expect(collectFactGaps(has, true, glossary, formats)).toEqual([{ word: 'unit', field: 'tier' }])
+		expect(collectFactGaps(has, false, glossary, formats)).toEqual([
+			{ word: 'predicate', id: 'has' },
+		])
+		expect(
+			collectFactGaps(createFact('f', 'has', ['tier', 'gold']), true, glossary, formats),
+		).toEqual([])
 	})
 })
 

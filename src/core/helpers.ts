@@ -5,6 +5,10 @@ import type {
 	CheckState,
 	Definition,
 	Expression,
+	Fact,
+	Factor,
+	FactorSource,
+	InferentialDefinition,
 	LogicalDefinition,
 	LogicalOperator,
 	Rule,
@@ -1401,6 +1405,176 @@ export function matchesNumericCheck(check: Check): boolean {
 }
 
 /**
+ * Determines whether a factor's source prints numbers of the field it reads: a field's own, or the
+ * bounds of a range's bands.
+ *
+ * @param source - The source to read
+ * @returns True if a number of the source's field prints; false otherwise
+ *
+ * @example
+ * ```ts
+ * import { matchesNumericSource } from '@orkestrel/interpret'
+ *
+ * matchesNumericSource({ origin: 'field', field: 'cost' }) // true
+ * matchesNumericSource({ origin: 'range', field: 'cost', ranges: [{ value: 5 }] }) // false
+ * ```
+ */
+export function matchesNumericSource(source: FactorSource): boolean {
+	if (source.origin === 'field') return true
+	return (
+		source.origin === 'range' &&
+		source.ranges.some(
+			({ bounds }) => isFiniteNumber(bounds?.minimum) || isFiniteNumber(bounds?.maximum),
+		)
+	)
+}
+
+/**
+ * Determines whether a factor changes the number its source gives it.
+ *
+ * @param factor - The factor to read
+ * @returns True if the factor authors a change or a bound; false otherwise
+ *
+ * @example
+ * ```ts
+ * import { createStaticFactor } from '@orkestrel/reason'
+ * import { matchesChangedFactor } from '@orkestrel/interpret'
+ *
+ * matchesChangedFactor(createStaticFactor('fee', 10, { transforms: [{ operation: 'round' }] })) // true
+ * matchesChangedFactor(createStaticFactor('fee', 10, { transforms: [] })) // false
+ * ```
+ */
+export function matchesChangedFactor(factor: Factor): boolean {
+	return (factor.transforms ?? []).length > 0 || factor.bounds !== undefined
+}
+
+/**
+ * Finds the subject's key a `has(key, value)` fact states a value of.
+ *
+ * @param fact - The fact to read
+ * @returns The key, or `undefined` when the fact has another predicate, another number of terms, or
+ * a first term that is no key
+ *
+ * @example
+ * ```ts
+ * import { createFact } from '@orkestrel/reason'
+ * import { findSubjectKey } from '@orkestrel/interpret'
+ *
+ * findSubjectKey(createFact('f', 'has', ['tier', 'gold'])) // 'tier'
+ * findSubjectKey(createFact('f', 'has', ['?key', 'gold'])) // undefined
+ * ```
+ */
+export function findSubjectKey(fact: Fact): string | undefined {
+	const [key] = fact.terms
+	return fact.predicate === 'has' &&
+		fact.terms.length === 2 &&
+		isString(key) &&
+		!key.startsWith('?')
+		? key
+		: undefined
+}
+
+/**
+ * Determines whether a definition's `has(key, value)` facts can only be its subject's fields.
+ *
+ * @remarks
+ * A definition that states or concludes such a fact itself can mean anything by it, as a glossary
+ * with a sentence for `has` can.
+ *
+ * @param definition - The definition to read
+ * @param glossary - The domain words supplied
+ * @returns True if only a subject gives the definition such a fact; false otherwise
+ *
+ * @example
+ * ```ts
+ * import { createFact, createInferentialDefinition } from '@orkestrel/reason'
+ * import { matchesSubjectKeys } from '@orkestrel/interpret'
+ *
+ * const pet = createFact('pet', 'has', ['alice', 'dog'])
+ * matchesSubjectKeys(createInferentialDefinition('pets', 'Pets', [pet], []), { labels: {} }) // false
+ * matchesSubjectKeys(createInferentialDefinition('pets', 'Pets', [], []), { labels: {} }) // true
+ * ```
+ */
+export function matchesSubjectKeys(definition: InferentialDefinition, glossary: Glossary): boolean {
+	if (findWord(glossary.predicates, 'has') !== undefined) return false
+	const concluded = definition.inferences
+		.filter((inference) => inference.enabled !== false)
+		.map((inference) => inference.conclusion)
+	return ![...definition.facts, ...concluded].some(
+		({ predicate, terms }) => predicate === 'has' && terms.length === 2,
+	)
+}
+
+/**
+ * Finds the sentence a glossary gives a fact, where the sentence states the whole of it.
+ *
+ * @remarks
+ * A sentence that leaves a term out would read alike for two facts, and one that names a position
+ * past the last would print a blank.
+ *
+ * @param fact - The fact to find the sentence of
+ * @param predicates - The sentences by predicate; none when absent
+ * @returns The sentence, or `undefined` when the table holds none that names every term and no other
+ *
+ * @example
+ * ```ts
+ * import { createFact } from '@orkestrel/reason'
+ * import { findFactSentence } from '@orkestrel/interpret'
+ *
+ * const fact = createFact('f', 'parent', ['alice', 'bob'])
+ * findFactSentence(fact, { parent: '{{1}} is a parent of {{2}}' }) // '{{1}} is a parent of {{2}}'
+ * findFactSentence(fact, { parent: '{{1}} is a parent' }) // undefined
+ * ```
+ */
+export function findFactSentence(
+	fact: Fact,
+	predicates: Glossary['predicates'],
+): string | undefined {
+	const sentence = findWord(predicates, fact.predicate)
+	if (sentence === undefined) return undefined
+	const slots = new Set(collectSlots(sentence))
+	const positions = fact.terms.map((_term, index) => String(index + 1))
+	const past = [...slots].some((slot) => slot !== 'terms' && !positions.includes(slot))
+	const listed = slots.has('terms') && positions.length > 0
+	const whole = listed || (!slots.has('terms') && positions.every((slot) => slots.has(slot)))
+	return whole && !past ? sentence : undefined
+}
+
+/**
+ * Collects the gaps of one fact's words.
+ *
+ * @param fact - The fact the words are for
+ * @param keyed - If `true`, a `has(key, value)` fact states a field of the subject; if `false`, it
+ * is a fact like any other
+ * @param glossary - The domain words supplied
+ * @param formats - The units that have a format
+ * @returns The gaps of the field, or the gap of the predicate's sentence
+ *
+ * @example
+ * ```ts
+ * import { createFact } from '@orkestrel/reason'
+ * import { collectFactGaps } from '@orkestrel/interpret'
+ *
+ * collectFactGaps(createFact('f', 'parent', ['alice', 'bob']), true, { labels: {} }, new Set())
+ * // [{ word: 'predicate', id: 'parent' }]
+ * ```
+ */
+export function collectFactGaps(
+	fact: Fact,
+	keyed: boolean,
+	glossary: Glossary,
+	formats: ReadonlySet<string>,
+): readonly GlossaryGap[] {
+	const key = keyed ? findSubjectKey(fact) : undefined
+	if (key !== undefined) {
+		return collectFieldGaps(key, isNumber(fact.terms[1]), glossary, formats)
+	}
+	return findFactSentence(fact, glossary.predicates) === undefined
+		? [{ word: 'predicate', id: fact.predicate }]
+		: []
+}
+
+/**
  * Collects the gaps of one field's words.
  *
  * @param field - The field the words are for
@@ -1505,7 +1679,8 @@ export function filterUniqueGaps(gaps: readonly GlossaryGap[]): readonly Glossar
  * @remarks
  * A disabled part needs no word, and a key an enabled rule concludes needs no label, because
  * the concluding rule's name prints in its place. A definition's value needs no unit, and a unit
- * the glossary names for it needs a format.
+ * the glossary names for it needs a format. Each variable an equation names needs a label, and each
+ * predicate a fact, a premise, or a conclusion names needs a sentence.
  *
  * @param definitions - The definitions to read
  * @param glossary - The domain words supplied
@@ -1560,7 +1735,7 @@ export function collectGaps(
 						...factors.flatMap(({ source }) =>
 							source.origin === 'static'
 								? []
-								: collectFieldGaps(source.field, source.origin === 'field', glossary, formats),
+								: collectFieldGaps(source.field, matchesNumericSource(source), glossary, formats),
 						),
 						...factors
 							.flatMap((factor) => factor.checks ?? [])
@@ -1572,24 +1747,30 @@ export function collectGaps(
 				}
 				case 'symbolic': {
 					const targets = definition.equations.map((equation) => equation.target)
-					const inputs = definition.equations
-						.flatMap(({ left, right }) => [...collectVariables(left), ...collectVariables(right)])
-						.filter((variable) => !Object.hasOwn(definition.variables, variable))
+					const variables = definition.equations.flatMap(({ left, right }) => [
+						...collectVariables(left),
+						...collectVariables(right),
+					])
 					return [
 						...name,
 						...definition.equations.flatMap((equation) => collectNameGaps('equation', equation)),
-						...[...targets, ...inputs].flatMap((field) =>
+						...[...targets, ...variables].flatMap((field) =>
 							collectFieldGaps(field, false, glossary, formats),
 						),
 					]
 				}
-				case 'inferential':
+				case 'inferential': {
+					const inferences = definition.inferences.filter(({ enabled }) => enabled !== false)
+					const keyed = matchesSubjectKeys(definition, glossary)
+					const facts = inferences.flatMap(({ premises, conclusion }) => [...premises, conclusion])
 					return [
 						...name,
-						...definition.inferences
-							.filter((inference) => inference.enabled !== false)
-							.flatMap((inference) => collectNameGaps('inference', inference)),
+						...inferences.flatMap((inference) => collectNameGaps('inference', inference)),
+						...[...definition.facts, ...facts].flatMap((fact) =>
+							collectFactGaps(fact, keyed, glossary, formats),
+						),
 					]
+				}
 			}
 		}),
 	).map((gap) => cloneGlossaryGap(gap))

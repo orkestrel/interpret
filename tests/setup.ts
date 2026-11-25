@@ -22,15 +22,20 @@ import type {
 } from '@orkestrel/qualifier'
 import type { RatingDefinition, RatingResult } from '@orkestrel/rater'
 import type {
+	Bounds,
+	ChainStrategy,
 	CheckState,
 	Expression,
+	FactorRange,
 	InferentialDefinition,
 	LogicalDefinition,
 	LogicalOperator,
+	MathOperation,
 	QuantitativeDefinition,
 	ReasonResult,
 	Subject,
 	SymbolicDefinition,
+	SymbolicExpression,
 	SymbolicResult,
 } from '@orkestrel/reason'
 import type {
@@ -89,6 +94,7 @@ import {
 	createVariable,
 	extractAtoms,
 	formatField,
+	MATH_OPERATIONS,
 } from '@orkestrel/reason'
 import { Extractor, Interpret, InterpretContext, RecordManager } from '@src/core'
 import { createContract } from '@orkestrel/contract'
@@ -2064,14 +2070,192 @@ export function buildWorkshopFacts(): InferentialDefinition {
 }
 
 /**
+ * Builds the workshop quote: a strict group with a base and bounds that holds a weighted lookup with
+ * a fallback, a range with overlapping bands, an open one, changes, and bounds, and a required gated
+ * factor; a `maximum` group of one open band; and a base, bounds, and a precision of its own.
+ *
+ * @returns A fresh quantitative definition with id `quote`
+ */
+export function buildWorkshopQuote(): QuantitativeDefinition {
+	return createQuantitativeDefinition(
+		'quote',
+		'Workshop quote',
+		[
+			createFactorGroup(
+				'hire',
+				'sum',
+				[
+					createLookupFactor(
+						'material',
+						'material',
+						{ oak: 12.5, pine: 8 },
+						{ name: 'Material rate', fallback: 6, weight: 2 },
+					),
+					createRangeFactor(
+						'session',
+						'hours',
+						[
+							{ bounds: { maximum: 4 }, value: 30 },
+							{ bounds: { minimum: 3, maximum: 8 }, value: 50 },
+							{ value: 75 },
+						],
+						{
+							name: 'Session charge',
+							transforms: [
+								{ operation: 'percentage', operand: 90 },
+								{ operation: 'add', operand: 0.4 },
+								{ operation: 'ceil' },
+							],
+							bounds: { minimum: 28, maximum: 60 },
+						},
+					),
+					createStaticFactor('deposit', 50, {
+						name: 'Deposit',
+						checks: [{ field: 'cost', operator: 'to', value: 1250 }],
+						required: true,
+					}),
+				],
+				{ name: 'Hire', base: 5, bounds: { maximum: 500 }, strict: true },
+			),
+			createFactorGroup(
+				'crowd',
+				'maximum',
+				[
+					createRangeFactor('crowd', 'guests', [{ bounds: { minimum: 20 }, value: 15.125 }], {
+						name: 'Crowd charge',
+						fallback: 0,
+					}),
+				],
+				{ name: 'Crowd' },
+			),
+		],
+		{ description: 'Quotes one booking.', base: 10, bounds: { minimum: 25 }, precision: 2 },
+	)
+}
+
+/**
+ * Names the quote subjects: one that takes the first of two bands that hold it, one that takes the
+ * fallbacks and the open band, and one whose required factor is gated out, which leaves the strict
+ * group and its base out of the total the refused run still computes.
+ */
+export const WORKSHOP_QUOTES: Readonly<Record<string, WorkshopScoreCase>> = {
+	oak: {
+		subject: { material: 'oak', hours: 3, cost: 1000, guests: 25 },
+		success: true,
+		value: 133.13,
+	},
+	ash: {
+		subject: { material: 'ash', hours: 10, cost: 1000, guests: 5 },
+		success: true,
+		value: 137,
+	},
+	costly: {
+		subject: { material: 'oak', hours: 3, cost: 2000, guests: 25 },
+		success: false,
+		value: 25.13,
+	},
+}
+
+/**
+ * Builds the workshop charge: a three-level equation over a seeded variable and a negative constant,
+ * and an equation over what the first one solves, rounded to two places.
+ *
+ * @returns A fresh symbolic definition with id `charge`
+ */
+export function buildWorkshopCharge(): SymbolicDefinition {
+	return createSymbolicDefinition(
+		'charge',
+		'Workshop charge',
+		[
+			createEquation(
+				'charge',
+				createVariable('charge'),
+				createOperation(
+					'maximum',
+					createOperation(
+						'divide',
+						createOperation('multiply', createVariable('width'), createVariable('depth')),
+						createConstant(2),
+					),
+					createOperation('subtract', createVariable('minimum'), createConstant(-2)),
+				),
+				'charge',
+				{ name: 'Charge', description: 'The charge grows with the floor and has a least value.' },
+			),
+			createEquation(
+				'deposit',
+				createVariable('deposit'),
+				createOperation('percentage', createVariable('charge'), createConstant(12.5)),
+				'deposit',
+				{ name: 'Deposit' },
+			),
+		],
+		{ variables: { minimum: 12 }, precision: 2 },
+	)
+}
+
+/** Names the charge subjects: one the floor decides, one the least charge decides, and one unread. */
+export const WORKSHOP_CHARGES: Readonly<Record<string, WorkshopAreaCase>> = {
+	floor: {
+		subject: { width: 9, depth: 5 },
+		success: true,
+		solutions: { charge: 22.5, deposit: 2.81 },
+	},
+	least: {
+		subject: { width: 4, depth: 5 },
+		success: true,
+		solutions: { charge: 14, deposit: 1.75 },
+	},
+	refused: { subject: { width: 4 }, success: false, solutions: {} },
+}
+
+/**
+ * Builds the workshop kin: two parents, one less than certain, an inference over both, and one that
+ * also reads the subject's `member`.
+ *
+ * @param strategy - How the definition's runs reason. Default: `'forward'`
+ * @returns A fresh inferential definition with id `kin`
+ */
+export function buildWorkshopKin(strategy: ChainStrategy = 'forward'): InferentialDefinition {
+	return createInferentialDefinition(
+		'kin',
+		'Workshop kin',
+		[
+			createFact('ab', 'parent', ['alice', 'bob']),
+			createFact('bc', 'parent', ['bob', 'cara'], 0.9),
+		],
+		[
+			createInference(
+				'grandparent',
+				[createFact('first', 'parent', ['?x', '?y']), createFact('second', 'parent', ['?y', '?z'])],
+				createFact('grandparent-conclusion', 'grandparent', ['?x', '?z']),
+				{ name: 'Grandparents', description: 'A parent of a parent.', confidence: 0.95 },
+			),
+			createInference(
+				'welcome',
+				[
+					createFact('elder', 'grandparent', ['?x', '?z']),
+					createFact('member', 'has', ['member', 'gold']),
+				],
+				createFact('welcome-conclusion', 'welcome', ['?x']),
+				{ name: 'Welcome' },
+			),
+		],
+		{ strategy },
+	)
+}
+
+/**
  * Holds the domain words the workshop definitions need, keyed by `formatField`, so the array path
- * `['terms', 'excess']` is `terms.excess`. The `member` label keeps its odd casing on purpose.
+ * `['terms', 'excess']` is `terms.excess`. The `member` label keeps its odd casing on purpose, as
+ * the `welcome` sentence does.
  */
 export const WORKSHOP_GLOSSARY: {
 	readonly labels: Readonly<Record<string, string>>
 	readonly units: Readonly<Record<string, string>>
 	readonly values: Readonly<Record<string, string>>
 	readonly formats: Readonly<Record<string, Intl.NumberFormatOptions>>
+	readonly predicates: Readonly<Record<string, string>>
 } = {
 	labels: {
 		activity: 'activity',
@@ -2095,6 +2279,11 @@ export const WORKSHOP_GLOSSARY: {
 		trusted: 'trusted booker',
 		quiet: 'quiet activity',
 		restricted: 'restricted activity',
+		material: 'material',
+		hours: 'hours booked',
+		charge: 'charge',
+		deposit: 'deposit',
+		minimum: 'least fee',
 	},
 	units: {
 		cost: 'money',
@@ -2104,11 +2293,23 @@ export const WORKSHOP_GLOSSARY: {
 		start: 'plain',
 		score: 'count',
 		guests: 'count',
+		hours: 'count',
+		charge: 'money',
+		deposit: 'money',
 	},
-	values: { score: 'count', fees: 'money' },
+	values: { score: 'count', fees: 'money', quote: 'money' },
 	formats: {
 		money: { style: 'currency', currency: 'USD' },
 		decibel: { maximumFractionDigits: 1 },
+	},
+	predicates: {
+		booked: '{{1}} is booked',
+		staffed: '{{1}} is staffed',
+		cleaned: '{{1}} is cleaned',
+		closed: '{{1}} is closed',
+		parent: '{{1}} is a parent of {{2}}',
+		grandparent: '{{1}} is a grandparent of {{2}}',
+		welcome: '{{1}} is wELCOME',
 	},
 }
 
@@ -2273,6 +2474,265 @@ export function collectTreeSubjects(): readonly Subject[] {
 			}),
 		),
 	)
+}
+
+/** Lists the operations that read no right side. */
+export const SYMBOLIC_UNARY: readonly MathOperation[] = ['round', 'ceil', 'floor', 'abs']
+
+/** Lists the leaves the symbolic trees are built of: two variables, a constant, and a negative one. */
+export const SYMBOLIC_LEAVES: readonly [SymbolicExpression, ...SymbolicExpression[]] = [
+	createVariable('a'),
+	createVariable('b'),
+	createConstant(2.5),
+	createConstant(-3),
+]
+
+/**
+ * Builds one operation over two operands, the second left out where the operation reads none.
+ *
+ * @param operator - The operation
+ * @param left - The first operand
+ * @param right - The second operand
+ * @returns The operation
+ */
+export function buildSymbolicNode(
+	operator: MathOperation,
+	left: SymbolicExpression,
+	right: SymbolicExpression,
+): SymbolicExpression {
+	return SYMBOLIC_UNARY.includes(operator)
+		? createOperation(operator, left)
+		: createOperation(operator, left, right)
+}
+
+/**
+ * Measures how many operations deep a symbolic tree nests.
+ *
+ * @param tree - The tree to measure
+ * @returns Zero for a leaf, otherwise one more than the deeper operand
+ */
+export function measureTree(tree: SymbolicExpression): number {
+	if (tree.form !== 'operation') return 0
+	const right = tree.right === undefined ? 0 : measureTree(tree.right)
+	return 1 + Math.max(measureTree(tree.left), right)
+}
+
+/**
+ * Draws a symbolic tree of exactly the given depth.
+ *
+ * @param next - The random source, returning values in `[0, 1)`
+ * @param depth - The number of operations the deepest path nests
+ * @returns The drawn tree
+ */
+export function drawSymbolicTree(next: () => number, depth: number): SymbolicExpression {
+	if (depth === 0) return pickMember(SYMBOLIC_LEAVES, next)
+	const operator = pickMember(MATH_OPERATIONS, next)
+	const deep = drawSymbolicTree(next, depth - 1)
+	const other = drawSymbolicTree(next, Math.floor(next() * depth))
+	return SYMBOLIC_UNARY.includes(operator) || next() < 0.5
+		? buildSymbolicNode(operator, deep, other)
+		: buildSymbolicNode(operator, other, deep)
+}
+
+/**
+ * Builds the trees an equation's text is proved on: each leaf, every operation over every pair of
+ * leaves, every operation inside every operation on each side, and the seeded draws of depth 3.
+ *
+ * @returns The trees, shallowest first
+ */
+export function buildSymbolicTrees(): readonly SymbolicExpression[] {
+	const [a, b] = [createVariable('a'), createVariable('b')]
+	const first = MATH_OPERATIONS.flatMap((operator) =>
+		SYMBOLIC_LEAVES.flatMap((left) =>
+			SYMBOLIC_UNARY.includes(operator)
+				? [createOperation(operator, left)]
+				: SYMBOLIC_LEAVES.map((right) => createOperation(operator, left, right)),
+		),
+	)
+	const second = MATH_OPERATIONS.flatMap((operator) =>
+		MATH_OPERATIONS.flatMap((inner) => {
+			const nested = buildSymbolicNode(inner, a, b)
+			return SYMBOLIC_UNARY.includes(operator)
+				? [createOperation(operator, nested)]
+				: [createOperation(operator, nested, a), createOperation(operator, a, nested)]
+		}),
+	)
+	const next = seededRandom(WORKSHOP_TREE_SEED)
+	const third = Array.from({ length: WORKSHOP_TREE_DRAWS }, () => drawSymbolicTree(next, 3))
+	return [...SYMBOLIC_LEAVES, ...first, ...second, ...third]
+}
+
+/** Holds each operation's English as an equation prints it, the operands captured, the left one first unless it says so. */
+export const SIDE_READINGS: ReadonlyArray<
+	readonly [operator: MathOperation, pattern: RegExp, swapped?: true]
+> = [
+	['add', /^(.+) \+ (.+)$/u],
+	['subtract', /^(.+) - (.+)$/u],
+	['multiply', /^(.+) × (.+)$/u],
+	['divide', /^(.+) ÷ (.+)$/u],
+	['percentage', /^(.+)% of (.+)$/u, true],
+	['minimum', /^the lower of (.+) and (.+)$/u],
+	['maximum', /^the higher of (.+) and (.+)$/u],
+	['average', /^the average of (.+) and (.+)$/u],
+	['power', /^(.+) to the power of (.+)$/u],
+	['round', /^(.+) rounded to a whole number$/u],
+	['ceil', /^(.+) rounded up to a whole number$/u],
+	['floor', /^(.+) rounded down to a whole number$/u],
+	['abs', /^the absolute value of (.+)$/u],
+]
+
+/**
+ * Splits a text at its outermost parentheses, each group standing as `§` and its position.
+ *
+ * @param text - The text to split
+ * @returns The text with a mark for each group, and the groups' own texts in order
+ */
+export function splitGroups(text: string): {
+	readonly flat: string
+	readonly groups: readonly string[]
+} {
+	const depths = [...text].map((_mark, index) => {
+		const before = [...text.slice(0, index + 1)]
+		return (
+			before.filter((mark) => mark === '(').length - before.filter((mark) => mark === ')').length
+		)
+	})
+	const marks = [...text]
+	const opens = marks.flatMap((mark, index) => (mark === '(' && depths[index] === 1 ? [index] : []))
+	const closes = marks.flatMap((mark, index) =>
+		mark === ')' && depths[index] === 0 ? [index] : [],
+	)
+	const groups = opens.map((open, index) => text.slice(open + 1, closes[index]))
+	const outside = [0, ...closes.map((close) => close + 1)].map((start, index) =>
+		text.slice(start, opens[index]),
+	)
+	return {
+		flat: outside
+			.map((part, index) => (index < groups.length ? `${part}§${String(index)}` : part))
+			.join(''),
+		groups,
+	}
+}
+
+/**
+ * Parses one side of an equation's text back into its tree, sharing nothing with what wrote it.
+ *
+ * @param text - The side's text
+ * @param names - Each variable's name by its label
+ * @returns The tree, or `undefined` when the text has no reading or more than one
+ */
+export function parseSide(
+	text: string,
+	names: ReadonlyMap<string, string>,
+): SymbolicExpression | undefined {
+	const { flat, groups } = splitGroups(text)
+	const whole = /^§(\d+)$/u.exec(flat)?.[1]
+	if (whole !== undefined) return parseSide(groups[Number(whole)] ?? '', names)
+	const readings = SIDE_READINGS.filter(([, pattern]) => pattern.test(flat))
+	if (readings.length > 1) return undefined
+	const [reading] = readings
+	if (reading === undefined) {
+		const name = names.get(flat)
+		if (name !== undefined) return createVariable(name)
+		return /^-?\d+(?:\.\d+)?$/u.test(flat) ? createConstant(Number(flat)) : undefined
+	}
+	const [operator, pattern, swapped] = reading
+	const parts = [...(pattern.exec(flat) ?? [])].slice(1).map((part) => {
+		const mark = /^§(\d+)$/u.exec(part)?.[1]
+		return parseSide(mark === undefined ? part : `(${groups[Number(mark)] ?? ''})`, names)
+	})
+	const [left, right] = swapped === true ? parts.toReversed() : parts
+	if (left === undefined) return undefined
+	if (SYMBOLIC_UNARY.includes(operator)) return createOperation(operator, left)
+	return right === undefined ? undefined : createOperation(operator, left, right)
+}
+
+/** Holds each change's English as a worksheet prints it, with the arithmetic the English states. */
+export const CHANGE_READINGS: ReadonlyArray<
+	readonly [pattern: RegExp, compute: (value: number, operand: number) => number]
+> = [
+	[/^plus (.+)$/u, (value, operand) => value + operand],
+	[/^minus (.+)$/u, (value, operand) => value - operand],
+	[/^times (.+)$/u, (value, operand) => value * operand],
+	[/^divided by (.+)$/u, (value, operand) => value / operand],
+	[/^(.+)% of it$/u, (value, operand) => (value * operand) / 100],
+	[/^the lower of it and (.+)$/u, (value, operand) => (value < operand ? value : operand)],
+	[/^the higher of it and (.+)$/u, (value, operand) => (value > operand ? value : operand)],
+	[/^averaged with (.+)$/u, (value, operand) => (value + operand) / 2],
+	[/^to the power of (.+)$/u, (value, operand) => value ** operand],
+	[/^rounded to a whole number$/u, (value) => Math.floor(value + 0.5)],
+	[/^rounded up to a whole number$/u, (value) => -Math.floor(-value)],
+	[/^rounded down to a whole number$/u, (value) => -Math.ceil(-value)],
+	[/^without its sign$/u, (value) => (value < 0 ? -value : value)],
+]
+
+/**
+ * Computes what a worksheet's changes line says a number becomes.
+ *
+ * @param raw - The number before its changes
+ * @param changes - The changes, joined by `, then `
+ * @returns The number after them, or `NaN` when a change has no reading or more than one
+ */
+export function computeChanges(raw: number, changes: string): number {
+	return changes.split(', then ').reduce((value, change) => {
+		const readings = CHANGE_READINGS.filter(([pattern]) => pattern.test(change))
+		const [reading] = readings
+		if (reading === undefined || readings.length > 1) return Number.NaN
+		const [pattern, compute] = reading
+		return compute(value, Number(pattern.exec(change)?.[1]))
+	}, raw)
+}
+
+/**
+ * Parses a range's text into its inclusive ends.
+ *
+ * @param text - The range as a band or a bounds line prints it, its numbers plain
+ * @returns The ends, an open one absent, or `undefined` when the text is no range
+ */
+export function parseWordedRange(text: string): Bounds | undefined {
+	if (text === 'any value') return {}
+	const least = /^at least (.+)$/u.exec(text)?.[1]
+	if (least !== undefined) return { minimum: Number(least) }
+	const most = /^at most (.+)$/u.exec(text)?.[1]
+	if (most !== undefined) return { maximum: Number(most) }
+	const ends = /^(.+) to (.+)$/u.exec(text)
+	return ends === null ? undefined : { minimum: Number(ends[1]), maximum: Number(ends[2]) }
+}
+
+/** Lists the bands a drawn table is built of: two-sided, open on each side, open on both, and inverted. */
+export const TABLE_BANDS: readonly [
+	Pick<FactorRange, 'bounds'>,
+	...Array<Pick<FactorRange, 'bounds'>>,
+] = [
+	{ bounds: { minimum: 0, maximum: 4 } },
+	{ bounds: { minimum: 3, maximum: 8 } },
+	{ bounds: { minimum: 6 } },
+	{ bounds: { maximum: 2 } },
+	{ bounds: { minimum: 5, maximum: 5 } },
+	{ bounds: { minimum: 9, maximum: 1 } },
+	{ bounds: {} },
+	{},
+]
+
+/**
+ * Builds the range factors the guide's table is proved on: seeded draws of up to four bands, some
+ * with a fallback, each as a definition of its one factor over the field `n`.
+ *
+ * @returns The definitions
+ */
+export function buildBandTables(): readonly QuantitativeDefinition[] {
+	const next = seededRandom(WORKSHOP_TREE_SEED)
+	return Array.from({ length: WORKSHOP_TREE_DRAWS }, (_, number) => {
+		const bands = Array.from({ length: 1 + Math.floor(next() * 4) }, (__, index) => ({
+			...pickMember(TABLE_BANDS, next),
+			value: 10 * (index + 1) + next(),
+		}))
+		return createQuantitativeDefinition(`table${String(number)}`, 'Table', [
+			createFactorGroup('group', 'sum', [
+				createRangeFactor('band', 'n', bands, next() < 0.5 ? { fallback: 99.5 } : {}),
+			]),
+		])
+	})
 }
 
 // ── Family fixtures (environment-agnostic) ───────────────────────────────────
