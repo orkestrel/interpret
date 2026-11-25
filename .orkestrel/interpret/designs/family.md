@@ -1,10 +1,10 @@
 # Design: the family's results
 
-The release after `writing.md` § The completion before the release. `describe`, `narrate`, and `audit` take a qualification, a rating, or a program definition with its result, by structural types, with no runtime dependency on `@orkestrel/qualifier`, `@orkestrel/rater`, or `@orkestrel/program`.
+Part of 0.0.27, on the user's ruling of 2026-11-25 that one publication holds the words and the family's results. `describe`, `narrate`, and `audit` take a qualification, a rating, or a program definition with its result, by structural types, with no runtime dependency on `@orkestrel/qualifier`, `@orkestrel/rater`, or `@orkestrel/program`.
 
 ## The methods
 
-They overload, and no name is added: one verb per act, and the argument's shape picks the document as `reasoning` already does. A qualification has `passes`, a rating has `lines`, a program has `qualification`, and none has `reasoning`. Each guard checks only the members interpret reads and admits everything else. The vocabulary members are typed `string`, and a word the lexicon lacks prints as the engine's own, as `phrase` already does.
+`Narrator`'s methods overload: one verb per act, and the argument's shape picks the document as `reasoning` already does. The documents themselves are a class of their own, `FamilyNarrator`, over the narrator's public methods, which `Narrator` hands a family definition to; it was split so the release's writers could work at once, and it's exported as every class is. A qualification has `passes`, a rating has `lines`, a program has `qualification`, and none has `reasoning`. Each guard checks only the members interpret reads and admits everything else. The vocabulary members are typed `string`, and a word the lexicon lacks prints as the engine's own, as `phrase` already does.
 
 ```ts
 /** One check as a family result holds it: qualifier's `Premise`, rater's `Evidence`. */
@@ -204,12 +204,12 @@ interpret finds the finding's rule in its pass, pairs the rule's atoms in `extra
 | --- | --- | --- |
 | T19 | A message prints only for a finding whose state is `met` | a real qualifier run over a definition where most rules don't fire; no unfired rule's message is in the text |
 | T20 | A finding's cited checks fix its state, as T3 | generated trees to depth 3 with all five connectives through the real qualifier; a misaligned premise list gives no reasons |
-| T21 | The verdict word is the result's own, and a result whose errors outnumber its faults states none | real refused runs of each engine |
+| T21 | The verdict word is the result's own, and a result whose errors outnumber its faults states none. A program is judged by its qualification's counts alone, because its status is read from the qualification and the rating before the authority runs; a limit prints only where the program's own errors don't outnumber its faults | real refused runs of each engine, a failed rating with no fault (`unrated`), and an authority that reads a total no rating gave |
 | T22 | A line states an amount only when its result holds one, and never an entry over a fallback it can't tell apart | a lookup whose fallback equals an entry, through the real rater |
 | T23 | interpret reads no worded member of a family result | results whose `label`, `expression`, `steps`, `trace`, and `errors` entries are replaced with other text give the same account |
 | T24 | A text holding an unfilled slot never prints | a message and a description with a `{{slot}}`, in each guide |
 
-These, and the durable half of T11 for the family's own tables, need the three packages as development dependencies, which is the user's word to give. Without it they run over hand-built results, which proves less.
+These, and T11's sweep of the family's own tables, run over the three packages as development dependencies, on the user's word of 2026-11-25: "Interpret may use use qualifier, rater, and program in its tests only". No file under `src/` imports them.
 
 ## What the family's removal must keep
 

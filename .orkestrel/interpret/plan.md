@@ -17,6 +17,7 @@ The completion before the release adds:
 6. Every closed vocabulary a document prints, and every one an application shows through `phrase`, has a shipped word (`designs/writing.md` § The completion before the release).
 7. All four reasonings are written whole, as far as their results hold it, and the guide says how every number is set.
 8. A fault and a number refusal each have a sentence, in an account and on their own.
+9. A qualification, a rating, and a program are each written as a guide and a result, with no runtime dependency on the packages that produce them (`designs/family.md`).
 
 ## Repositories
 
@@ -38,6 +39,7 @@ The claims are the truth rules and the exit criterion. The bar for this campaign
 - **2026-11-25, the user:** proceed with stages 1 and 2 as recommended, the refusal repair included; plan the family's removal after them, the sentence writers before the result strings, with three limits (a thrown error's message stays, `contract`'s fault text stays, validation text and `trace` leave later); a word missing at run time prints the path and reports it.
 - **The repair** is part of the account's first unit: the old one-line `narrate` is replaced, so it isn't repaired on its own first.
 - **2026-11-25, the user:** "We can go ahead and publish now but just make sure it has all the general words that it needs and we made sure it is thoroughly done and useful." Publishing 0.0.27 is authorized on that condition; the completeness check found it unmet, so § Sequence's completion comes first.
+- **2026-11-25, the user:** "Interpret may use use qualifier, rater, and program in its tests only. Are the words needed before the family's results? If not then no real need to do two publishes." The words are built first, and nothing needs them published first, so 0.0.27 holds both. Interpret comes before other work, in parallel where the files allow, with the host's lane.
 
 ## Stops
 
@@ -55,7 +57,6 @@ The claims are the truth rules and the exit criterion. The bar for this campaign
 | Part two: every result's `errors` becomes typed refusals, and each package's ownership proof | After part one | the user |
 | Validation text and `trace` as typed data | A tool or a screen shows one to a person | the user |
 | `ROADMAP.md` item 2 (`createHostileValues`) | This campaign's release visit | interpret |
-| The family's results by shape (`designs/family.md`) | After 0.0.27, before part one; the user rules whether it waits | interpret |
 | The read-back check: a reworded text still holds an account's values | `@orkestrel/train`'s rewording task | interpret |
 | A backward proof's nested facts | `reason`'s `ProofNode` carries the fact it proved | `reason` |
 | An equation's input values | `reason`'s `SymbolicResult` carries its bindings | `reason` |
@@ -68,16 +69,18 @@ The claims are the truth rules and the exit criterion. The bar for this campaign
 
 ## Sequence
 
-Stages 1 and 2 are done. The completion before the release is live, one writer after another over the same files:
+Stages 1 and 2 are done. The completion before the release is live, over one checkout whose writers own disjoint files:
 
-1. **Words:** the tables, their keys, the merge and the scans, `phrase`, and the counts (T8, T11, T12).
-2. **Faults:** the fault sentences, `explain`, and the number refusals (T13, T14).
-3. **Numbers:** the guide's entries, bands, and settings, and the worksheet's changes (T15, T16).
-4. **Reasonings:** equations, predicates, facts, confidence, and the inference guide (T17, T18).
-5. **Acceptance:** the real consumer again, one independent review on T11 to T18 and the reworded frames, the repairs and a closure check, the guide, and the gates.
-6. **The release visit** of 0.0.27, with `ROADMAP.md` item 2.
+1. **Words** (`wrt-words`): the tables, their keys, the merge and the scans, `phrase`, the counts, the fault sentences, `explain`, and the number refusals (T8, T11 to T14).
+2. **Declarations** (`wrt-numbers`, turn one): the types and frames of every later step, in one commit the next two build on.
+3. **Beside each other:**
+   - **Numbers and reasonings** (`wrt-numbers`, turn two): the guide's entries, bands, and settings, the worksheet's changes, equations, predicates, facts, confidence, and the inference guide (T15 to T18);
+   - **The family's results** (`wrt-family`, over `wrt-family-fixture`'s fixtures): `designs/family.md` (T19 to T24);
+   - **The first review,** on step 1's commit.
+4. **Acceptance:** the second review on T15 to T24, the real consumer over an application's full results, the repairs and one closure check, the guide pass, and the gates.
+5. **The release visit** of 0.0.27, with `ROADMAP.md` item 2.
 
-The family's results (`designs/family.md`) follow as 0.0.28, and then part one of the family's removal; § Deferred holds both, and part two.
+Part one of the family's removal is the next chunk; § Deferred holds it and part two.
 
 ## State
 
@@ -89,6 +92,5 @@ The family's results (`designs/family.md`) follow as 0.0.28, and then part one o
   - **The documentation pass** (`25b3073`): every fence runs in the guide test.
   - **The gates** at `a298796`, on Node 22: format, lint, types, build, 1,575 core tests, 178 policy, 586 config, 103 setup, 97 guide, and 10 distribution tests, all green.
 - **Exit criteria 1 to 5 are met** (tag `writing-side-closed`). Nothing is pushed or published.
-- **The completeness check** the user's condition asked for found them short: thirteen vocabularies unworded, equations and derived facts written as a headline, no lookup entry or band in a guide, no expectation in a fault's sentence, and no family result. § Sequence's completion answers all but the last.
-- **Two questions are the user's:** whether interpret takes `@orkestrel/qualifier`, `@orkestrel/rater`, and `@orkestrel/program` as development dependencies (tests only), and whether 0.0.27 publishes before the family's results or with them. Neither holds the completion's units: the family's word tables are checked once against the packages' own lists until the first is answered.
-- **Next action:** the completion's first and second units.
+- **The completeness check** the user's condition asked for found them short: thirteen vocabularies unworded, equations and derived facts written as a headline, no lookup entry or band in a guide, no expectation in a fault's sentence, and no family result. § Sequence's completion answers each.
+- **Next action:** § Sequence, step 1.
