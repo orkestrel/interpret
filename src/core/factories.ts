@@ -6,6 +6,8 @@ import type {
 	DefinitionManagerOptions,
 	ExtractorInterface,
 	ExtractorOptions,
+	FamilyNarratorInterface,
+	FamilyNarratorOptions,
 	FormatterInterface,
 	FormatterOptions,
 	GeneratorInterface,
@@ -23,6 +25,7 @@ import type {
 	RecipeManagerOptions,
 } from './types.js'
 import { createContract } from '@orkestrel/contract'
+import { FamilyNarrator } from './FamilyNarrator.js'
 import { Interpret } from './Interpret.js'
 import { Narrator } from './Narrator.js'
 import { InterpretContext } from './InterpretContext.js'
@@ -302,6 +305,33 @@ export function createInterpretContext(
  */
 export function createNarrator(options?: NarratorOptions): NarratorInterface {
 	return new Narrator(options)
+}
+
+/**
+ * Creates a writer of family documents over a narrator, returning a stateless
+ * {@link FamilyNarratorInterface}.
+ *
+ * @remarks
+ * A narrator hands its own family definitions to one, so a consumer builds one only to write
+ * family documents and nothing else.
+ *
+ * @param narrator - The narrator whose words the documents use
+ * @param options - Optional `lexicon`, `glossary`, `locale`, and `units` that narrator was built over
+ * @returns A stateless {@link FamilyNarratorInterface}
+ *
+ * @example
+ * ```ts
+ * import { createFamilyNarrator, createNarrator } from '@orkestrel/interpret'
+ *
+ * const family = createFamilyNarrator(createNarrator())
+ * family.audit([]) // []
+ * ```
+ */
+export function createFamilyNarrator(
+	narrator: NarratorInterface,
+	options?: FamilyNarratorOptions,
+): FamilyNarratorInterface {
+	return new FamilyNarrator(narrator, options)
 }
 
 /**

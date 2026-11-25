@@ -9,6 +9,7 @@ import {
 	createClarifier,
 	createDefinitionManager,
 	createExtractor,
+	createFamilyNarrator,
 	createFormatter,
 	createGenerator,
 	createInterpret,
@@ -19,7 +20,9 @@ import {
 	DEFAULT_INTERPRET_FLOOR,
 	DEFAULT_INTERPRET_HISTORY,
 	DefinitionManager,
+	createNarrator,
 	Extractor,
+	FamilyNarrator,
 	Formatter,
 	Generator,
 	Interpret,
@@ -33,6 +36,7 @@ import {
 import { createRecorder, createRecorders } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import {
+	buildFamilyQualification,
 	buildInterpretRecipe,
 	buildInterpretation,
 	INTERPRET_ACTIONS,
@@ -219,6 +223,21 @@ describe('createDefinitionManager', () => {
 		expect(record.id).toBe('custom-definition')
 		expect(manager.has('custom-definition')).toBe(true)
 		expect(manager.has('d1')).toBe(false)
+	})
+})
+
+describe('createFamilyNarrator', () => {
+	it('builds a family narrator over the narrator and the options it is given', () => {
+		const glossary = { labels: {}, scopes: { deposit: 'Held sum' } }
+		const narrator = createNarrator({ glossary })
+		const definition = buildFamilyQualification()
+		const family = createFamilyNarrator(narrator, { glossary })
+		expect(family).toBeInstanceOf(FamilyNarrator)
+		expect(family.describe(definition)).toEqual(narrator.describe(definition))
+		expect(JSON.stringify(family.describe(definition))).toContain('Held sum')
+		expect(JSON.stringify(createFamilyNarrator(narrator).describe(definition))).not.toContain(
+			'Held sum',
+		)
 	})
 })
 
