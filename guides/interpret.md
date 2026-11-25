@@ -2417,7 +2417,7 @@ remain separate and are still populated for generated results.
 
 ## Migration: the reverse direction writes accounts
 
-The release after 0.0.26 changes the reverse direction, and leaves the forward direction's shipped
+Release 0.0.27 changes the reverse direction, and leaves the forward direction's shipped
 text as it was. Change each caller as follows:
 
 - Pass `narrate` the definition before its result, on a `Narrator` and on an `Interpret`.
