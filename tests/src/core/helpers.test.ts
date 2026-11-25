@@ -12,6 +12,8 @@ import {
 	objectShape,
 	optionalShape,
 } from '@orkestrel/contract'
+import { DECISIONS, PROGRAM_EFFECTS, STATUSES } from '@orkestrel/program'
+import { ELIGIBILITIES, QUALIFICATION_EFFECTS } from '@orkestrel/qualifier'
 import {
 	AGGREGATIONS,
 	applyOperation,
@@ -61,6 +63,7 @@ import {
 	collectFieldGaps,
 	collectGaps,
 	collectListJoins,
+	collectSlots,
 	collectNameGaps,
 	collectReasons,
 	collectRequiredFields,
@@ -97,6 +100,7 @@ import {
 	readNarratorOption,
 	renderAccount,
 	renderName,
+	renderCitedReasons,
 	renderReasons,
 	renderSubject,
 	resolveExpression,
@@ -107,6 +111,7 @@ import {
 	scanFrame,
 	scanGlossary,
 	scanLexicon,
+	scanPredicate,
 	scanSlots,
 	scanWord,
 	scanWords,
@@ -1187,6 +1192,8 @@ describe('the words', () => {
 				units: { cost: 'acre' },
 				values: { score: 'count' },
 				formats: { money: { style: 'currency', currency: 'USD' } },
+				predicates: { parent: '{{ 1 }} is a parent of {{2}}', sum: 'adds {{terms}} at {{10}}' },
+				scopes: { contents: 'Contents' },
 				phrases: { status: { active: 'under way' } },
 				templates: { greeting: 'Hello {{anyone}}' },
 			}),
@@ -1219,8 +1226,17 @@ describe('the words', () => {
 		],
 		[
 			{ labels: {}, words: {} },
-			'words is not one of labels, units, values, formats, phrases, templates',
+			'words is not one of labels, units, values, formats, predicates, scopes, phrases, templates',
 		],
+		[{ labels: {}, predicates: 5 }, 'predicates is not a table of words'],
+		[{ labels: {}, predicates: { parent: ' ' } }, 'predicates.parent is empty'],
+		[{ labels: {}, predicates: { parent: 5 } }, 'predicates.parent is not text'],
+		[
+			{ labels: {}, predicates: { parent: '{{child}}' } },
+			'predicates.parent names the slot "child", and it offers positions from 1, and terms',
+		],
+		[{ labels: {}, scopes: [] }, 'scopes is not a table of words'],
+		[{ labels: {}, scopes: { contents: 'a\nb' } }, 'scopes.contents holds a line break'],
 	])('scanGlossary refuses %j', (input, finding) => {
 		expect(scanGlossary(input)).toEqual([finding])
 	})
@@ -1309,8 +1325,86 @@ describe('the words', () => {
 		expect(scanSlots('a', '{{x}}', [])).toEqual(['a names the slot "x", and it offers none'])
 	})
 
-	// T11. Each list is the one its package exports. The two packages this one does not install own
-	// the lists named beside their tables, so those are written out here.
+	it('collectSlots reads each slot in order', () => {
+		expect(collectSlots('plain { {x} }')).toEqual([])
+		expect(collectSlots('{{ b }}{{a}} and {{b}}')).toEqual(['b', 'a', 'b'])
+	})
+
+	it('scanPredicate admits a position from 1 and terms, and finds every other slot', () => {
+		expect(scanPredicate('parent', 'plain')).toEqual([])
+		expect(scanPredicate('parent', '{{1}}{{2}}{{10}}{{terms}}')).toEqual([])
+		expect(scanPredicate('a.b', '{{0}}{{01}}{{-1}}{{1.5}}{{1a}}{{term}}')).toEqual(
+			['0', '01', '-1', '1.5', '1a', 'term'].map(
+				(slot) =>
+					`predicates."a.b" names the slot "${slot}", and it offers positions from 1, and terms`,
+			),
+		)
+	})
+
+	it('resolveGlossary owns its predicates and scopes', () => {
+		const input = {
+			labels: {},
+			predicates: { parent: '{{1}} is a parent of {{2}}' },
+			scopes: { contents: 'Contents' },
+		}
+		const glossary = resolveGlossary(input)
+		input.predicates.parent = 'changed'
+		input.scopes.contents = 'changed'
+		expect(glossary.predicates).toEqual({ parent: '{{1}} is a parent of {{2}}' })
+		expect(glossary.scopes).toEqual({ contents: 'Contents' })
+	})
+
+	it('words each added frame and the range a band is taken from', () => {
+		expect(
+			[
+				'fact.stated',
+				'fact.confidence',
+				'fact.proved',
+				'value.any',
+				'result.outcome',
+				'result.decided',
+				'result.decision',
+				'finding.effect',
+				'finding.scope',
+				'worksheet.fallback',
+				'worksheet.changes',
+				'worksheet.required',
+				'worksheet.strict',
+				'worksheet.precision',
+				'source.range',
+				'source.entry',
+				'source.band',
+				'equation.form',
+				'equation.group',
+				'inference.rule',
+				'inference.confidence',
+			].map((id) => (isFrameName(id) ? DEFAULT_LEXICON.frames[id] : undefined)),
+		).toEqual([
+			'{{predicate}}({{terms}})',
+			'{{fact}} (confidence {{confidence}})',
+			'proved through {{name}}',
+			'any value',
+			'{{name}}: {{outcome}}',
+			'{{name}}: {{outcome}}, because {{reasons}}',
+			'Decision: {{decision}}',
+			'{{effect}}: {{finding}}',
+			'{{scope}}: {{outcome}}',
+			'fallback: {{value}}',
+			'changes: {{changes}}',
+			'must apply',
+			'applies only when all of its values apply',
+			'decimal places: {{places}}',
+			'set by the first range {{label}} falls in',
+			'{{key}}: {{value}}',
+			'{{range}}: {{value}}',
+			'{{left}} = {{right}}',
+			'({{expression}})',
+			'{{conclusion}}, when {{premises}}',
+			'confidence: {{confidence}}',
+		])
+	})
+
+	// T11. Each list is the one its package exports, but for the fault reasons.
 	it('T11: every member of every closed vocabulary has a word, one line and not blank', () => {
 		const tables: ReadonlyArray<readonly [string, object, readonly string[]]> = [
 			['comparisons', DEFAULT_LEXICON.comparisons, COMPARISONS],
@@ -1332,23 +1426,10 @@ describe('the words', () => {
 			['refusals', DEFAULT_LEXICON.refusals, NUMBER_REFUSAL_REASONS],
 			['unreadables', DEFAULT_LEXICON.unreadables, NUMBER_UNREADABLE_REASONS],
 			['frames', DEFAULT_LEXICON.frames, Object.keys(FRAME_SLOTS)],
-			// `ELIGIBILITIES` of `@orkestrel/qualifier`.
-			['eligibilities', DEFAULT_LEXICON.eligibilities, ['eligible', 'ineligible', 'referral']],
-			// `QUALIFICATION_EFFECTS` of `@orkestrel/qualifier`, then `PROGRAM_EFFECTS` of
-			// `@orkestrel/program`.
-			[
-				'effects',
-				DEFAULT_LEXICON.effects,
-				['restriction', 'referral', 'condition', 'notice', 'limit'],
-			],
-			// `STATUSES` of `@orkestrel/program`.
-			[
-				'statuses',
-				DEFAULT_LEXICON.statuses,
-				['ineligible', 'referral', 'incomplete', 'conditional', 'unrated', 'eligible'],
-			],
-			// `DECISIONS` of `@orkestrel/program`.
-			['decisions', DEFAULT_LEXICON.decisions, ['approved', 'denied', 'submitted']],
+			['eligibilities', DEFAULT_LEXICON.eligibilities, ELIGIBILITIES],
+			['effects', DEFAULT_LEXICON.effects, [...QUALIFICATION_EFFECTS, ...PROGRAM_EFFECTS]],
+			['statuses', DEFAULT_LEXICON.statuses, STATUSES],
+			['decisions', DEFAULT_LEXICON.decisions, DECISIONS],
 		]
 		for (const [table, words, members] of tables) {
 			expect([table, Object.keys(words).toSorted()]).toEqual([table, members.toSorted()])
@@ -1970,6 +2051,28 @@ describe("the account's text", () => {
 		expect(renderReasons(['a'], joins)).toBe('a')
 		expect(renderReasons(['a', 'b'], joins)).toBe('a; and b')
 		expect(renderReasons(['a', 'b', 'c'], joins)).toBe('a; b; and c')
+	})
+
+	it('renderCitedReasons counts the reasons past the limit, and keeps the gaps of those it prints', () => {
+		const reasons = ['a', 'b', 'c'].map((text) => ({
+			text,
+			gaps: [{ word: 'label', field: text } as const],
+		}))
+		const lexicon = { joins: DEFAULT_LEXICON.joins, limits: { list: 4, reasons: 2 } }
+		expect(renderCitedReasons([], lexicon, (count) => `${String(count)} more`)).toEqual({
+			text: '',
+			gaps: [],
+		})
+		expect(
+			renderCitedReasons(reasons.slice(0, 2), lexicon, (count) => `${String(count)} more`).text,
+		).toBe('a; and b')
+		expect(renderCitedReasons(reasons, lexicon, (count) => `${String(count)} more`)).toEqual({
+			text: 'a; b; and 1 more',
+			gaps: [
+				{ word: 'label', field: 'a' },
+				{ word: 'label', field: 'b' },
+			],
+		})
 	})
 
 	it('renderName prints the name, then the id, then the quoted id', () => {

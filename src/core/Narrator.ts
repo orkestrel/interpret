@@ -74,8 +74,8 @@ import {
 	matchesNumericCheck,
 	normalizeLine,
 	readNarratorOption,
+	renderCitedReasons,
 	renderName,
-	renderReasons,
 	resolveFormatters,
 	resolveGlossary,
 	resolveLexicon,
@@ -300,16 +300,8 @@ export class Narrator implements NarratorInterface {
 		return { text: renderName(named), gaps: collectNameGaps(part, named) }
 	}
 
-	// Writes at most the lexicon's limit of reasons, then how many more there are.
-	#writeReasons(reasons: readonly AccountText[]): AccountText {
-		const shown = reasons.slice(0, this.#lexicon.limits.reasons)
-		const more = reasons.length - shown.length
-		const texts = shown.map((reason) => reason.text)
-		const rest = more === 0 ? [] : [this.line('reason.more', { count: this.#plain.format(more) })]
-		return {
-			text: renderReasons([...texts, ...rest], this.#lexicon.joins),
-			gaps: shown.flatMap((reason) => reason.gaps),
-		}
+	#writeMore(count: number): string {
+		return this.line('reason.more', { count: this.#plain.format(count) })
 	}
 
 	#resultLines(definition: Definition, result: ReasonResult): readonly AccountLine[] {
@@ -361,7 +353,7 @@ export class Narrator implements NarratorInterface {
 		state?: CheckState,
 	): AccountLine {
 		const named = this.#writeName('definition', definition)
-		const cited = this.#writeReasons(reasons)
+		const cited = renderCitedReasons(reasons, this.#lexicon, (count) => this.#writeMore(count))
 		const name = named.text
 		return buildAccountLine({
 			role: 'verdict',
@@ -648,8 +640,10 @@ export class Narrator implements NarratorInterface {
 		const name = named.text
 		const text = this.line('rule.settled', { name, verdict })
 		if (reasons.length === 0) return { text, summary: text, gaps: named.gaps }
-		const cited = this.#writeReasons(
+		const cited = renderCitedReasons(
 			reasons.flatMap((reason) => this.#writeReason(reason, context)),
+			this.#lexicon,
+			(count) => this.#writeMore(count),
 		)
 		return {
 			text,
@@ -676,7 +670,7 @@ export class Narrator implements NarratorInterface {
 				: concluding.map((entry) => this.#writeSettled(entry, context))
 		})
 		if (facts.length === 0) return this.#writeSettled(rule, context)
-		const cited = this.#writeReasons(facts)
+		const cited = renderCitedReasons(facts, this.#lexicon, (count) => this.#writeMore(count))
 		return {
 			text: this.line('reason.rule', { name: named.text, verdict, reasons: cited.text }),
 			gaps: [...named.gaps, ...cited.gaps],
@@ -966,7 +960,7 @@ export class Narrator implements NarratorInterface {
 
 	#writeCause(line: AccountLine): AccountText {
 		if (line.lines.length === 0) return line
-		const cited = this.#writeReasons(line.lines)
+		const cited = renderCitedReasons(line.lines, this.#lexicon, (count) => this.#writeMore(count))
 		return {
 			text: this.line('reason.step', { outcome: line.text, reasons: cited.text }),
 			gaps: [...line.gaps, ...cited.gaps],
@@ -1060,7 +1054,7 @@ export class Narrator implements NarratorInterface {
 			})
 		}
 		const name = named.text
-		const cited = this.#writeReasons(lines)
+		const cited = renderCitedReasons(lines, this.#lexicon, (count) => this.#writeMore(count))
 		const gated = factor.checks !== undefined
 		const text = gated ? step.text : this.line('worksheet.empty', { name })
 		const summary = gated

@@ -15,7 +15,9 @@ import type {
 	Comparison,
 	Definition,
 	FactorGroup,
+	LogicalDefinition,
 	MathOperation,
+	QuantitativeDefinition,
 	ReasonResult,
 	Rule,
 	RuleResult,
@@ -722,8 +724,9 @@ export interface ComparisonPhrase {
  *
  * @remarks
  * `fact.*`, `fault.*`, `value.*`, `condition.*`, `reason.*`, `rule.*`, `result.*`,
- * `worksheet.*`, `source.*`, `group.*`, and `equation.*` frame the account, and `refusal.*` a
- * number refusal. `subject.*`, `prompt.*`, and `ambiguity.*` frame the forward direction.
+ * `finding.*`, `worksheet.*`, `source.*`, `group.*`, `equation.*`, and `inference.*` frame the
+ * account, and `refusal.*` a number refusal. `subject.*`, `prompt.*`, and `ambiguity.*` frame the
+ * forward direction.
  * `FRAME_SLOTS` lists the slots each frame offers.
  */
 export type FrameName =
@@ -731,6 +734,9 @@ export type FrameName =
 	| 'fact.compared'
 	| 'fact.listed'
 	| 'fact.unread'
+	| 'fact.stated'
+	| 'fact.confidence'
+	| 'fact.proved'
 	| 'fault.type'
 	| 'fault.missing'
 	| 'fault.constraint'
@@ -741,6 +747,7 @@ export type FrameName =
 	| 'value.minimum'
 	| 'value.maximum'
 	| 'value.quoted'
+	| 'value.any'
 	| 'condition.when'
 	| 'condition.equal'
 	| 'condition.compared'
@@ -760,6 +767,11 @@ export type FrameName =
 	| 'result.value'
 	| 'result.solution'
 	| 'result.derived'
+	| 'result.outcome'
+	| 'result.decided'
+	| 'result.decision'
+	| 'finding.effect'
+	| 'finding.scope'
 	| 'worksheet.group'
 	| 'worksheet.factor'
 	| 'worksheet.applied'
@@ -771,15 +783,26 @@ export type FrameName =
 	| 'worksheet.weight'
 	| 'worksheet.bounds'
 	| 'worksheet.total'
+	| 'worksheet.fallback'
+	| 'worksheet.changes'
+	| 'worksheet.required'
+	| 'worksheet.strict'
+	| 'worksheet.precision'
 	| 'source.static'
 	| 'source.field'
 	| 'source.lookup'
 	| 'source.range'
+	| 'source.entry'
+	| 'source.band'
 	| 'source.missed'
 	| 'source.fallback'
 	| 'source.either'
 	| 'group.aggregation'
 	| 'equation.target'
+	| 'equation.form'
+	| 'equation.group'
+	| 'inference.rule'
+	| 'inference.confidence'
 	| 'subject.fields'
 	| 'subject.empty'
 	| 'prompt.base'
@@ -886,14 +909,19 @@ export interface LexiconInput {
  * @remarks
  * `labels` and `units` are keyed by `formatField` of the field's path, and `values` names a
  * definition's value's unit by the definition's id. `formats` holds a unit's
- * `Intl.NumberFormat` options and wins over a shipped format of the same name. `phrases` and
- * `templates` are the consumer's own tables and lines, under names the lexicon does not own.
+ * `Intl.NumberFormat` options and wins over a shipped format of the same name. `predicates` holds
+ * a fact's sentence by its predicate, a template whose slots are `{{1}}`, `{{2}}`, and so on by
+ * the term's position, and `{{terms}}`. `scopes` names a scope by its id, where no rating line of
+ * that id supplies one. `phrases` and `templates` are the consumer's own tables and lines, under
+ * names the lexicon does not own.
  */
 export interface Glossary {
 	readonly labels: Readonly<Record<string, string>>
 	readonly units?: Readonly<Record<string, string>>
 	readonly values?: Readonly<Record<string, string>>
 	readonly formats?: Readonly<Record<string, Intl.NumberFormatOptions>>
+	readonly predicates?: Readonly<Record<string, string>>
+	readonly scopes?: Readonly<Record<string, string>>
 	readonly phrases?: Readonly<Record<string, Readonly<Record<string, string>>>>
 	readonly templates?: Readonly<Record<string, string>>
 }
@@ -903,13 +931,23 @@ export interface Glossary {
  *
  * @remarks
  * A `label` gap and a `unit` gap name a `field`, a `format` gap names a `unit`, and a `name`
- * gap names the `part` and the `id` that stands in for its name.
+ * gap names the `part` and the `id` that stands in for its name. A `predicate` gap's `id` is the
+ * predicate.
  */
 export interface GlossaryGap {
-	readonly word: 'label' | 'unit' | 'format' | 'name'
+	readonly word: 'label' | 'unit' | 'format' | 'name' | 'predicate'
 	readonly field?: FieldPath
 	readonly unit?: string
-	readonly part?: 'definition' | 'rule' | 'group' | 'factor' | 'equation' | 'inference'
+	readonly part?:
+		| 'definition'
+		| 'rule'
+		| 'group'
+		| 'factor'
+		| 'equation'
+		| 'inference'
+		| 'pass'
+		| 'line'
+		| 'scope'
 	readonly id?: string
 }
 
@@ -972,12 +1010,21 @@ export type AccountDetail = 'line' | 'reasons' | 'full'
  * Represents the data one {@link AccountLine} was written from.
  *
  * @remarks
- * `rule` is present exactly when the line states a rule's state or names a rule.
+ * `rule` is present exactly when the line states a rule's state or names a rule. Each string is
+ * an id: of a rule, a group, a factor, an equation, an inference, a fact, a finding, a scope, a
+ * rating line, or a pass.
  */
 export interface AccountSource {
 	readonly rule?: string
 	readonly group?: string
 	readonly factor?: string
+	readonly equation?: string
+	readonly inference?: string
+	readonly fact?: string
+	readonly finding?: string
+	readonly scope?: string
+	readonly line?: string
+	readonly pass?: string
 	readonly check?: Check
 	readonly result?: CheckResult
 	readonly fault?: AuditFault
@@ -1050,6 +1097,201 @@ export interface NarratorOptions {
 	readonly glossary?: Glossary
 	readonly formatters?: Readonly<Record<string, NarratorFormatter>>
 	readonly locale?: string
+}
+
+// === The family's definitions and results, as an account reads them
+
+/**
+ * Represents one check as a family result holds it, mirroring `Premise` of `@orkestrel/qualifier`
+ * and `Evidence` of `@orkestrel/rater`.
+ */
+export interface FamilyPremise {
+	readonly field?: FieldPath
+	readonly actual?: unknown
+	readonly state?: CheckState
+}
+
+/**
+ * Represents a finding of `@orkestrel/qualifier` or a determination of `@orkestrel/program`, as an
+ * account reads it.
+ */
+export interface FamilyFinding {
+	readonly id: string
+	readonly effect: string
+	readonly state: CheckState
+	readonly pass?: string
+	readonly rule?: string
+	readonly scope?: string
+	readonly message?: string
+	readonly premises: readonly FamilyPremise[]
+}
+
+/** Represents what one rule of a qualification's pass means, as an account reads it. */
+export interface FamilyRuling {
+	readonly id: string
+	readonly pass: string
+	readonly rule: string
+	readonly effect: string
+	readonly scope?: string
+	readonly message?: string
+}
+
+/** Represents a qualification definition, as an account reads it. */
+export interface FamilyQualification {
+	readonly id: string
+	readonly name: string
+	readonly description?: string
+	readonly passes: ReadonlyArray<QuantitativeDefinition | LogicalDefinition>
+	readonly rulings?: readonly FamilyRuling[]
+}
+
+/** Represents one number a qualification derived in a pass, as an account reads it. */
+export interface FamilyDerivation {
+	readonly id: string
+	readonly value: number
+	readonly success: boolean
+}
+
+/**
+ * Represents a qualification's result, as an account reads it.
+ *
+ * @remarks
+ * `errors` is counted and never read.
+ */
+export interface FamilyQualificationResult {
+	readonly id: string
+	readonly name: string
+	readonly eligibility: string
+	readonly scopes: Readonly<Record<string, string>>
+	readonly findings: readonly FamilyFinding[]
+	readonly derivations: readonly FamilyDerivation[]
+	readonly success: boolean
+	readonly errors: readonly string[]
+	readonly faults: readonly AuditFault[]
+}
+
+/** Represents one line of a rating definition, as an account reads it. */
+export interface FamilyLine {
+	readonly id: string
+	readonly name: string
+	readonly description?: string
+	readonly rate: QuantitativeDefinition
+}
+
+/** Represents a rating definition, as an account reads it. */
+export interface FamilyRating {
+	readonly id: string
+	readonly name: string
+	readonly description?: string
+	readonly lines: readonly FamilyLine[]
+}
+
+/** Represents one factor of a rating's worksheet, as an account reads it. */
+export interface FamilyWorksheetFactor {
+	readonly id: string
+	readonly applied: boolean
+	readonly value?: number
+	readonly evidence: readonly FamilyPremise[]
+}
+
+/** Represents one group of a rating's worksheet, as an account reads it. */
+export interface FamilyWorksheetGroup {
+	readonly id: string
+	readonly applied: boolean
+	readonly value: number
+	readonly factors: readonly FamilyWorksheetFactor[]
+}
+
+/**
+ * Represents the worksheet of one rating line, as an account reads it.
+ *
+ * @remarks
+ * `errors` is counted and never read.
+ */
+export interface FamilyWorksheet {
+	readonly value: number
+	readonly groups: readonly FamilyWorksheetGroup[]
+	readonly success: boolean
+	readonly errors: readonly string[]
+	readonly faults: readonly AuditFault[]
+}
+
+/** Represents one line of a rating's result, as an account reads it. */
+export interface FamilyLineResult {
+	readonly id: string
+	readonly name: string
+	readonly amount?: number
+	readonly worksheet: FamilyWorksheet
+}
+
+/** Represents a rating's result, as an account reads it. */
+export interface FamilyRatingResult {
+	readonly lines: readonly FamilyLineResult[]
+	readonly total?: number
+	readonly success: boolean
+	readonly faults: readonly AuditFault[]
+}
+
+/** Represents one notice a program gives, as an account reads it. */
+export interface FamilyNotice {
+	readonly id: string
+	readonly message: string
+	readonly scope?: string
+}
+
+/** Represents a program definition, as an account reads it. */
+export interface FamilyProgram {
+	readonly id: string
+	readonly name: string
+	readonly description?: string
+	readonly qualification: FamilyQualification
+	readonly rating?: FamilyRating
+	readonly notices?: readonly FamilyNotice[]
+	readonly authority?: LogicalDefinition
+}
+
+/**
+ * Represents a program's result, as an account reads it.
+ *
+ * @remarks
+ * `errors` is counted and never read.
+ */
+export interface FamilyProgramResult {
+	readonly id: string
+	readonly name: string
+	readonly eligibility: string
+	readonly status: string
+	readonly decision?: string
+	readonly qualification: FamilyQualificationResult
+	readonly rating?: FamilyRatingResult
+	readonly determinations: readonly FamilyFinding[]
+	readonly success: boolean
+	readonly errors: readonly string[]
+	readonly faults: readonly AuditFault[]
+}
+
+/** Represents any family definition an account is written for. */
+export type FamilyDefinition = FamilyQualification | FamilyRating | FamilyProgram
+
+/** Represents any family result an account is written from. */
+export type FamilyResult = FamilyQualificationResult | FamilyRatingResult | FamilyProgramResult
+
+/** Represents any definition a guide is written for. */
+export type AccountDefinition = Definition | FamilyDefinition
+
+/**
+ * Represents the options for the `FamilyNarrator` constructor.
+ *
+ * @remarks
+ * `lexicon`, `glossary`, and `locale` are those the narrator was built over, and `units` names
+ * every unit that has a format or a formatter. Defaults: `DEFAULT_LEXICON`, a glossary with no
+ * word, `'en-US'`, and the units of `DEFAULT_FORMATS`.
+ */
+export interface FamilyNarratorOptions {
+	readonly lexicon?: Lexicon
+	readonly glossary?: Glossary
+	readonly locale?: string
+	readonly units?: ReadonlySet<string>
 }
 
 // === Options records
@@ -1503,6 +1745,41 @@ export interface NarratorInterface {
 	 * @returns Each gap once
 	 */
 	audit(definitions: readonly Definition[]): readonly GlossaryGap[]
+}
+
+/**
+ * Represents the `FamilyNarrator` contract — the guide, the result, and the audit of a
+ * qualification, a rating, and a program, over a narrator's words.
+ *
+ * @remarks
+ * A definition and a result are read as the `isFamily*` guards admit them.
+ */
+export interface FamilyNarratorInterface {
+	/**
+	 * Writes the guide to a family definition.
+	 *
+	 * @param definition - The definition to describe
+	 * @returns The guide's account, with no `success`
+	 */
+	describe(definition: FamilyDefinition): Account
+	/**
+	 * Writes a family result's verdict with the evidence that decided it.
+	 *
+	 * @remarks
+	 * A result of another kind of definition reads as no answer.
+	 *
+	 * @param definition - The definition the result answers
+	 * @param result - The result to narrate
+	 * @returns The result's account
+	 */
+	narrate(definition: FamilyDefinition, result: FamilyResult): Account
+	/**
+	 * Lists every domain word the definitions need and the supplied words lack.
+	 *
+	 * @param definitions - The definitions to read
+	 * @returns Each gap once
+	 */
+	audit(definitions: readonly FamilyDefinition[]): readonly GlossaryGap[]
 }
 
 /**

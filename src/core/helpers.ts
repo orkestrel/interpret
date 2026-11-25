@@ -20,6 +20,7 @@ import type {
 	AccountLineInput,
 	AccountOptions,
 	AccountSource,
+	AccountText,
 	AnchorCandidate,
 	AnchorRefusalHandler,
 	Entity,
@@ -871,14 +872,57 @@ export function scanSlots(
 	slots: readonly string[],
 ): readonly string[] {
 	const offered = slots.join(', ') || 'none'
+	return collectSlots(template)
+		.filter((slot) => !slots.includes(slot))
+		.map((slot) => `${path} names the slot ${preview(slot)}, and it offers ${offered}`)
+}
+
+/**
+ * Collects the slots a template names, in order.
+ *
+ * @param template - The template to read
+ * @returns Each slot's name, repeats included
+ *
+ * @example
+ * ```ts
+ * import { collectSlots } from '@orkestrel/interpret'
+ *
+ * collectSlots('{{1}} is a parent of {{2}}') // ['1', '2']
+ * ```
+ */
+export function collectSlots(template: string): readonly string[] {
 	return [...template.matchAll(new RegExp(FILL_PATTERN.source, FILL_PATTERN.flags))].flatMap(
-		([, token]) => {
-			const slot = token?.trim()
-			return slot === undefined || slots.includes(slot)
-				? []
-				: [`${path} names the slot ${preview(slot)}, and it offers ${offered}`]
-		},
+		([, token]) => (token === undefined ? [] : [token.trim()]),
 	)
+}
+
+/**
+ * Scans a predicate's sentence for slots it is not offered.
+ *
+ * @remarks
+ * A sentence offers each term by its position, from 1, and `terms`.
+ *
+ * @param predicate - The predicate the sentence is for
+ * @param sentence - The sentence's template
+ * @returns One finding per slot that is neither a position nor `terms`
+ *
+ * @example
+ * ```ts
+ * import { scanPredicate } from '@orkestrel/interpret'
+ *
+ * scanPredicate('parent', '{{1}} is a parent of {{2}}') // []
+ * scanPredicate('parent', '{{child}} has a parent')
+ * // ['predicates.parent names the slot "child", and it offers positions from 1, and terms']
+ * ```
+ */
+export function scanPredicate(predicate: string, sentence: string): readonly string[] {
+	const path = renderPath(['predicates', predicate])
+	return collectSlots(sentence)
+		.filter((slot) => slot !== 'terms' && !/^[1-9]\d*$/.test(slot))
+		.map(
+			(slot) =>
+				`${path} names the slot ${preview(slot)}, and it offers positions from 1, and terms`,
+		)
 }
 
 /**
@@ -975,8 +1019,9 @@ export function scanLexicon(input: unknown): readonly string[] {
  *
  * @remarks
  * A table the glossary does not hold, a blank word, a word with a line break, a format the host
- * refuses, and a phrase table or template under a name the lexicon owns are findings. A unit
- * with no format is none: it is a {@link GlossaryGap}. Nothing the input holds throws.
+ * refuses, a predicate's sentence with a slot it is not offered, and a phrase table or template
+ * under a name the lexicon owns are findings. A unit with no format is none: it is a
+ * {@link GlossaryGap}. Nothing the input holds throws.
  *
  * @param input - The glossary to scan
  * @returns One string per finding, empty when the glossary stands
@@ -999,7 +1044,15 @@ export function scanGlossary(input: unknown): readonly string[] {
 			case 'labels':
 			case 'units':
 			case 'values':
+			case 'scopes':
 				return scanWords([table], words)
+			case 'predicates':
+				return [
+					...scanWords([table], words),
+					...Object.entries(isRecord(words) ? words : {}).flatMap(([predicate, sentence]) =>
+						isString(sentence) ? scanPredicate(predicate, sentence) : [],
+					),
+				]
 			case 'formats':
 				return isRecord(words)
 					? Object.entries(words).flatMap(([unit, format]) => {
@@ -1029,7 +1082,7 @@ export function scanGlossary(input: unknown): readonly string[] {
 				]
 			default:
 				return [
-					`${renderPath([table])} is not one of labels, units, values, formats, phrases, templates`,
+					`${renderPath([table])} is not one of labels, units, values, formats, predicates, scopes, phrases, templates`,
 				]
 		}
 	})
@@ -1934,6 +1987,38 @@ export function renderReasons(
 	return reasons.length < 2
 		? last
 		: `${reasons.slice(0, -1).join(joins.reasons)}${joins.last}${last}`
+}
+
+/**
+ * Renders at most a lexicon's limit of reasons as one list, then how many more there are.
+ *
+ * @param reasons - The worded reasons, in order
+ * @param lexicon - The words that join the reasons, and the most that print
+ * @param more - Words how many reasons are left out; called only when one is
+ * @returns The list as one text, with the gaps of the reasons that print
+ *
+ * @example
+ * ```ts
+ * import { DEFAULT_LEXICON, renderCitedReasons } from '@orkestrel/interpret'
+ *
+ * const reasons = ['a', 'b', 'c'].map((text) => ({ text, gaps: [] }))
+ * const lexicon = { ...DEFAULT_LEXICON, limits: { list: 4, reasons: 2 } }
+ * renderCitedReasons(reasons, lexicon, (count) => `${String(count)} more`).text
+ * // 'a; b; and 1 more'
+ * ```
+ */
+export function renderCitedReasons(
+	reasons: readonly AccountText[],
+	lexicon: Pick<Lexicon, 'joins' | 'limits'>,
+	more: (count: number) => string,
+): AccountText {
+	const shown = reasons.slice(0, lexicon.limits.reasons)
+	const left = reasons.length - shown.length
+	const texts = shown.map((reason) => reason.text)
+	return {
+		text: renderReasons(left === 0 ? texts : [...texts, more(left)], lexicon.joins),
+		gaps: shown.flatMap((reason) => reason.gaps),
+	}
 }
 
 /**

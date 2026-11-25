@@ -598,7 +598,7 @@ describe('Narrator', () => {
 				'    The hourly rate, for a session of two hours.',
 				'    taken from hourly rate',
 				'  Crowd charge',
-				'    set by the range guest count falls in',
+				'    set by the first range guest count falls in',
 				'  Deposit',
 				'    fixed at $50.00',
 				'    applies when cost is at most $1,250.00',
@@ -2330,7 +2330,7 @@ describe('Narrator', () => {
 					'  Room rate: $40.00',
 					'    hourly rate is $20.00',
 					'  Crowd charge: $15.00',
-					'    set by the range guest count falls in',
+					'    set by the first range guest count falls in',
 					'    before its changes: 5',
 					'  Deposit: $50.00',
 					'    fixed at $50.00',
@@ -2440,7 +2440,7 @@ describe('Narrator', () => {
 				unsettled,
 				[
 					['Tier rate: 3', ['looked up by Customer tier']],
-					['Band: 2', ['set by the range Field B falls in']],
+					['Band: 2', ['set by the first range Field B falls in']],
 				],
 			])
 		})
