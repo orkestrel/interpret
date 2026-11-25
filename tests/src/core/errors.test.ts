@@ -13,7 +13,9 @@ describe('interpret error context types', () => {
 		for (const code of INTERPRET_ERROR_CODES) {
 			expect(isInterpretError(new InterpretError(code, 'failure'))).toBe(true)
 		}
-		expect(INTERPRET_ERROR_CODES).toEqual(expect.arrayContaining(['LEXICON', 'GLOSSARY']))
+		expect(INTERPRET_ERROR_CODES).toEqual(
+			expect.arrayContaining(['LEXICON', 'GLOSSARY', 'INTERPRETATION', 'VERSION', 'AMENDMENT']),
+		)
 	})
 
 	it('accepts a callable context', () => {

@@ -10,9 +10,16 @@ import {
 	createVariable,
 } from '@orkestrel/reason'
 import {
+	buildAccountLine,
 	createInterpret,
 	interpretationContract,
 	projectInterpretation,
+	isAccount,
+	isAccountLine,
+	isAccountSource,
+	isAmendment,
+	isEntityInput,
+	isGlossaryGap,
 	isAmbiguity,
 	isComputedField,
 	isEntity,
@@ -52,6 +59,7 @@ import {
 	buildFamilyProgram,
 	buildInsuranceRecipe,
 	buildInterpretRecipe,
+	buildProposedEntity,
 	createCorpusExtractor,
 	FAMILY_BASE,
 	TRICKY_KEYS,
@@ -102,6 +110,129 @@ describe('the words boundary', () => {
 				},
 			}),
 		).toBe(false)
+	})
+})
+
+describe('the account boundary', () => {
+	const line = buildAccountLine({
+		role: 'reason',
+		state: 'unmet',
+		decisive: true,
+		text: 'Age is 16',
+		source: {
+			rule: 'adult',
+			check: { field: ['person', 'age'], operator: 'from', value: 18 },
+			result: { field: ['person', 'age'], state: 'unmet', actual: 16 },
+		},
+		gaps: [{ word: 'label', field: ['person', 'age'] }],
+		lines: [buildAccountLine({ role: 'step', text: 'Adult' })],
+	})
+
+	it('accepts open records and real class instances, at every level', () => {
+		expect(isAccountLine(line)).toBe(true)
+		expect(isAccountLine(Object.create(line))).toBe(true)
+		expect(isAccountLine({ ...line, foreign: true, lines: [{ ...line, foreign: 1 }] })).toBe(true)
+		expect(isAccount({ id: 'a', name: 'A', lines: [], foreign: true })).toBe(true)
+		expect(isAccount({ id: 'a', name: 'A', success: false, lines: [line, line] })).toBe(true)
+		expect(isAccountSource({})).toBe(true)
+		expect(isGlossaryGap({ word: 'name', part: 'rule', id: 'adult', foreign: 1 })).toBe(true)
+	})
+
+	it.each([
+		['role', 'title'],
+		['role', undefined],
+		['state', 'open'],
+		['decisive', 'yes'],
+		['text', 5],
+		['summary', undefined],
+		['source', []],
+		['source', null],
+		['gaps', [{ word: 'label', field: [5] }]],
+		['gaps', {}],
+		['lines', {}],
+		['lines', [5]],
+		['lines', [[]]],
+	])('refuses a line whose %s is %j, where it stands and nested', (key, value) => {
+		const changed = { ...line, [key]: value }
+		expect(isAccountLine(changed)).toBe(false)
+		expect(isAccountLine({ ...line, lines: [changed] })).toBe(false)
+		expect(isAccount({ id: 'a', name: 'A', lines: [line, changed] })).toBe(false)
+	})
+
+	it.each([
+		'rule',
+		'group',
+		'factor',
+		'equation',
+		'inference',
+		'fact',
+		'finding',
+		'scope',
+		'line',
+		'pass',
+	])('reads a source’s %s as an id', (key) => {
+		expect(isAccountSource({ [key]: 'a' })).toBe(true)
+		expect(isAccountSource({ [key]: 5 })).toBe(false)
+	})
+
+	it('reads a source’s check, result, and fault, and leaves what they compared unread', () => {
+		expect(isAccountSource({ check: { field: 'n', operator: 'equals' } })).toBe(true)
+		expect(isAccountSource({ check: { field: 'n', operator: 'equals', value: 1n } })).toBe(true)
+		expect(isAccountSource({ check: { field: 'n', operator: 'like' } })).toBe(false)
+		expect(isAccountSource({ check: { operator: 'equals' } })).toBe(false)
+		expect(isAccountSource({ result: { field: 'n', state: 'met' } })).toBe(true)
+		expect(isAccountSource({ result: { field: 'n', state: 'met', error: 5 } })).toBe(false)
+		expect(isAccountSource({ result: { field: 'n', state: 'open' } })).toBe(false)
+		expect(isAccountSource({ fault: { reason: 'extra', path: ['n'] } })).toBe(true)
+		expect(isAccountSource({ fault: { reason: 'invented', path: ['n'] } })).toBe(false)
+	})
+
+	it('refuses an account that misses a member, and a cycle, and answers any value', () => {
+		expect(isAccount({ id: 'a', name: 'A' })).toBe(false)
+		expect(isAccount({ id: 'a', lines: [] })).toBe(false)
+		expect(isAccount({ name: 'A', lines: [] })).toBe(false)
+		expect(isAccount({ id: 'a', name: 'A', success: 'yes', lines: [] })).toBe(false)
+		const cycle: { lines: unknown[] } = { ...line, lines: [] }
+		cycle.lines.push(cycle, cycle)
+		expect(isAccountLine(cycle)).toBe(false)
+		expect(isAccount({ id: 'a', name: 'A', lines: [cycle] })).toBe(false)
+		for (const value of [null, undefined, 5, 'words', [], ...createHostileValues()]) {
+			expect(isAccount(value)).toBe(false)
+			expect(isAccountLine(value)).toBe(false)
+			expect(isGlossaryGap(value)).toBe(false)
+			expect(isAccountLine({ ...line, source: value })).toBe(isAccountSource(value))
+		}
+		for (const value of [null, undefined, 5, {}, [null], [[]]]) {
+			expect(isAccount({ id: 'a', name: 'A', lines: value })).toBe(false)
+		}
+		expect(
+			isAccountLine({
+				...line,
+				get lines(): never {
+					throw new Error('hostile lines getter')
+				},
+			}),
+		).toBe(false)
+	})
+})
+
+describe('the amendment boundary', () => {
+	it('accepts an exact record of JSON values, and refuses every other', () => {
+		expect(isEntityInput({ name: 'age', value: 25 })).toBe(true)
+		expect(isEntityInput({ name: 'age', value: null })).toBe(true)
+		expect(isAmendment({})).toBe(true)
+		expect(isAmendment({ entities: [{ name: 'age', value: [1] }], removed: ['term'] })).toBe(true)
+		for (const value of [undefined, Number.NaN, 1n, new Date(0), Math.max]) {
+			expect(isEntityInput({ name: 'age', value })).toBe(false)
+			expect(isAmendment({ entities: [{ name: 'age', value }] })).toBe(false)
+		}
+		expect(isEntityInput({ name: 'age' })).toBe(false)
+		expect(isEntityInput({ name: 5, value: 1 })).toBe(false)
+		expect(isEntityInput(buildProposedEntity('age', 25))).toBe(false)
+		expect(isAmendment({ entities: {} })).toBe(false)
+		expect(isAmendment({ removed: [5] })).toBe(false)
+		expect(isAmendment({ remove: ['age'] })).toBe(false)
+		for (const value of [null, undefined, 5, 'words', []]) expect(isAmendment(value)).toBe(false)
 	})
 })
 

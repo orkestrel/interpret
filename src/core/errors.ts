@@ -12,7 +12,10 @@ import { holds, INTRINSICS, isError, isFunction, isObject } from '@orkestrel/con
  * `DESTROYED` is the code that throws, on any use of a destroyed `Interpret`
  * / manager / context, and `DEFINITION` throws when `Interpret` is handed a recipe
  * that does not stand. `LEXICON` and `GLOSSARY` throw when a `Narrator` is handed malformed
- * words, with each finding under `context.findings`. `Normalizer.normalize` throws `TEXT_LIMIT` before reading oversized
+ * words, with each finding under `context.findings`. `INTERPRETATION` throws when `Interpret` is
+ * handed back what is no interpretation, `VERSION` when `amend` is handed one whose recipe version
+ * the registry does not hold, and `AMENDMENT` when it is handed a malformed amendment, with each
+ * fault under `context.faults`. `Normalizer.normalize` throws `TEXT_LIMIT` before reading oversized
  * input; `Interpret.interpret` captures it as a failure carrying that same code.
  * Every other {@link InterpretErrorCode} reaches a caller
  * as data rather than as a throw — `NO_RECIPE` and `LOW_CONFIDENCE` on a
@@ -76,6 +79,9 @@ export function isInterpretError(value: unknown): value is InterpretError {
 			code !== 'DEFINITION' &&
 			code !== 'LEXICON' &&
 			code !== 'GLOSSARY' &&
+			code !== 'INTERPRETATION' &&
+			code !== 'VERSION' &&
+			code !== 'AMENDMENT' &&
 			code !== 'DESTROYED'
 		)
 			return false

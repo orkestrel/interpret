@@ -4,6 +4,7 @@ import type {
 	Account,
 	AccountDefinition,
 	Ambiguity,
+	Amendment,
 	ClarifierInterface,
 	ClarifyResult,
 	Entity,
@@ -27,6 +28,7 @@ import type {
 	InterpretInterface,
 	InterpretOptions,
 	InterpretStage,
+	InterpretTurnOptions,
 	Interpretation,
 	NarratorInterface,
 	NormalizeResult,
@@ -35,13 +37,30 @@ import type {
 	StageFailure,
 	StageRecord,
 	Recipe,
+	RecipeRecord,
 } from './types.js'
-import { attempt, isError, isString } from '@orkestrel/contract'
+import {
+	attempt,
+	describeFaults,
+	errorToMessage,
+	isError,
+	isString,
+	preview,
+} from '@orkestrel/contract'
 import { Emitter } from '@orkestrel/emitter'
 import { compileEntities, scanNumbers } from './compilers.js'
-import { DEFAULT_INTERPRET_FLOOR } from './constants.js'
+import { DEFAULT_INTERPRET_FLOOR, INTERPRET_STAGES } from './constants.js'
+import { amendmentContract } from './contracts.js'
 import { InterpretError, isInterpretError } from './errors.js'
-import { assertRecipe, digestValue, findUnclaimedNumbers, matchRecipe } from './helpers.js'
+import {
+	amendEntities,
+	assertInterpretation,
+	assertRecipe,
+	collectClaims,
+	digestValue,
+	findUnclaimedNumbers,
+	matchRecipe,
+} from './helpers.js'
 import { InterpretContext } from './InterpretContext.js'
 import { RecipeManager } from './managers/RecipeManager.js'
 import { Narrator } from './Narrator.js'
@@ -73,7 +92,9 @@ import { Normalizer } from './stages/Normalizer.js'
  * — never a silent fallback. Every result carries a `digest` over its original
  * text plus the matched recipe id/version and the built subject/definition,
  * so re-running the same text against the same recipe version reproduces the
- * same digest (the replay contract). `describe` / `narrate` are the reverse
+ * same digest (the replay contract). `interpret(text, { previous })` carries from that one turn in
+ * place of the history, and `amend` reruns the pipeline from clarify over an interpretation with
+ * entities supplied or withdrawn. `describe` / `narrate` are the reverse
  * direction (structure → prose). `destroy()` is idempotent, tears down the
  * registry and the context it constructed itself — a context supplied through
  * `options.context` is shared, so it stays alive for whoever else holds it —
@@ -149,238 +170,55 @@ export class Interpret implements InterpretInterface {
 		return this.#emitter
 	}
 
-	interpret(text: string): Interpretation {
+	interpret(text: string, options?: InterpretTurnOptions): Interpretation {
 		this.#ensureAlive()
-		const stages: StageRecord[] = []
-
-		const normalizedResult = attempt(() => this.#normalizer.normalize(text))
-		if (!normalizedResult.success) {
-			const error = normalizedResult.error
-			return this.#fail(
-				text,
-				text,
-				{ confidence: 0 },
-				[],
-				[],
-				stages,
-				'normalize',
-				isInterpretError(error) && error.code === 'TEXT_LIMIT' ? 'TEXT_LIMIT' : 'NORMALIZE_FAILED',
-				text,
-				error,
-				['extract', 'clarify', 'format', 'generate'],
-				undefined,
-				undefined,
-			)
+		const previous = options?.previous
+		if (previous !== undefined) assertInterpretation(previous)
+		const result = this.#read(text, previous === undefined ? this.#context : this.#seed(previous))
+		if (result.subject !== undefined) this.#context.subjects.add(result.subject)
+		if (result.definition !== undefined) {
+			this.#context.definitions.add(result.definition, { id: result.definition.id })
 		}
-		const normalized: NormalizeResult = normalizedResult.value
-		stages.push({ stage: 'normalize', input: text, output: normalized, failed: false })
-
-		const extractResult = attempt(() => this.#extractor.extract(normalized.text))
-		if (!extractResult.success) {
-			const error = extractResult.error
-			return this.#fail(
-				text,
-				normalized.text,
-				{ confidence: 0 },
-				[],
-				[],
-				stages,
-				'extract',
-				'EXTRACT_FAILED',
-				normalized.text,
-				error,
-				['clarify', 'format', 'generate'],
-				undefined,
-				undefined,
-			)
-		}
-		const extract: ExtractResult = extractResult.value
-		stages.push({ stage: 'extract', input: normalized.text, output: extract, failed: false })
-
-		const intent = extract.intent
-		const recipes = this.#recipes.recipes().map((record) => record.recipe)
-		const matched = matchRecipe(intent, recipes, this.#floor)
-
-		if (matched === undefined) {
-			return this.#gate(
-				text,
-				normalized.text,
-				intent,
-				[],
-				stages,
-				'NO_RECIPE',
-				undefined,
-				undefined,
-			)
-		}
-
-		const numbers = scanNumbers(normalized.text)
-		const compiled = compileEntities(numbers, matched.mappings, normalized.text, matched.shape)
-		const assigned = compiled.entities
-		const record = this.#recipes.recipe(matched.id)
-		const version = record?.version
-
-		if (intent.confidence < this.#floor) {
-			return this.#gate(
-				text,
-				normalized.text,
-				intent,
-				assigned,
-				stages,
-				'LOW_CONFIDENCE',
-				matched.id,
-				version,
-				compiled.refusals,
-			)
-		}
-
-		const clarifiedResult = attempt(() =>
-			this.#clarifier.clarify(
-				assigned,
-				matched,
-				this.#context,
-				intent,
-				findUnclaimedNumbers(numbers, assigned),
-			),
-		)
-		if (!clarifiedResult.success) {
-			const error = clarifiedResult.error
-			return this.#fail(
-				text,
-				normalized.text,
-				intent,
-				assigned,
-				[],
-				stages,
-				'clarify',
-				'CLARIFY_FAILED',
-				assigned,
-				error,
-				['format', 'generate'],
-				matched.id,
-				version,
-				compiled.refusals,
-			)
-		}
-		const clarified: ClarifyResult = clarifiedResult.value
-		stages.push({ stage: 'clarify', input: assigned, output: clarified, failed: false })
-
-		const formatInput = { intent, entities: clarified.entities, ambiguities: clarified.ambiguities }
-		const formattedResult = attempt(() =>
-			this.#formatter.format(intent, matched, clarified.entities, clarified.ambiguities),
-		)
-		if (!formattedResult.success) {
-			const error = formattedResult.error
-			return this.#fail(
-				text,
-				normalized.text,
-				intent,
-				clarified.entities,
-				clarified.ambiguities,
-				stages,
-				'format',
-				'FORMAT_FAILED',
-				formatInput,
-				error,
-				['generate'],
-				matched.id,
-				version,
-				compiled.refusals,
-			)
-		}
-		const formatted: FormatResult = formattedResult.value
-		stages.push({ stage: 'format', input: formatInput, output: formatted, failed: false })
-
-		// A subject the door refused, or one a required question stands over, is no subject, so it
-		// is not built: no stage record or mapping holds what the door refused.
-		if (clarified.ambiguities.some((ambiguity) => ambiguity.required)) {
-			stages.push({ stage: 'generate', input: undefined, output: undefined, failed: false })
-			const digest = digestValue({
-				text,
-				recipeId: matched.id,
-				version: version,
-				subject: undefined,
-				definition: matched.definition,
-			})
-			const asked: Interpretation = {
-				...(compiled.refusals === undefined ? {} : { refusals: compiled.refusals }),
-				text,
-				normalized: normalized.text,
-				intent,
-				recipe: matched.id,
-				...(version === undefined ? {} : { version: version }),
-				entities: clarified.entities,
-				definition: matched.definition,
-				mappings: [],
-				ambiguities: clarified.ambiguities,
-				repairs: clarified.repairs,
-				defaulted: clarified.defaulted,
-				prompt: formatted.prompt,
-				stages,
-				failures: [],
-				confidence: 0,
-				digest,
-			}
-			this.#context.definitions.add(matched.definition, { id: matched.definition.id })
-			this.#context.add(asked)
-			this.#emitter.emit('interpret', asked)
-			return asked
-		}
-
-		const generatedResult = attempt(() => this.#generator.generate(clarified.entities, matched))
-		if (!generatedResult.success) {
-			const error = generatedResult.error
-			return this.#fail(
-				text,
-				normalized.text,
-				intent,
-				clarified.entities,
-				clarified.ambiguities,
-				stages,
-				'generate',
-				'GENERATE_FAILED',
-				clarified.entities,
-				error,
-				[],
-				matched.id,
-				version,
-				compiled.refusals,
-			)
-		}
-		const generated: GenerateResult = generatedResult.value
-		stages.push({ stage: 'generate', input: clarified.entities, output: generated, failed: false })
-
-		const digest = digestValue({
-			text,
-			recipeId: matched.id,
-			version: version,
-			subject: generated.subject,
-			definition: generated.definition,
-		})
-		const result: Interpretation = {
-			...(compiled.refusals === undefined ? {} : { refusals: compiled.refusals }),
-			text,
-			normalized: normalized.text,
-			intent,
-			recipe: matched.id,
-			...(version === undefined ? {} : { version: version }),
-			entities: clarified.entities,
-			subject: generated.subject,
-			definition: generated.definition,
-			mappings: generated.mappings,
-			ambiguities: clarified.ambiguities,
-			repairs: clarified.repairs,
-			defaulted: clarified.defaulted,
-			prompt: formatted.prompt,
-			stages,
-			failures: [],
-			confidence: generated.confidence,
-			digest,
-		}
-
-		this.#context.subjects.add(generated.subject)
-		this.#context.definitions.add(generated.definition, { id: generated.definition.id })
 		this.#context.add(result)
+		this.#emitter.emit('interpret', result)
+		return result
+	}
+
+	amend(interpretation: Interpretation, amendment: Amendment): Interpretation {
+		this.#ensureAlive()
+		assertInterpretation(interpretation)
+		const record = this.#findRecord(interpretation)
+		const changes = this.#admit(amendment)
+		const { normalized, entities } = interpretation
+		const numbers = scanNumbers(normalized)
+		const { mappings, shape } = record.recipe
+		const compiled = compileEntities(numbers, mappings, normalized, shape)
+		const stated = amendEntities(entities, compiled.entities, changes, record.recipe)
+		const removed = new Set(changes.removed)
+		// What was stated is settled, so only what the turn itself carried is left to carry.
+		const carried = entities.filter(
+			(entity) => entity.provenance.category === 'carried' && !removed.has(entity.name),
+		)
+		const result = this.#settle(
+			interpretation.text,
+			normalized,
+			interpretation.intent,
+			record,
+			stated,
+			findUnclaimedNumbers(numbers, collectClaims(compiled.entities, stated)),
+			this.#seed({ ...interpretation, entities: carried }),
+			// A phase before clarify keeps its record, and one the interpretation holds none of did not run.
+			INTERPRET_STAGES.slice(0, INTERPRET_STAGES.indexOf('clarify')).map(
+				(stage) =>
+					interpretation.stages.find((held) => held.stage === stage) ?? {
+						stage,
+						input: undefined,
+						output: undefined,
+						failed: false,
+					},
+			),
+			compiled.refusals,
+		)
 		this.#emitter.emit('interpret', result)
 		return result
 	}
@@ -434,6 +272,309 @@ export class Interpret implements InterpretInterface {
 		this.#destroyed = true
 		this.#emitter.emit('destroy')
 		this.#emitter.destroy()
+	}
+
+	// A context holding one interpretation, so carry-over reads that one and no history.
+	#seed(previous: Interpretation): InterpretContextInterface {
+		const { session } = this.#context
+		const context = new InterpretContext({
+			history: 1,
+			...(session === undefined ? {} : { session }),
+		})
+		context.add(previous)
+		return context
+	}
+
+	// The record an interpretation was read against, or a refusal naming what the registry holds.
+	#findRecord(interpretation: Interpretation): RecipeRecord {
+		const { recipe, version } = interpretation
+		const record = recipe === undefined ? undefined : this.#recipes.recipe(recipe)
+		if (record !== undefined && record.version === version) return record
+		throw new InterpretError(
+			'VERSION',
+			recipe === undefined
+				? 'The interpretation matched no recipe, so there is none to amend it under'
+				: `Recipe ${preview(recipe)} version ${String(version)} is not held; ${
+						record === undefined
+							? 'the registry holds no recipe of that id'
+							: `the registry holds version ${String(record.version)}`
+					}`,
+		)
+	}
+
+	// An amendment owned and admitted whole, with each entity named once.
+	#admit(amendment: Amendment): Amendment {
+		const owned = amendmentContract.own(amendment)
+		if (!owned.success) {
+			const { faults, cause } = owned.error
+			throw new InterpretError(
+				'AMENDMENT',
+				`Amendment is malformed: ${
+					faults.length > 0
+						? describeFaults(faults, amendmentContract.schema)
+						: errorToMessage(cause)
+				}`,
+				{ faults },
+			)
+		}
+		const names = [
+			...(owned.value.entities ?? []).map((entity) => entity.name),
+			...(owned.value.removed ?? []),
+		]
+		const repeated = [...new Set(names.filter((name, index) => names.indexOf(name) !== index))]
+		if (repeated.length > 0) {
+			throw new InterpretError(
+				'AMENDMENT',
+				`Amendment names ${repeated.map((name) => preview(name)).join(', ')} more than once; supply or withdraw each entity once`,
+				{ faults: [] },
+			)
+		}
+		return owned.value
+	}
+
+	// Reads a text to a result that is not recorded yet.
+	#read(text: string, context: InterpretContextInterface): Interpretation {
+		const stages: StageRecord[] = []
+
+		const normalizedResult = attempt(() => this.#normalizer.normalize(text))
+		if (!normalizedResult.success) {
+			const error = normalizedResult.error
+			return this.#fail(
+				text,
+				text,
+				{ confidence: 0 },
+				[],
+				[],
+				stages,
+				'normalize',
+				isInterpretError(error) && error.code === 'TEXT_LIMIT' ? 'TEXT_LIMIT' : 'NORMALIZE_FAILED',
+				text,
+				error,
+				['extract', 'clarify', 'format', 'generate'],
+				undefined,
+				undefined,
+			)
+		}
+		const normalized: NormalizeResult = normalizedResult.value
+		stages.push({ stage: 'normalize', input: text, output: normalized, failed: false })
+
+		const extractResult = attempt(() => this.#extractor.extract(normalized.text))
+		if (!extractResult.success) {
+			const error = extractResult.error
+			return this.#fail(
+				text,
+				normalized.text,
+				{ confidence: 0 },
+				[],
+				[],
+				stages,
+				'extract',
+				'EXTRACT_FAILED',
+				normalized.text,
+				error,
+				['clarify', 'format', 'generate'],
+				undefined,
+				undefined,
+			)
+		}
+		const extract: ExtractResult = extractResult.value
+		stages.push({ stage: 'extract', input: normalized.text, output: extract, failed: false })
+
+		const intent = extract.intent
+		const recipes = this.#recipes.recipes().map((record) => record.recipe)
+		const matched = matchRecipe(intent, recipes, this.#floor)
+		const record = matched === undefined ? undefined : this.#recipes.recipe(matched.id)
+
+		if (record === undefined) {
+			return this.#gate(
+				text,
+				normalized.text,
+				intent,
+				[],
+				stages,
+				'NO_RECIPE',
+				undefined,
+				undefined,
+			)
+		}
+
+		const numbers = scanNumbers(normalized.text)
+		const { mappings, shape } = record.recipe
+		const compiled = compileEntities(numbers, mappings, normalized.text, shape)
+		return this.#settle(
+			text,
+			normalized.text,
+			intent,
+			record,
+			compiled.entities,
+			findUnclaimedNumbers(numbers, compiled.entities),
+			context,
+			stages,
+			compiled.refusals,
+		)
+	}
+
+	// The pipeline from the confidence gate on, over what a text or an amendment states. The one
+	// path to a result, so an amended interpretation is settled as a read one is.
+	#settle(
+		text: string,
+		normalized: string,
+		intent: Intent,
+		record: RecipeRecord,
+		stated: readonly Entity[],
+		unclaimed: ReadonlyArray<number | string>,
+		context: InterpretContextInterface,
+		stages: StageRecord[],
+		refusals?: NumberRefusals,
+	): Interpretation {
+		const { recipe, version } = record
+		if (intent.confidence < this.#floor) {
+			return this.#gate(
+				text,
+				normalized,
+				intent,
+				stated,
+				stages,
+				'LOW_CONFIDENCE',
+				recipe.id,
+				version,
+				refusals,
+			)
+		}
+
+		const clarifiedResult = attempt(() =>
+			this.#clarifier.clarify(stated, recipe, context, intent, unclaimed),
+		)
+		if (!clarifiedResult.success) {
+			const error = clarifiedResult.error
+			return this.#fail(
+				text,
+				normalized,
+				intent,
+				stated,
+				[],
+				stages,
+				'clarify',
+				'CLARIFY_FAILED',
+				stated,
+				error,
+				['format', 'generate'],
+				recipe.id,
+				version,
+				refusals,
+			)
+		}
+		const clarified: ClarifyResult = clarifiedResult.value
+		stages.push({ stage: 'clarify', input: stated, output: clarified, failed: false })
+
+		const formatInput = { intent, entities: clarified.entities, ambiguities: clarified.ambiguities }
+		const formattedResult = attempt(() =>
+			this.#formatter.format(intent, recipe, clarified.entities, clarified.ambiguities),
+		)
+		if (!formattedResult.success) {
+			const error = formattedResult.error
+			return this.#fail(
+				text,
+				normalized,
+				intent,
+				clarified.entities,
+				clarified.ambiguities,
+				stages,
+				'format',
+				'FORMAT_FAILED',
+				formatInput,
+				error,
+				['generate'],
+				recipe.id,
+				version,
+				refusals,
+			)
+		}
+		const formatted: FormatResult = formattedResult.value
+		stages.push({ stage: 'format', input: formatInput, output: formatted, failed: false })
+
+		// A subject the door refused, or one a required question stands over, is no subject, so it
+		// is not built: no stage record or mapping holds what the door refused.
+		if (clarified.ambiguities.some((ambiguity) => ambiguity.required)) {
+			stages.push({ stage: 'generate', input: undefined, output: undefined, failed: false })
+			const digest = digestValue({
+				text,
+				recipeId: recipe.id,
+				version,
+				subject: undefined,
+				definition: recipe.definition,
+			})
+			return {
+				...(refusals === undefined ? {} : { refusals }),
+				text,
+				normalized,
+				intent,
+				recipe: recipe.id,
+				version,
+				entities: clarified.entities,
+				definition: recipe.definition,
+				mappings: [],
+				ambiguities: clarified.ambiguities,
+				repairs: clarified.repairs,
+				defaulted: clarified.defaulted,
+				prompt: formatted.prompt,
+				stages,
+				failures: [],
+				confidence: 0,
+				digest,
+			}
+		}
+
+		const generatedResult = attempt(() => this.#generator.generate(clarified.entities, recipe))
+		if (!generatedResult.success) {
+			const error = generatedResult.error
+			return this.#fail(
+				text,
+				normalized,
+				intent,
+				clarified.entities,
+				clarified.ambiguities,
+				stages,
+				'generate',
+				'GENERATE_FAILED',
+				clarified.entities,
+				error,
+				[],
+				recipe.id,
+				version,
+				refusals,
+			)
+		}
+		const generated: GenerateResult = generatedResult.value
+		stages.push({ stage: 'generate', input: clarified.entities, output: generated, failed: false })
+
+		const digest = digestValue({
+			text,
+			recipeId: recipe.id,
+			version,
+			subject: generated.subject,
+			definition: generated.definition,
+		})
+		return {
+			...(refusals === undefined ? {} : { refusals }),
+			text,
+			normalized,
+			intent,
+			recipe: recipe.id,
+			version,
+			entities: clarified.entities,
+			subject: generated.subject,
+			definition: generated.definition,
+			mappings: generated.mappings,
+			ambiguities: clarified.ambiguities,
+			repairs: clarified.repairs,
+			defaulted: clarified.defaulted,
+			prompt: formatted.prompt,
+			stages,
+			failures: [],
+			confidence: generated.confidence,
+			digest,
+		}
 	}
 
 	// A NO_RECIPE / LOW_CONFIDENCE match gate — an explicit incomplete result
@@ -524,9 +665,8 @@ export class Interpret implements InterpretInterface {
 	}
 
 	// Assemble a visible incomplete result: pad the un-run stages with skipped
-	// records so `stages` always holds one record per phase, digest over the known
-	// pre-image, record the result in context, and emit `interpret` (an
-	// incomplete run is still a completed call — visibility is the point).
+	// records so `stages` always holds one record per phase, and digest over the known
+	// pre-image.
 	#assemble(
 		text: string,
 		normalized: string,
@@ -550,7 +690,7 @@ export class Interpret implements InterpretInterface {
 			subject: undefined,
 			definition: undefined,
 		})
-		const result: Interpretation = {
+		return {
 			text,
 			normalized,
 			...(refusals === undefined ? {} : { refusals }),
@@ -568,9 +708,6 @@ export class Interpret implements InterpretInterface {
 			confidence: 0,
 			digest,
 		}
-		this.#context.add(result)
-		this.#emitter.emit('interpret', result)
-		return result
 	}
 
 	#ensureAlive(): void {

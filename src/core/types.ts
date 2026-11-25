@@ -46,8 +46,8 @@ import type {
  *
  * @remarks
  * `extracted` — mined from the raw text through keyword / alias
- * matching. `proposed` — supplied by a reader after the host's checks; this package
- * does not produce it. `carried` — reused from a same-domain prior turn in an
+ * matching. `proposed` — supplied by a reader: each entity of an {@link Amendment}, or one a host
+ * hands the stages after its own checks. `carried` — reused from a same-domain prior turn in an
  * {@link InterpretContextInterface}. `default` — filled from a
  * default in a {@link Recipe}'s `shape`. `computed` — derived by evaluating
  * a {@link ComputedField}'s expression. `subject` — already present on an
@@ -85,6 +85,9 @@ export type InterpretStage = 'normalize' | 'extract' | 'clarify' | 'format' | 'g
  * the floor. `DEFINITION` — a {@link Recipe} is malformed, or its `shape` does not stand or
  * does not declare a field it maps or computes. `LEXICON` — a {@link LexiconInput} is malformed,
  * or its locale is not one the host reads. `GLOSSARY` — a {@link Glossary} is malformed.
+ * `INTERPRETATION` — a value handed back as an {@link Interpretation} is none. `VERSION` — an
+ * interpretation names no recipe version the registry holds. `AMENDMENT` — an {@link Amendment}
+ * is malformed, or it names one entity twice.
  * `DESTROYED` — any use of a destroyed entity.
  * `TEXT_LIMIT` — raw text exceeds {@link INTERPRET_TEXT_LIMIT} UTF-16 units.
  */
@@ -100,6 +103,9 @@ export type InterpretErrorCode =
 	| 'DEFINITION'
 	| 'LEXICON'
 	| 'GLOSSARY'
+	| 'INTERPRETATION'
+	| 'VERSION'
+	| 'AMENDMENT'
 	| 'DESTROYED'
 
 // === Recipe data model — pure JSON-serializable, versionable, diffable, hashable
@@ -567,7 +573,7 @@ export interface GenerateResult {
 // === The result
 
 /**
- * Represents the full, replayable outcome of one `interpret()` call.
+ * Represents the full, replayable outcome of one `interpret()` or `amend()` call.
  *
  * @remarks
  * `subject` / `definition` are absent on an incomplete `NO_RECIPE` /
@@ -606,6 +612,43 @@ export interface Interpretation {
 	readonly failures: readonly StageFailure[]
 	readonly confidence: number
 	readonly digest: string
+}
+
+// === Continuing and building on an interpretation
+
+/**
+ * Represents the options for one `interpret()` call.
+ *
+ * @remarks
+ * `previous` is the turn this one continues: carry-over reads it alone, in place of the context's
+ * history and whatever the `history` option says.
+ */
+export interface InterpretTurnOptions {
+	readonly previous?: Interpretation
+}
+
+/**
+ * Represents one entity an {@link Amendment} supplies, by the name the recipe gives it.
+ *
+ * @remarks
+ * `value` is any JSON value. A name the recipe maps, computes, or defaults lands on its field, and
+ * any other name is a field of that name.
+ */
+export interface EntityInput {
+	readonly name: string
+	readonly value: unknown
+}
+
+/**
+ * Represents what to change about an interpretation.
+ *
+ * @remarks
+ * `entities` are added, or replace the entity of that name. `removed` lists the entity names
+ * withdrawn.
+ */
+export interface Amendment {
+	readonly entities?: readonly EntityInput[]
+	readonly removed?: readonly string[]
 }
 
 // === Versioned, content-hashed records
@@ -654,7 +697,7 @@ export interface DefinitionRecord {
  * Represents the push observation surface of an {@link InterpretInterface}.
  *
  * @remarks
- * `interpret` fires once per completed `interpret()` call, complete OR
+ * `interpret` fires once per completed `interpret()` or `amend()` call, complete OR
  * incomplete — visibility is the point. `add` fires when a recipe is added,
  * carrying its id, and names the same act as the {@link RecordEventMap} row
  * the call forwards to. `error` fires with the raw thrown value when an
@@ -662,7 +705,7 @@ export interface DefinitionRecord {
  * Listener isolation is the emitter's own — never routed onto this map.
  */
 export type InterpretEventMap = {
-	/** Fires when an `interpret()` call completes — carries the full result. */
+	/** Fires when an `interpret()` or `amend()` call completes — carries the full result. */
 	readonly interpret: readonly [result: Interpretation]
 	/** Fires when a recipe is added — carries its id. */
 	readonly add: readonly [recipeId: string]
@@ -1512,7 +1555,7 @@ export interface RecordOptions {
 /** Represents the options for `createInterpretContext` and the `InterpretContext` constructor. */
 export interface InterpretContextOptions {
 	readonly session?: string
-	/** Caps retained turns; defaults to 0, disabling carry. */
+	/** Caps retained turns; defaults to 0, disabling carry from the history. */
 	readonly history?: number
 	readonly on?: EmitterHooks<InterpretContextEventMap>
 	readonly error?: EmitterErrorHandler
@@ -1533,7 +1576,7 @@ export interface InterpretContextOptions {
  * value threaded into a built-in stage, reaching the `Clarifier`.
  * `floor` sets the intent confidence floor (default `DEFAULT_INTERPRET_FLOOR`).
  * `history` caps a newly constructed context's `previous()` ring buffer (default 0,
- * no carry). Configure a supplied context's history on that context. `narrator` groups the
+ * no carry from it). Configure a supplied context's history on that context. `narrator` groups the
  * wording settings the orchestrator builds its own {@link NarratorInterface}
  * from, keeping them clear of the `formatter` stage slot beside them. `on` —
  * initial event listeners. `error` — the emitter's listener-error handler.
@@ -1978,7 +2021,7 @@ export interface DefinitionManagerInterface {
  *
  * @remarks
  * `previous()` returns the ring buffer newest-last, capped at the
- * configured `history` (default 0, no carry). `entities()`
+ * configured `history` (default 0, no carry from it). `entities()`
  * flattens every entity recorded across the buffered history, most recent
  * last — the read carry-over consults. `add` pushes one completed
  * {@link Interpretation}, dropping the oldest entry after the cap is reached.
@@ -2023,7 +2066,7 @@ export interface InterpretContextInterface {
  * `reasons`' `Reason` orchestrator shape.
  *
  * @remarks
- * `interpret` is genuinely synchronous — it returns its
+ * `interpret` and `amend` are genuinely synchronous — each returns its
  * {@link Interpretation} directly, never a `Promise`. `add` / `remove` /
  * `recipe` / `recipes` name the same acts as the
  * {@link RecipeManagerInterface} they delegate to, and expose plain
@@ -2046,9 +2089,34 @@ export interface InterpretInterface {
 	 * returning a complete or a visibly incomplete result.
 	 *
 	 * @param text - The raw text to interpret
+	 * @param options - Optional `previous`, the turn this one continues
 	 * @returns The full, replayable outcome of the run
+	 * @throws {@link InterpretError} `'INTERPRETATION'` when `previous` is no interpretation
 	 */
-	interpret(text: string): Interpretation
+	interpret(text: string, options?: InterpretTurnOptions): Interpretation
+	/**
+	 * Reruns clarify, format, and generate over an interpretation's own text, intent, and recipe
+	 * version, with entities supplied or withdrawn.
+	 *
+	 * @remarks
+	 * The interpretation is read and never changed, and the context's history is neither read nor
+	 * changed, so a turn that reads the history still carries what was read; name the amended
+	 * interpretation as `previous` to continue from it. What the text states is read again from
+	 * `normalized`, and each value the interpretation carried, and each one proposed on it, stands
+	 * unless the amendment replaces or withdraws it. A withdrawn name
+	 * stays withdrawn in a later amendment, and its default or its computation is worked out again.
+	 * Every supplied entity is `proposed`. `refusals` stay what the text's anchors refused, and a
+	 * number is left unclaimed when no standing entity's anchor claimed it and no proposed value is it.
+	 *
+	 * @param interpretation - The interpretation to build on
+	 * @param amendment - The entities to supply and the names to withdraw
+	 * @returns A fresh interpretation, complete or visibly incomplete
+	 * @throws {@link InterpretError} `'INTERPRETATION'` when the interpretation is none, `'VERSION'`
+	 * when the registry does not hold its recipe version, `'AMENDMENT'` when the amendment is
+	 * malformed or names one entity twice, and `'TEXT_LIMIT'` when its `normalized` text exceeds
+	 * {@link INTERPRET_TEXT_LIMIT} UTF-16 units
+	 */
+	amend(interpretation: Interpretation, amendment: Amendment): Interpretation
 	/**
 	 * Adds one recipe, and emits `add`.
 	 *

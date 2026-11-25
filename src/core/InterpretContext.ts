@@ -21,7 +21,7 @@ import { SubjectManager } from './managers/SubjectManager.js'
  *
  * @remarks
  * `previous()` is a capped ring buffer (newest-last, oldest dropped after the
- * `history` cap is reached — 0 by default, so carry requires an explicit
+ * `history` cap is reached — 0 by default, so carry from the history requires an explicit
  * positive cap), never an unbounded array.
  * `entities()` flattens every entity across the buffered history, most recent
  * last. `Clarifier` consults `previous()` for same-domain carry-over. `add` pushes

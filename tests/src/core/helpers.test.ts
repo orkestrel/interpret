@@ -1,11 +1,20 @@
 import type { Check, Expression, Fact, Inference } from '@orkestrel/reason'
-import type { Account, Entity, Glossary, NarratorFormatter, NarratorOptions } from '@src/core'
+import type {
+	Account,
+	AccountLine,
+	Entity,
+	Glossary,
+	NarratorFormatter,
+	NarratorOptions,
+} from '@src/core'
 import {
 	arrayShape,
 	FAULT_CONSTRAINTS,
 	FAULT_KINDS,
+	GUARD_DEPTH_LIMIT,
 	isFunction,
 	isObject,
+	isRecord,
 	isString,
 	nullableShape,
 	numberShape,
@@ -32,6 +41,7 @@ import {
 	createInference,
 	createInferentialDefinition,
 	createLogicalDefinition,
+	createLogicalReasoner,
 	createLookupFactor,
 	createOperation,
 	createQuantitativeDefinition,
@@ -47,9 +57,20 @@ import {
 } from '@orkestrel/reason'
 import { fillTemplate } from '@orkestrel/template'
 import {
+	amendEntities,
 	applyReplacements,
+	assertInterpretation,
 	assertRecipe,
 	assignEntities,
+	collectClaims,
+	findNamedField,
+	isAccount,
+	isGlossary,
+	matchesAccountLines,
+	mergeGlossary,
+	mergeTable,
+	projectAccount,
+	projectAccountLine,
 	scanNumbers,
 	buildAccountLine,
 	buildSubject,
@@ -144,11 +165,21 @@ import { captureError, createHostileValues } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import {
 	ABSENT_OPERAND_READINGS,
+	buildCarriedEntity,
+	buildInterpretation,
 	buildInterpretRecipe,
+	buildProposedEntity,
+	buildRuleChain,
+	buildStatedEntity,
+	buildTermsRecipe,
 	buildWorkshopGates,
 	buildWorkshopRules,
+	collectFixtureAccounts,
+	EVIDENCE_VALUES,
 	EXTREME_NUMBERS,
+	freezeFixture,
 	InterpretFixtureValue,
+	MERGED_GLOSSARY,
 	OPEN_SHAPE,
 	OPERATION_READINGS,
 	parseQuotedMember,
@@ -2688,5 +2719,250 @@ describe('reading what a text holds beside a recipe', () => {
 			'555-0142',
 			40,
 		])
+	})
+})
+
+describe('building on an interpretation', () => {
+	const recipe = buildTermsRecipe()
+
+	it('amendEntities keeps what the text and the interpretation both state, then what is supplied', () => {
+		const held = [
+			buildStatedEntity('age', 99),
+			buildStatedEntity('gone', 1),
+			buildProposedEntity('plan', 'gold'),
+			{ ...buildStatedEntity('base', 2), provenance: { category: 'subject' } as const },
+			buildCarriedEntity('score', 700),
+			{ ...buildStatedEntity('term', 12), provenance: { category: 'default' } as const },
+			{ ...buildStatedEntity('sum', 24), provenance: { category: 'computed' } as const },
+		]
+		const assigned = [buildStatedEntity('age', 25), buildStatedEntity('fresh', 3)]
+		expect(amendEntities(held, assigned, {}, recipe)).toEqual([
+			buildStatedEntity('age', 25),
+			buildProposedEntity('plan', 'gold'),
+			held[3],
+		])
+		expect(
+			amendEntities(
+				held,
+				assigned,
+				{ entities: [{ name: 'plan', value: 'base' }], removed: ['age', 'base'] },
+				recipe,
+			),
+		).toEqual([buildProposedEntity('plan', 'base')])
+	})
+
+	it('amendEntities takes each of two values stated under one name in turn', () => {
+		const assigned = [buildStatedEntity('age', 1), buildStatedEntity('age', 2)]
+		expect(amendEntities(assigned, assigned, {}, recipe)).toEqual(assigned)
+		expect(amendEntities(assigned.slice(0, 1), assigned, {}, recipe)).toEqual([assigned[0]])
+	})
+
+	it('findNamedField finds what the recipe computes or defaults, and no mapped or other name', () => {
+		expect(findNamedField('terms.total', recipe)).toEqual(['terms', 'total'])
+		expect(findNamedField('terms', recipe)).toEqual(['terms'])
+		expect(findNamedField('age', recipe)).toBeUndefined()
+		expect(findNamedField('colour', recipe)).toBeUndefined()
+		for (const key of TRICKY_KEYS) expect(findNamedField(key, recipe)).toBeUndefined()
+	})
+
+	it('collectClaims keeps an anchor’s claim while its name stands, and adds each proposed value once', () => {
+		const age = buildStatedEntity('age', 25)
+		const term = buildStatedEntity('term', 12)
+		const older = buildProposedEntity('age', 30)
+		const same = buildProposedEntity('age', 25)
+		const plan = buildProposedEntity('plan', 25)
+		expect(collectClaims([age, term], [age, term])).toEqual([age, term])
+		expect(collectClaims([age, term], [age])).toEqual([age])
+		expect(collectClaims([age], [older])).toEqual([age, older])
+		expect(collectClaims([age], [same])).toEqual([age])
+		expect(collectClaims([age], [age, plan])).toEqual([age, plan])
+		expect(collectClaims([], [plan])).toEqual([plan])
+		expect(
+			collectClaims([buildStatedEntity('list', [1, 2])], [buildProposedEntity('list', [1, 2])]),
+		).toEqual([buildStatedEntity('list', [1, 2])])
+	})
+
+	it('assertInterpretation refuses what is none, and names what it received', () => {
+		expect(() => assertInterpretation(buildInterpretation())).not.toThrow()
+		for (const value of [null, 'text', [], {}, ...createHostileValues()]) {
+			const error = captureError(() => assertInterpretation(value))
+			expect(isInterpretError(error) && error.code).toBe('INTERPRETATION')
+		}
+		const error = captureError(() => assertInterpretation({}))
+		expect(isInterpretError(error) && error.message).toBe(
+			'Expected an interpretation, as interpret() or amend() returns one; received object',
+		)
+	})
+})
+
+describe('T31: a glossary merged over another', () => {
+	const { base, incoming, merged } = MERGED_GLOSSARY
+
+	it('lets the incoming word win, one word at a time, in every table', () => {
+		const result = mergeGlossary(base, incoming)
+		expect(result).toEqual(merged)
+		const tables = [
+			'labels',
+			'units',
+			'values',
+			'formats',
+			'predicates',
+			'scopes',
+			'phrases',
+			'templates',
+		] as const
+		expect(Object.keys(result).toSorted()).toEqual(tables.toSorted())
+		for (const table of tables) {
+			const under = new Set(Object.keys(base[table] ?? {}))
+			const over = new Set(Object.keys(incoming[table] ?? {}))
+			expect([under.isSubsetOf(over), over.isSubsetOf(under)]).toEqual([false, false])
+			expect(under.intersection(over).size).toBeGreaterThan(0)
+			expect(result[table]).not.toEqual(base[table])
+			expect(result[table]).not.toEqual(incoming[table])
+		}
+		expect([base, incoming, result].map(isGlossary)).toEqual([true, true, true])
+	})
+
+	it('mutates neither, shares no table with either, and is frozen throughout', () => {
+		const under = structuredClone(base)
+		const over = structuredClone(incoming)
+		const result = mergeGlossary(under, over)
+		expect([under, over]).toEqual([base, incoming])
+		expect(
+			mergeGlossary(freezeFixture(structuredClone(base)), freezeFixture(structuredClone(incoming))),
+		).toEqual(merged)
+		for (const source of [under, over]) {
+			Object.assign(source.labels, { cost: 'changed', age: 'changed', guests: 'changed' })
+			Object.assign(source.formats?.foot ?? {}, { maximumFractionDigits: 9 })
+			Object.assign(source.formats?.euro ?? {}, { currency: 'GBP' })
+			Object.assign(source.phrases?.tiers ?? {}, { gold: 'changed', base: 'changed' })
+			Object.assign(source.phrases?.moods ?? {}, { calm: 'changed' })
+			Object.assign(source.phrases?.sizes ?? {}, { small: 'changed' })
+			Object.assign(source.templates ?? {}, { intro: 'changed', close: 'changed' })
+		}
+		expect(result).toEqual(merged)
+		expect(
+			[result, ...Object.values(result), ...Object.values(result.phrases ?? {})].every((table) =>
+				Object.isFrozen(table),
+			),
+		).toBe(true)
+		expect(Object.values(result.formats ?? {}).every((format) => Object.isFrozen(format))).toBe(
+			true,
+		)
+	})
+
+	it('leaves out a table neither holds, and takes one that either holds alone', () => {
+		expect(mergeGlossary({ labels: {} }, { labels: {} })).toEqual({ labels: {} })
+		expect(mergeGlossary({ labels: {} }, incoming)).toEqual(incoming)
+		expect(mergeGlossary(base, { labels: {} })).toEqual(base)
+		expect(mergeTable()).toBeUndefined()
+		expect(mergeTable({ a: 1 })).toEqual({ a: 1 })
+		expect(mergeTable(undefined, { a: 2 })).toEqual({ a: 2 })
+	})
+
+	it('merges a word under any key as that key alone', () => {
+		for (const key of TRICKY_KEYS) {
+			const words = Object.fromEntries([[key, 'Incoming']])
+			const under = { labels: Object.fromEntries([[key, 'Base']]), phrases: { table: words } }
+			const result = mergeGlossary(under, {
+				labels: words,
+				phrases: Object.fromEntries([[key, { calm: 'Calm' }]]),
+			})
+			expect(Object.entries(result.labels)).toEqual([[key, 'Incoming']])
+			expect(Object.entries(result.phrases ?? {})).toEqual([
+				['table', words],
+				[key, { calm: 'Calm' }],
+			])
+			expect(Object.getPrototypeOf(result.labels)).toBe(Object.prototype)
+		}
+	})
+})
+
+describe('T30: an account projected', () => {
+	const accounts = collectFixtureAccounts()
+
+	it('is the account’s own JSON where its evidence is plain, at any depth', () => {
+		expect(accounts.length).toBeGreaterThan(300)
+		for (const account of accounts) {
+			expect(projectAccount(account)).toEqual(JSON.parse(JSON.stringify(account)))
+		}
+		const chain = buildRuleChain(300)
+		const account = createNarrator().narrate(
+			chain,
+			createLogicalReasoner().reason({ seed: true }, chain),
+		)
+		expect(projectAccount(account)).toEqual(JSON.parse(JSON.stringify(account)))
+	})
+
+	it('holds a non-finite number as null, and omits what JSON does not hold', () => {
+		const projected = EVIDENCE_VALUES.map((value) =>
+			projectAccountLine(
+				buildAccountLine({
+					role: 'reason',
+					text: 'n',
+					source: {
+						check: { field: 'n', operator: 'equals', value },
+						result: { field: 'n', state: 'unread', actual: value },
+					},
+				}),
+			),
+		)
+		expect(
+			projected.map((line) => (isRecord(line) && isRecord(line.source) ? line.source : line)),
+		).toEqual(
+			[
+				{ value: null },
+				{ value: null },
+				{},
+				{ value: null },
+				{},
+				{},
+				{},
+				{ value: [null, null, 'a'] },
+				{ value: { kept: 1, nested: { count: null } } },
+			].map((held) => ({
+				check: { field: 'n', operator: 'equals', ...held },
+				result: {
+					field: 'n',
+					state: 'unread',
+					...('value' in held ? { actual: held.value } : {}),
+				},
+			})),
+		)
+	})
+
+	it('spends one budget on each value, so a vast one starves no line around it', () => {
+		const vast = Array.from({ length: 40 }).reduce<unknown>((inner) => [inner, inner], 1)
+		const line = buildAccountLine({
+			role: 'reason',
+			text: 'n',
+			source: { check: { field: 'n', operator: 'equals', value: vast } },
+			lines: [buildAccountLine({ role: 'step', text: 'kept' })],
+		})
+		const account = { id: 'a', name: 'A', lines: [line, line] }
+		expect(isAccount(projectAccount(account))).toBe(true)
+		expect(isAccount(account)).toBe(true)
+	})
+})
+
+describe('matchesAccountLines', () => {
+	it('reads each level once, refuses a cycle, and stops past the guard’s depth', () => {
+		const leaf = buildAccountLine({ role: 'step', text: 'leaf' })
+		const shared = Array.from({ length: 60 }).reduce<AccountLine>(
+			(inner) => ({ ...leaf, lines: [inner, inner] }),
+			leaf,
+		)
+		expect(matchesAccountLines([shared])).toBe(true)
+		expect(matchesAccountLines([])).toBe(true)
+		const cycle: { lines: unknown[] } = { ...leaf, lines: [] }
+		cycle.lines.push(cycle, cycle)
+		expect(matchesAccountLines([cycle])).toBe(false)
+		const deep = Array.from({ length: GUARD_DEPTH_LIMIT - 1 }).reduce<AccountLine>(
+			(inner) => ({ ...leaf, lines: [inner] }),
+			leaf,
+		)
+		expect(matchesAccountLines([deep])).toBe(true)
+		expect(matchesAccountLines([{ ...leaf, lines: [deep] }])).toBe(false)
+		expect(matchesAccountLines([{ ...leaf, lines: [{ ...leaf, role: 'other' }] }])).toBe(false)
 	})
 })

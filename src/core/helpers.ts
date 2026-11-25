@@ -25,6 +25,7 @@ import type {
 	AccountOptions,
 	AccountSource,
 	AccountText,
+	Amendment,
 	AnchorCandidate,
 	AnchorRefusalHandler,
 	Entity,
@@ -47,13 +48,16 @@ import type {
 	TextSpan,
 } from './types.js'
 import {
+	arrayOf,
 	attempt,
 	cloneJSONRecord,
 	cloneJSONValue,
 	createContract,
 	errorToMessage,
 	escapeRegExp,
+	GUARD_DEPTH_LIMIT,
 	isArray,
+	isBoolean,
 	isError,
 	isFiniteNumber,
 	isFunction,
@@ -63,6 +67,8 @@ import {
 	isRecord,
 	isString,
 	isSuccess,
+	literalOf,
+	objectOf,
 	preview,
 	renderPath,
 	resolveField,
@@ -77,7 +83,9 @@ import {
 	extractConclusions,
 	findFieldShape,
 	formatField,
+	isCheckState,
 	isComparison,
+	projectCheck,
 	projectValue,
 	readClosedState,
 	scanShape,
@@ -91,9 +99,11 @@ import {
 	UNSAFE_FIELD_SEGMENTS,
 } from '@orkestrel/template'
 import {
+	ACCOUNT_ROLES,
 	CLAUSE_BREAK_PATTERN,
 	CONFIDENCE_DEFAULT,
 	CONFIDENCE_EXACT,
+	CONFIDENCE_PROPOSED,
 	DEFAULT_LEXICON,
 	FRAME_SLOTS,
 	WORD_SLOTS,
@@ -101,7 +111,15 @@ import {
 	TEXT_BREAK_PATTERN,
 } from './constants.js'
 import { InterpretError } from './errors.js'
-import { isFrameName, isGlossary, isLexiconInput, isRecipe } from './validators.js'
+import {
+	isAccountSource,
+	isFrameName,
+	isGlossary,
+	isGlossaryGap,
+	isInterpretation,
+	isLexiconInput,
+	isRecipe,
+} from './validators.js'
 
 // The interprets pure-leaf inventory — every function here is
 // a referentially-transparent computation with no instance state, exported
@@ -1152,6 +1170,90 @@ export function mergeLexicon(base: Lexicon, input: LexiconInput): Lexicon {
 		frames: Object.freeze({ ...base.frames, ...input.frames }),
 		limits: Object.freeze({ ...base.limits, ...input.limits }),
 		missing: input.missing ?? base.missing,
+	})
+}
+
+/**
+ * Merges one table over another, entry by entry.
+ *
+ * @param base - The table that supplies every entry the incoming one leaves out
+ * @param incoming - The table whose entries win
+ * @returns A fresh, frozen table, or `undefined` when neither is given
+ *
+ * @example
+ * ```ts
+ * import { mergeTable } from '@orkestrel/interpret'
+ *
+ * mergeTable({ cost: 'Cost', age: 'Age' }, { cost: 'Price' }) // { cost: 'Price', age: 'Age' }
+ * mergeTable() // undefined
+ * ```
+ */
+export function mergeTable<T>(
+	base?: Readonly<Record<string, T>>,
+	incoming?: Readonly<Record<string, T>>,
+): Readonly<Record<string, T>> | undefined {
+	return base === undefined && incoming === undefined
+		? undefined
+		: Object.freeze({ ...base, ...incoming })
+}
+
+/**
+ * Merges one glossary over another, word by word, so a domain's words build on earlier ones.
+ *
+ * @remarks
+ * The incoming word wins in every table, and each other word stands. A unit's format is one word,
+ * and so is each phrase of a phrase table.
+ *
+ * @param base - The glossary that supplies every word the incoming one leaves out
+ * @param incoming - The glossary whose words win
+ * @returns A fresh, frozen glossary that shares no table with either
+ *
+ * @example
+ * ```ts
+ * import { mergeGlossary } from '@orkestrel/interpret'
+ *
+ * mergeGlossary({ labels: { cost: 'Cost' } }, { labels: { age: 'Age' }, units: { age: 'year' } })
+ * // { labels: { cost: 'Cost', age: 'Age' }, units: { age: 'year' } }
+ * ```
+ */
+export function mergeGlossary(base: Glossary, incoming: Glossary): Glossary {
+	const units = mergeTable(base.units, incoming.units)
+	const values = mergeTable(base.values, incoming.values)
+	const formats = mergeTable(base.formats, incoming.formats)
+	const predicates = mergeTable(base.predicates, incoming.predicates)
+	const scopes = mergeTable(base.scopes, incoming.scopes)
+	const phrases = mergeTable(base.phrases, incoming.phrases)
+	const templates = mergeTable(base.templates, incoming.templates)
+	const under = new Map(Object.entries(base.phrases ?? {}))
+	const over = new Map(Object.entries(incoming.phrases ?? {}))
+	return Object.freeze({
+		labels: Object.freeze({ ...base.labels, ...incoming.labels }),
+		...(units === undefined ? {} : { units }),
+		...(values === undefined ? {} : { values }),
+		...(formats === undefined
+			? {}
+			: {
+					formats: Object.freeze(
+						Object.fromEntries(
+							Object.entries(formats).map(([unit, format]) => [unit, Object.freeze({ ...format })]),
+						),
+					),
+				}),
+		...(predicates === undefined ? {} : { predicates }),
+		...(scopes === undefined ? {} : { scopes }),
+		...(phrases === undefined
+			? {}
+			: {
+					phrases: Object.freeze(
+						Object.fromEntries(
+							Object.entries(phrases).map(([name, words]) => [
+								name,
+								mergeTable(under.get(name), over.get(name)) ?? words,
+							]),
+						),
+					),
+				}),
+		...(templates === undefined ? {} : { templates }),
 	})
 }
 
@@ -2433,6 +2535,244 @@ export function renderAccount(account: Account, options?: AccountOptions): strin
 	return collectAccountText(account.lines, options?.detail ?? 'reasons').join('\n')
 }
 
+// === An account as data another reader takes
+
+/**
+ * Determines whether every line, and every line nested under one, is an account's line.
+ *
+ * @remarks
+ * Reads one level at a time, and a line standing in two places of a level once, so shared lines
+ * cost no more than their number. A level past `GUARD_DEPTH_LIMIT` holds no line, so a cycle
+ * answers false.
+ *
+ * @param lines - The lines of one level
+ * @param depth - The level they stand at
+ * @returns True if each line's own members conform at every level; false otherwise
+ *
+ * @example
+ * ```ts
+ * import { buildAccountLine, matchesAccountLines } from '@orkestrel/interpret'
+ *
+ * matchesAccountLines([buildAccountLine({ role: 'step', text: 'Loan holds' })]) // true
+ * matchesAccountLines([{ role: 'step', text: 'Loan holds' }]) // false
+ * ```
+ */
+export function matchesAccountLines(lines: readonly unknown[], depth = 1): boolean {
+	const level: readonly unknown[] = [...new Set(lines)]
+	if (level.length === 0) return true
+	if (depth > GUARD_DEPTH_LIMIT) return false
+	const read = arrayOf(
+		objectOf(
+			{
+				role: literalOf(ACCOUNT_ROLES),
+				state: isCheckState,
+				decisive: isBoolean,
+				text: isString,
+				summary: isString,
+				source: isAccountSource,
+				gaps: arrayOf(isGlossaryGap),
+				lines: arrayOf(isObject),
+			},
+			['state'],
+		),
+	)
+	return (
+		read(level) &&
+		matchesAccountLines(
+			level.flatMap((line) => line.lines),
+			depth + 1,
+		)
+	)
+}
+
+/**
+ * Projects an account's line, and every line under it, to JSON.
+ *
+ * @remarks
+ * A check's `value` and a result's `actual` hold whatever the definition and the subject held, so
+ * each is projected on its own budget, as `projectResult` of `@orkestrel/reason` does, and one
+ * huge value cannot starve the evidence around it.
+ *
+ * @param line - The line
+ * @returns Its JSON projection, with each value that has no JSON form omitted
+ *
+ * @example
+ * ```ts
+ * import { buildAccountLine, projectAccountLine } from '@orkestrel/interpret'
+ *
+ * const check = { field: 'age', operator: 'from', value: Number.NaN } as const
+ * projectAccountLine(buildAccountLine({ role: 'step', text: 'Age', source: { check } }))
+ * // its source is { check: { field: 'age', operator: 'from', value: null } }
+ * ```
+ */
+export function projectAccountLine(line: AccountLine): JSONValue {
+	const { check, result } = line.source
+	const source = {
+		...line.source,
+		...(check === undefined ? {} : { check: { ...check, value: projectValue(check.value) } }),
+		...(result === undefined ? {} : { result: projectCheck(result) }),
+	}
+	return {
+		role: line.role,
+		...(line.state === undefined ? {} : { state: line.state }),
+		decisive: line.decisive,
+		text: line.text,
+		summary: line.summary,
+		source: projectValue(source, new Set(), { left: Number.POSITIVE_INFINITY }) ?? {},
+		gaps: projectValue(line.gaps) ?? [],
+		lines: line.lines.map((inner) => projectAccountLine(inner)),
+	}
+}
+
+/**
+ * Projects an account to JSON, so it can cross a boundary.
+ *
+ * @remarks
+ * A line's evidence holds arbitrary data, so what crosses is this projection: a non-finite number
+ * as `null`, and a value with no JSON form omitted, as `projectValue` of `@orkestrel/reason` gives
+ * it. Every line crosses, however deep it stands.
+ *
+ * @param account - The account
+ * @returns Its JSON projection, which `accountContract` admits
+ *
+ * @example
+ * ```ts
+ * import { createLogicalDefinition, createLogicalReasoner } from '@orkestrel/reason'
+ * import { accountContract, createNarrator, projectAccount } from '@orkestrel/interpret'
+ *
+ * const definition = createLogicalDefinition('loan', 'Loan', [])
+ * const account = createNarrator().narrate(definition, createLogicalReasoner().reason({}, definition))
+ * accountContract.is(projectAccount(account)) // true
+ * ```
+ */
+export function projectAccount(account: Account): JSONValue {
+	return {
+		id: account.id,
+		name: account.name,
+		...(account.success === undefined ? {} : { success: account.success }),
+		lines: account.lines.map((line) => projectAccountLine(line)),
+	}
+}
+
+// === Building on an interpretation
+
+/**
+ * Amends what a text states: the entities clarify reads for an amended interpretation.
+ *
+ * @remarks
+ * What the interpretation extracted is taken from the text's own assignment, never from the
+ * interpretation, so only what both hold stands. What was proposed on it, or came from a base
+ * subject, stands as it is. What it carried, computed, or defaulted is not stated, so clarify works
+ * it out again. Each supplied entity follows, `proposed`, on the field the recipe gives its name.
+ *
+ * @param held - The interpretation's entities
+ * @param assigned - What the text's anchors assign
+ * @param amendment - The entities to supply and the names to withdraw
+ * @param recipe - The recipe
+ * @returns The stated entities, fresh
+ *
+ * @example
+ * ```ts
+ * import { amendEntities } from '@orkestrel/interpret'
+ *
+ * const age = { name: 'age', value: 25, provenance: { category: 'extracted' }, confidence: 1 }
+ * amendEntities([age], [age], { entities: [{ name: 'term', value: 12 }] }, recipe)
+ * // [age, { name: 'term', value: 12, provenance: { category: 'proposed' }, confidence: 1 }]
+ * amendEntities([age], [age], { removed: ['age'] }, recipe) // []
+ * ```
+ */
+export function amendEntities(
+	held: readonly Entity[],
+	assigned: readonly Entity[],
+	amendment: Amendment,
+	recipe: Recipe,
+): readonly Entity[] {
+	const supplied = amendment.entities ?? []
+	const dropped = new Set([...(amendment.removed ?? []), ...supplied.map((entity) => entity.name)])
+	const read = held.filter((entity) => entity.provenance.category === 'extracted')
+	const standing = held.flatMap((entity) => {
+		const { category } = entity.provenance
+		if (dropped.has(entity.name)) return []
+		if (category === 'proposed' || category === 'subject') return [entity]
+		if (category !== 'extracted') return []
+		const place = read.filter((other) => other.name === entity.name).indexOf(entity)
+		return assigned.filter((other) => other.name === entity.name).slice(place, place + 1)
+	})
+	return [
+		...standing,
+		...supplied.map<Entity>((entity) => {
+			const field = findNamedField(entity.name, recipe)
+			return {
+				name: entity.name,
+				...(field === undefined ? {} : { field }),
+				value: entity.value,
+				provenance: { category: 'proposed' },
+				confidence: CONFIDENCE_PROPOSED,
+			}
+		}),
+	]
+}
+
+/**
+ * Finds the field a recipe computes or defaults under a name no mapping holds.
+ *
+ * @param name - The entity's name
+ * @param recipe - The recipe
+ * @returns The field, or `undefined` when a mapping names it or nothing declares it
+ *
+ * @example
+ * ```ts
+ * import { findNamedField } from '@orkestrel/interpret'
+ *
+ * findNamedField('loan.term', recipe) // ['loan', 'term'], where the shape defaults it
+ * ```
+ */
+export function findNamedField(name: string, recipe: Recipe): FieldPath | undefined {
+	if (recipe.mappings.some((mapping) => mapping.entity === name)) return undefined
+	return [...recipe.computations, ...collectShapeDefaults(recipe.shape)].find(
+		(entry) => formatField(entry.field) === name,
+	)?.field
+}
+
+/**
+ * Collects the entities that claim a number of the text in an amended interpretation.
+ *
+ * @remarks
+ * An anchor's claim holds while its entity's name is stated, whoever states it, so a corrected
+ * value's old number is nobody else's, and a withdrawn one is free again. A proposed value claims
+ * its own number, once.
+ *
+ * @param assigned - What the text's anchors assign
+ * @param stated - What the amended interpretation states
+ * @returns The entities `findUnclaimedNumbers` sets a number aside for
+ *
+ * @example
+ * ```ts
+ * import { collectClaims } from '@orkestrel/interpret'
+ *
+ * const age = { name: 'age', value: 25, provenance: { category: 'extracted' }, confidence: 1 }
+ * const older = { name: 'age', value: 30, provenance: { category: 'proposed' }, confidence: 1 }
+ * collectClaims([age], [older]) // [age, older]
+ * collectClaims([age], []) // []
+ * ```
+ */
+export function collectClaims(
+	assigned: readonly Entity[],
+	stated: readonly Entity[],
+): readonly Entity[] {
+	const names = new Set(stated.map((entity) => entity.name))
+	const anchored = assigned.filter((entity) => names.has(entity.name))
+	const proposed = stated.filter(
+		(entity) =>
+			entity.provenance.category === 'proposed' &&
+			!anchored.some(
+				(other) =>
+					other.name === entity.name && canonicalize(other.value) === canonicalize(entity.value),
+			),
+	)
+	return [...anchored, ...proposed]
+}
+
 // === The recipe's shape
 
 /**
@@ -2817,6 +3157,28 @@ export function assertRecipe(recipe: unknown): asserts recipe is Recipe {
 			'DEFINITION',
 			`Recipe "${recipe.id}" is invalid: ${errors.join(', ')}`,
 			{ errors },
+		)
+	}
+}
+
+/**
+ * Asserts a value handed back as an interpretation is one.
+ *
+ * @param value - The value to check
+ * @throws {@link InterpretError} `'INTERPRETATION'` on a value `isInterpretation` refuses
+ *
+ * @example
+ * ```ts
+ * import { assertInterpretation } from '@orkestrel/interpret'
+ *
+ * assertInterpretation({ text: 'age 25' }) // throws InterpretError('INTERPRETATION')
+ * ```
+ */
+export function assertInterpretation(value: unknown): asserts value is Interpretation {
+	if (!isInterpretation(value)) {
+		throw new InterpretError(
+			'INTERPRETATION',
+			`Expected an interpretation, as interpret() or amend() returns one; received ${preview(value)}`,
 		)
 	}
 }

@@ -40,7 +40,7 @@ await new GuideCommand({
 	reader: readInventory,
 	runner: createVitest,
 }).execute(async ({ files, report, rows }) => {
-	const { arrayShape, integerShape, isRecord, numberShape, objectShape, parseJSON } =
+	const { arrayShape, integerShape, isRecord, numberShape, objectShape, optionalShape, parseJSON } =
 		await import('@orkestrel/contract')
 	const {
 		computeSymbolKey,
@@ -88,6 +88,8 @@ await new GuideCommand({
 		CONFIDENCE_COMPUTED,
 		CONFIDENCE_DEFAULT,
 		CONFIDENCE_EXACT,
+		CONFIDENCE_PROPOSED,
+		accountContract,
 		collapseWhitespace,
 		createClarifier,
 		createDefinitionManager,
@@ -111,6 +113,7 @@ await new GuideCommand({
 		findGoalRule,
 		FRAME_SLOTS,
 		InterpretError,
+		isAccount,
 		isAmbiguity,
 		isComputedField,
 		isEntity,
@@ -127,6 +130,9 @@ await new GuideCommand({
 		isStageRecord,
 		isRecipe,
 		matchRecipe,
+		mergeGlossary,
+		projectAccount,
+		projectInterpretation,
 		NUMBER_PATTERN,
 		parseRecipe,
 		RecordManager,
@@ -361,6 +367,115 @@ await new GuideCommand({
 			expect(result.ambiguities).toEqual([])
 			expect(result.failures).toEqual([])
 			interpret.destroy()
+		})
+
+		it('Continue and build on earlier work: an answer, a withdrawal, and the next turn', () => {
+			const interpret = createInterpret({
+				extractor: createExtractor({ actions: { book: 'book' }, domains: { hire: ['workshop'] } }),
+				recipes: [
+					{
+						id: 'hire',
+						name: 'Workshop hire',
+						domain: 'hire',
+						intents: ['book'],
+						mappings: [
+							{ entity: 'guests', aliases: [], field: 'guests' },
+							{ entity: 'hours', aliases: [], field: 'hours' },
+						],
+						computations: [],
+						definition: createLogicalDefinition('hire', 'Workshop hire', []),
+						shape: objectShape({
+							guests: numberShape({ description: 'How many guests?' }),
+							hours: optionalShape(numberShape(), { default: 2 }),
+						}),
+					},
+				],
+			})
+
+			const asked = interpret.interpret('book workshop hours 4')
+			expect(asked.ambiguities[0]?.question).toBe('How many guests?')
+
+			const answered = interpret.amend(asked, { entities: [{ name: 'guests', value: 8 }] })
+			expect(answered.subject).toEqual({ hours: 4, guests: 8 })
+			expect(answered.entities[1]?.provenance).toEqual({ category: 'proposed' })
+
+			const withdrawn = interpret.amend(answered, { removed: ['hours'] })
+			expect(withdrawn.ambiguities[0]?.candidates).toEqual(['4'])
+			expect(withdrawn.subject).toBeUndefined()
+
+			const next = interpret.interpret('book workshop guests 12', { previous: answered })
+			expect(next.subject).toEqual({ guests: 12, hours: 4 })
+
+			// The rules the section states beside the fence.
+			const stored: unknown = JSON.parse(JSON.stringify(projectInterpretation(answered)))
+			expect(isInterpretation(stored) && interpret.amend(stored, {})).toEqual(answered)
+			const unstated = {
+				...asked,
+				entities: [
+					...asked.entities,
+					{ name: 'guests', value: 9, provenance: { category: 'extracted' }, confidence: 1 },
+				],
+			} as const
+			expect(interpret.amend(unstated, {}).entities.map((entity) => entity.name)).toEqual(['hours'])
+			const other = interpret.amend(answered, { entities: [{ name: 'colour', value: 'red' }] })
+			expect(other.ambiguities.map((ambiguity) => ambiguity.field)).toEqual([['colour']])
+			const kept = interpret.amend(withdrawn, { entities: [{ name: 'guests', value: 9 }] })
+			expect(kept.entities.map((entity) => entity.name)).toEqual(['guests', 'hours'])
+			expect(kept.entities[1]?.provenance).toEqual({ category: 'default' })
+			expect(interpret.amend(answered, { removed: ['colour'] })).toEqual(answered)
+			const replaced = interpret.amend(answered, { entities: [{ name: 'hours', value: 6 }] })
+			expect(replaced.subject).toEqual({ guests: 8, hours: 6 })
+			const lost = interpret.interpret('book workshop', { previous: answered })
+			expect(lost.ambiguities.map((ambiguity) => ambiguity.question)).toEqual(['How many guests?'])
+			expect(
+				[
+					captureError(() => invokeUnchecked(interpret, interpret.amend, [{}, {}])),
+					captureError(() =>
+						invokeUnchecked(interpret, interpret.interpret, ['book workshop', { previous: {} }]),
+					),
+					captureError(() => interpret.amend({ ...answered, version: 2 }, {})),
+					captureError(() => interpret.amend(interpret.interpret('hello'), {})),
+					captureError(() => interpret.amend(answered, { removed: ['hours', 'hours'] })),
+					captureError(() =>
+						invokeUnchecked(interpret, interpret.amend, [
+							answered,
+							{ entities: [{ name: 'hours', value: 1, provenance: { category: 'extracted' } }] },
+						]),
+					),
+				].map((error) => (isInterpretError(error) ? error.code : error)),
+			).toEqual([
+				'INTERPRETATION',
+				'INTERPRETATION',
+				'VERSION',
+				'VERSION',
+				'AMENDMENT',
+				'AMENDMENT',
+			])
+			interpret.destroy()
+		})
+
+		it('Continue and build on earlier work: a glossary merged, and an account sent', () => {
+			const glossary = mergeGlossary(
+				{ labels: { guests: 'guests', hours: 'hours' } },
+				{ labels: { guests: 'party size' }, units: { hours: 'count' } },
+			)
+			expect(glossary).toEqual({
+				labels: { guests: 'party size', hours: 'hours' },
+				units: { hours: 'count' },
+			})
+
+			const definition = createLogicalDefinition('hire', 'Workshop hire', [
+				createRule('small', [createAtom('guests', 'to', 12)], createAtom('open', 'equals', true), {
+					name: 'A small party',
+				}),
+			])
+			const result = createLogicalReasoner().reason({ guests: 8 }, definition)
+			const account = createNarrator({ glossary }).narrate(definition, result)
+			const received: unknown = JSON.parse(JSON.stringify(projectAccount(account)))
+			expect(accountContract.is(received)).toBe(true)
+			expect(isAccount(received) && renderAccount(received, { detail: 'line' })).toBe(
+				'Workshop hire holds, because party size is 8, which is at most 12',
+			)
 		})
 
 		it('Write a result for a person: the berth account at each detail, refused, and its guide', () => {
@@ -729,6 +844,7 @@ await new GuideCommand({
 			expect(CONFIDENCE_ALIAS).toBe(0.9)
 			expect(CONFIDENCE_COLLECT).toBe(0.9)
 			expect(CONFIDENCE_CARRIED).toBe(0.7)
+			expect(CONFIDENCE_PROPOSED).toBe(1)
 			expect(CONFIDENCE_DEFAULT).toBe(1)
 			expect(CONFIDENCE_COMPUTED).toBe(0.9)
 			expect(typeof NUMBER_PATTERN.source).toBe('string')

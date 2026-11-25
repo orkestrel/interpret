@@ -12,7 +12,7 @@
 // `@src/core` — the barrel re-exports only local `interprets` modules
 // (`.claude/rules/architecture.md` § Barrel exports).
 
-import type { ContractShape } from '@orkestrel/contract'
+import type { ContractShape, FieldPath } from '@orkestrel/contract'
 import type { Decision, ProgramDefinition, ProgramResult, Status } from '@orkestrel/program'
 import type {
 	Eligibility,
@@ -25,6 +25,7 @@ import type {
 	Bounds,
 	ChainStrategy,
 	CheckState,
+	Definition,
 	Expression,
 	FactorRange,
 	InferentialDefinition,
@@ -39,8 +40,13 @@ import type {
 	SymbolicResult,
 } from '@orkestrel/reason'
 import type {
+	Account,
+	AccountLine,
+	Amendment,
+	Entity,
 	ExtractorInterface,
 	ExtractResult,
+	Glossary,
 	Interpretation,
 	RecordStamp,
 	Recipe,
@@ -65,14 +71,24 @@ import {
 	stringShape,
 	unionShape,
 } from '@orkestrel/contract'
-import { buildNotice, buildProgramDefinition, isProgramResult } from '@orkestrel/program'
+import {
+	buildNotice,
+	buildProgramDefinition,
+	createProgram,
+	isProgramResult,
+} from '@orkestrel/program'
 import {
 	createQualificationDefinition,
 	createQualifier,
 	createRuling,
 	isQualificationResult,
 } from '@orkestrel/qualifier'
-import { buildLineDefinition, buildRatingDefinition, isRatingResult } from '@orkestrel/rater'
+import {
+	buildLineDefinition,
+	buildRatingDefinition,
+	createRater,
+	isRatingResult,
+} from '@orkestrel/rater'
 import {
 	createAtom,
 	createCompound,
@@ -83,14 +99,19 @@ import {
 	createFieldFactor,
 	createInference,
 	createInferentialDefinition,
+	createInferentialReasoner,
 	createLogicalDefinition,
+	createLogicalReasoner,
 	createLookupFactor,
 	createOperation,
 	createQuantitativeDefinition,
+	createQuantitativeReasoner,
 	createRangeFactor,
+	createReason,
 	createRule,
 	createStaticFactor,
 	createSymbolicDefinition,
+	createSymbolicReasoner,
 	createVariable,
 	extractAtoms,
 	formatField,
@@ -132,7 +153,20 @@ export function buildInterpretContractCases() {
 				guard: surface.isNumberRefusals,
 				positive: { items: [], omitted: 0 },
 			},
-		].map((row) => ({ ...row, direction: 'is implies guard', project: undefined, negative: {} })),
+			{
+				name: 'entity input',
+				wire: createContract(surface.entityInputShape),
+				guard: surface.isEntityInput,
+				positive: { name: 'age', value: 25 },
+			},
+			{
+				name: 'amendment',
+				wire: surface.amendmentContract,
+				guard: surface.isAmendment,
+				positive: { entities: [{ name: 'age', value: 25 }], removed: ['term'] },
+				negative: { remove: ['term'] },
+			},
+		].map((row) => ({ negative: {}, ...row, direction: 'is implies guard', project: undefined })),
 		results: [
 			{
 				name: 'interpretation',
@@ -209,6 +243,32 @@ export function buildInterpretContractCases() {
 				wire: createContract(surface.stageFailureShape),
 				guard: surface.isStageFailure,
 				positive: { stage: 'format', code: 'FORMAT_FAILED', message: 'failed' },
+			},
+			{
+				name: 'glossary gap',
+				wire: createContract(surface.glossaryGapShape),
+				guard: surface.isGlossaryGap,
+				positive: { word: 'name', part: 'rule', id: 'adult' },
+			},
+			{
+				name: 'account line',
+				wire: createContract(surface.createAccountLineShape()),
+				guard: surface.isAccountLine,
+				positive: surface.buildAccountLine({
+					role: 'reason',
+					text: 'Age is not known',
+					source: { check: { field: 'age', operator: 'from', value: NaN } },
+				}),
+			},
+			{
+				name: 'account',
+				wire: surface.accountContract,
+				guard: surface.isAccount,
+				positive: {
+					id: 'loan',
+					name: 'Loan',
+					lines: [surface.buildAccountLine({ role: 'verdict', text: 'Loan holds' })],
+				},
 			},
 		].map((row) => ({
 			...row,
@@ -3874,4 +3934,538 @@ export function collectFamilySources(
 					...(factor.checks ?? []).map((check) => formatField(check.field)),
 				])
 		: []
+}
+
+// ── Continuing and building on earlier work ───────────────────────────────────
+
+/**
+ * Freezes a value and everything it reaches, so a write anywhere under it throws.
+ *
+ * @param value - The value to freeze
+ * @returns The same value, frozen
+ */
+export function freezeFixture<T>(value: T): T {
+	if (typeof value !== 'object' || value === null || Object.isFrozen(value)) return value
+	Object.freeze(value)
+	for (const member of Object.values(value)) freezeFixture(member)
+	return value
+}
+
+/** Lists the turns a continuation is read over: each corpus recipe stated, left open, and unmatched. */
+export const CONTINUED_TURNS: readonly string[] = Object.freeze([
+	'calculate insurance age 25',
+	'calculate insurance accidents 2',
+	'calculate insurance 25',
+	'calculate insurance',
+	'check eligibility score 720',
+	'check eligibility',
+	'calculate loan amount 5000',
+	'calculate loan',
+	'compute statistics value 10 and value 20',
+	'compute statistics',
+	'calculate arithmetic value 42',
+	'calculate arithmetic',
+	'hello there',
+])
+
+/** Holds the values each continued turn gives the turns after it; a turn named in none gives none. */
+export const CONTINUED_VALUES: Readonly<Record<string, readonly unknown[]>> = {
+	'calculate insurance age 25': [25],
+	'calculate insurance accidents 2': [2],
+	'check eligibility score 720': [720],
+	'calculate loan amount 5000': [5000],
+	'compute statistics value 10 and value 20': [[10, 20]],
+	'calculate arithmetic value 42': [42],
+}
+
+/** Lists the turns a history holds beside a continuation, whose values it must not carry. */
+export const DISTRACTING_TURNS: readonly string[] = Object.freeze([
+	'calculate insurance age 99 and accidents 7',
+	'check eligibility score 11 and age 12',
+	'calculate loan amount 1',
+	'compute statistics value 7',
+	'calculate arithmetic value 8',
+])
+
+/** Holds a recipe whose shape defaults a nested field that no mapping names, and computes another. */
+export function buildTermsRecipe(): Recipe {
+	return buildInsuranceRecipe({
+		mappings: [{ entity: 'age', aliases: [], field: 'age' }],
+		computations: [
+			{
+				field: ['terms', 'total'],
+				expression: createOperation('multiply', createVariable('terms.months'), createConstant(2)),
+			},
+		],
+		shape: objectShape({
+			age: numberShape(),
+			terms: optionalShape(
+				objectShape({
+					months: optionalShape(numberShape(), { default: 12 }),
+					total: optionalShape(numberShape()),
+				}),
+				{ default: { months: 12 } },
+			),
+		}),
+	})
+}
+
+/** Builds an entity a text states, as an exact anchor assigns it. */
+export function buildStatedEntity(name: string, value: unknown): Entity {
+	return { name, value, provenance: { category: 'extracted', detail: 'keyword' }, confidence: 1 }
+}
+
+/** Builds an entity an amendment supplies, as the amended interpretation holds it. */
+export function buildProposedEntity(name: string, value: unknown, field?: FieldPath): Entity {
+	return {
+		name,
+		...(field === undefined ? {} : { field }),
+		value,
+		provenance: { category: 'proposed' },
+		confidence: 1,
+	}
+}
+
+/** Builds an entity a turn carried from the one before it. */
+export function buildCarriedEntity(name: string, value: unknown): Entity {
+	return { name, value, provenance: { category: 'carried' }, confidence: 0.7 }
+}
+
+/**
+ * Lists the amendments, each with what clarify must be handed: the entities stated, the entities
+ * left to carry, and the numbers nobody claims, all written out by hand.
+ */
+export const AMENDED_TURNS: ReadonlyArray<{
+	readonly name: string
+	readonly recipe: () => Recipe
+	readonly earlier?: string
+	readonly text: string
+	readonly amendment: Amendment
+	readonly stated: readonly Entity[]
+	readonly carried: readonly Entity[]
+	readonly unclaimed: ReadonlyArray<number | string>
+	readonly open: readonly FieldPath[]
+}> = [
+	{
+		name: 'nothing',
+		recipe: buildInsuranceRecipe,
+		text: 'calculate insurance age 25',
+		amendment: {},
+		stated: [buildStatedEntity('age', 25)],
+		carried: [],
+		unclaimed: [],
+		open: [],
+	},
+	{
+		name: 'a value replaced, whose number stays claimed',
+		recipe: buildInsuranceRecipe,
+		text: 'calculate insurance age 25 and accidents 2',
+		amendment: { entities: [{ name: 'accidents', value: 3 }] },
+		stated: [buildStatedEntity('age', 25), buildProposedEntity('accidents', 3)],
+		carried: [],
+		unclaimed: [],
+		open: [],
+	},
+	{
+		name: 'a value confirmed',
+		recipe: buildInsuranceRecipe,
+		text: 'calculate insurance age 25',
+		amendment: { entities: [{ name: 'age', value: 25 }] },
+		stated: [buildProposedEntity('age', 25)],
+		carried: [],
+		unclaimed: [],
+		open: [],
+	},
+	{
+		name: 'a defaulted value added',
+		recipe: buildInsuranceRecipe,
+		text: 'calculate insurance age 25',
+		amendment: { entities: [{ name: 'coverage', value: 'gold' }] },
+		stated: [buildStatedEntity('age', 25), buildProposedEntity('coverage', 'gold')],
+		carried: [],
+		unclaimed: [],
+		open: [],
+	},
+	{
+		name: 'a value withdrawn, whose number is free again',
+		recipe: buildInsuranceRecipe,
+		text: 'calculate insurance age 25 and accidents 2',
+		amendment: { removed: ['accidents'] },
+		stated: [buildStatedEntity('age', 25)],
+		carried: [],
+		unclaimed: [2],
+		open: ['accidents', 'coverage'],
+	},
+	{
+		name: 'a value withdrawn, whose number the reader sets aside as a person’s age',
+		recipe: buildInsuranceRecipe,
+		text: 'calculate insurance age 25',
+		amendment: { removed: ['age'] },
+		stated: [],
+		carried: [],
+		unclaimed: [],
+		open: ['age'],
+	},
+	{
+		name: 'a value withdrawn beside one that claims an equal number',
+		recipe: buildInsuranceRecipe,
+		text: 'calculate insurance age 25 and accidents 3 and coverage 3',
+		amendment: { entities: [{ name: 'accidents', value: 3 }], removed: ['coverage'] },
+		stated: [buildStatedEntity('age', 25), buildProposedEntity('accidents', 3)],
+		carried: [],
+		unclaimed: [3],
+		open: ['coverage'],
+	},
+	{
+		name: 'an open question answered by a number no anchor claimed',
+		recipe: buildInsuranceRecipe,
+		text: 'calculate insurance 25',
+		amendment: { entities: [{ name: 'age', value: 25 }] },
+		stated: [buildProposedEntity('age', 25)],
+		carried: [],
+		unclaimed: [],
+		open: [],
+	},
+	{
+		name: 'an open question answered by another number',
+		recipe: buildInsuranceRecipe,
+		text: 'calculate insurance 25',
+		amendment: { entities: [{ name: 'age', value: 30 }] },
+		stated: [buildProposedEntity('age', 30)],
+		carried: [],
+		unclaimed: [25],
+		open: ['accidents', 'coverage'],
+	},
+	{
+		name: 'a default withdrawn, which the door fills again',
+		recipe: buildInsuranceRecipe,
+		text: 'calculate insurance age 25',
+		amendment: { removed: ['coverage'] },
+		stated: [buildStatedEntity('age', 25)],
+		carried: [],
+		unclaimed: [],
+		open: [],
+	},
+	{
+		name: 'a computed value replaced on the field the recipe computes',
+		recipe: buildTermsRecipe,
+		text: 'calculate insurance age 25',
+		amendment: { entities: [{ name: 'terms.total', value: 5 }] },
+		stated: [
+			buildStatedEntity('age', 25),
+			buildProposedEntity('terms.total', 5, ['terms', 'total']),
+		],
+		carried: [],
+		unclaimed: [],
+		open: [],
+	},
+	{
+		name: 'a value the shape refuses',
+		recipe: buildInsuranceRecipe,
+		text: 'calculate insurance age 25',
+		amendment: { entities: [{ name: 'age', value: ['25'] }] },
+		stated: [buildProposedEntity('age', ['25'])],
+		carried: [],
+		unclaimed: [],
+		open: ['age'],
+	},
+	{
+		name: 'a value under a name the recipe gives nothing',
+		recipe: buildInsuranceRecipe,
+		text: 'calculate insurance age 25',
+		amendment: { entities: [{ name: 'colour', value: 'red' }] },
+		stated: [buildStatedEntity('age', 25), buildProposedEntity('colour', 'red')],
+		carried: [],
+		unclaimed: [],
+		open: [['colour']],
+	},
+	{
+		name: 'a value beside one the turn carried',
+		recipe: buildInsuranceRecipe,
+		earlier: 'calculate insurance age 25',
+		text: 'calculate insurance',
+		amendment: { entities: [{ name: 'coverage', value: 'gold' }] },
+		stated: [buildProposedEntity('coverage', 'gold')],
+		carried: [buildCarriedEntity('age', 25)],
+		unclaimed: [],
+		open: [],
+	},
+	{
+		name: 'a carried value withdrawn',
+		recipe: buildInsuranceRecipe,
+		earlier: 'calculate insurance age 25',
+		text: 'calculate insurance',
+		amendment: { removed: ['age'] },
+		stated: [],
+		carried: [],
+		unclaimed: [],
+		open: ['age'],
+	},
+	{
+		name: 'a carried value replaced',
+		recipe: buildInsuranceRecipe,
+		earlier: 'calculate insurance age 25',
+		text: 'calculate insurance accidents 2',
+		amendment: { entities: [{ name: 'age', value: 31 }] },
+		stated: [buildStatedEntity('accidents', 2), buildProposedEntity('age', 31)],
+		carried: [],
+		unclaimed: [],
+		open: [],
+	},
+	{
+		name: 'a collected array replaced',
+		recipe: buildStatisticsRecipe,
+		text: 'compute statistics value 10 and value 20',
+		amendment: { entities: [{ name: 'value', value: [10, 30] }] },
+		stated: [buildProposedEntity('value', [10, 30])],
+		carried: [],
+		unclaimed: [],
+		open: [],
+	},
+]
+
+/**
+ * Composes clarify, format, and generate by hand over what an amendment states, into the
+ * interpretation those stages give.
+ *
+ * @param source - The interpretation amended
+ * @param recipe - The recipe it was read against
+ * @param stated - The entities stated
+ * @param carried - The entities left to carry
+ * @param unclaimed - The numbers nobody claims
+ * @returns The composed interpretation
+ */
+export function composeInterpretation(
+	source: Interpretation,
+	recipe: Recipe,
+	stated: readonly Entity[],
+	carried: readonly Entity[],
+	unclaimed: ReadonlyArray<number | string>,
+): Interpretation {
+	const { text, normalized, intent, version } = source
+	const context = seedInterpretContext([{ ...source, entities: carried }])
+	const clarified = new surface.Clarifier().clarify(stated, recipe, context, intent, unclaimed)
+	const { entities, ambiguities, repairs, defaulted } = clarified
+	const formatted = new surface.Formatter().format(intent, recipe, entities, ambiguities)
+	const generated =
+		ambiguities.length > 0 ? undefined : new surface.Generator().generate(entities, recipe)
+	return {
+		...(source.refusals === undefined ? {} : { refusals: source.refusals }),
+		text,
+		normalized,
+		intent,
+		recipe: recipe.id,
+		...(version === undefined ? {} : { version }),
+		entities,
+		...(generated === undefined ? {} : { subject: generated.subject }),
+		definition: recipe.definition,
+		mappings: generated?.mappings ?? [],
+		ambiguities,
+		repairs,
+		defaulted,
+		prompt: formatted.prompt,
+		stages: [
+			...source.stages.slice(0, 2),
+			{ stage: 'clarify', input: stated, output: clarified, failed: false },
+			{
+				stage: 'format',
+				input: { intent, entities, ambiguities },
+				output: formatted,
+				failed: false,
+			},
+			{
+				stage: 'generate',
+				input: generated === undefined ? undefined : entities,
+				output: generated,
+				failed: false,
+			},
+		],
+		failures: [],
+		confidence: generated?.confidence ?? 0,
+		digest: surface.digestValue({
+			text,
+			recipeId: recipe.id,
+			version,
+			subject: generated?.subject,
+			definition: recipe.definition,
+		}),
+	}
+}
+
+/**
+ * Builds a chain of rules, each concluding what the next one reads, so an account of it nests one
+ * level for each rule.
+ *
+ * @param length - How many rules the chain holds
+ * @returns A fresh logical definition
+ */
+export function buildRuleChain(length: number): LogicalDefinition {
+	return createLogicalDefinition(
+		'chain',
+		'Chain',
+		Array.from({ length }, (_, index) =>
+			createRule(
+				`r${String(index)}`,
+				[createAtom(index === 0 ? 'seed' : `k${String(index - 1)}`, 'equals', true)],
+				createAtom(`k${String(index)}`, 'equals', true),
+			),
+		),
+		{ depth: length * 2 },
+	)
+}
+
+/**
+ * Measures how many levels of lines an account's lines nest.
+ *
+ * @param lines - The lines of the first level
+ * @returns The number of levels, none for no line
+ */
+export function measureLines(lines: readonly AccountLine[]): number {
+	return lines.length === 0 ? 0 : 1 + Math.max(...lines.map((line) => measureLines(line.lines)))
+}
+
+/** Lists the values a check or a subject can hold that plain JSON holds otherwise, or not at all. */
+export const EVIDENCE_VALUES: readonly unknown[] = [
+	Number.NaN,
+	Number.POSITIVE_INFINITY,
+	undefined,
+	null,
+	1n,
+	new Date(0),
+	new Map([['a', 1]]),
+	[undefined, Number.NaN, 'a'],
+	{ kept: 1, dropped: undefined, nested: { count: Number.NEGATIVE_INFINITY } },
+]
+
+/** Collects every fixture's account: each result's and each guide, in the shipped words and its own. */
+export function collectFixtureAccounts(): readonly Account[] {
+	const engine = createReason({
+		reasoners: [
+			createLogicalReasoner(),
+			createQuantitativeReasoner(),
+			createSymbolicReasoner(),
+			createInferentialReasoner(),
+		],
+	})
+	const runs: ReadonlyArray<readonly [Definition, readonly Subject[]]> = [
+		[buildWorkshopRules(), Object.values(WORKSHOP_SUBJECTS).map((row) => row.subject)],
+		[buildWorkshopGates(), Object.values(WORKSHOP_GATES).map((row) => row.subject)],
+		[buildWorkshopScore(), Object.values(WORKSHOP_SCORES).map((row) => row.subject)],
+		[buildWorkshopFees(), Object.values(WORKSHOP_FEES).map((row) => row.subject)],
+		[buildWorkshopQuote(), Object.values(WORKSHOP_QUOTES).map((row) => row.subject)],
+		[buildWorkshopArea(), Object.values(WORKSHOP_AREA).map((row) => row.subject)],
+		[buildWorkshopCharge(), Object.values(WORKSHOP_CHARGES).map((row) => row.subject)],
+		[buildWorkshopFacts(), [{}]],
+		[buildWorkshopKin(), [{ member: 'gold' }]],
+		[buildWorkshopKin('backward'), [{ member: 'gold' }]],
+		[buildRuleChain(40), [{ seed: true }, {}]],
+		...buildBandTables()
+			.slice(0, 12)
+			.map((table) => [table, [{ n: 1 }, {}]] as const),
+		...buildExpressionTrees()
+			.slice(0, 12)
+			.map((tree) => [tree, collectTreeSubjects().slice(0, 2)] as const),
+	]
+	const qualification = buildFamilyQualification()
+	const rating = buildFamilyRating()
+	const program = buildFamilyProgram()
+	const qualifier = createQualifier()
+	const rater = createRater()
+	const programmer = createProgram(program)
+	const accounts = [
+		new surface.Narrator(),
+		new surface.Narrator({ glossary: WORKSHOP_GLOSSARY }),
+		new surface.Narrator({ glossary: FAMILY_GLOSSARY }),
+	].flatMap((narrator) => [
+		...runs.flatMap(([definition, subjects]) => [
+			narrator.describe(definition),
+			...subjects.map((subject) =>
+				narrator.narrate(definition, engine.reason(subject, definition)),
+			),
+		]),
+		...[qualification, rating, program].map((definition) => narrator.describe(definition)),
+		...Object.values(FAMILY_SUBJECTS).map(({ subject }) =>
+			narrator.narrate(qualification, qualifier.qualify(subject, qualification)),
+		),
+		...Object.values(FAMILY_RATINGS).map(({ subject }) =>
+			narrator.narrate(rating, rater.rate(rating, subject)),
+		),
+		...Object.values(FAMILY_PROGRAMS).map(({ subject }) =>
+			narrator.narrate(program, programmer.execute(subject)),
+		),
+	])
+	qualifier.destroy()
+	rater.destroy()
+	programmer.destroy()
+	return accounts
+}
+
+/** Collects an account for each {@link EVIDENCE_VALUES} value, held by the check and by the subject. */
+export function collectEvidenceAccounts(): readonly Account[] {
+	const reasoner = createLogicalReasoner()
+	const narrator = new surface.Narrator()
+	return EVIDENCE_VALUES.flatMap((value) => {
+		const definition = createLogicalDefinition('evidence', 'Evidence', [
+			createRule('r', [createAtom('n', 'equals', value)], createAtom('x', 'equals', true)),
+		])
+		return [
+			narrator.describe(definition),
+			...[{ n: value }, { n: 3 }].map((subject) =>
+				narrator.narrate(definition, reasoner.reason(subject, definition)),
+			),
+		]
+	})
+}
+
+/** Lists the words of a glossary merge: each table's word on either side alone, and on both. */
+export const MERGED_GLOSSARY: {
+	readonly base: Glossary
+	readonly incoming: Glossary
+	readonly merged: Glossary
+} = {
+	base: {
+		labels: { cost: 'Cost', age: 'Age' },
+		units: { cost: 'dollar', age: 'year' },
+		values: { quote: 'dollar', area: 'foot' },
+		formats: {
+			dollar: { style: 'currency', currency: 'USD' },
+			foot: { maximumFractionDigits: 1 },
+		},
+		predicates: { parent: '{{1}} is a parent of {{2}}', ready: '{{1}} is ready' },
+		scopes: { rent: 'Rent', food: 'Food' },
+		phrases: { tiers: { gold: 'Gold', base: 'Base' }, moods: { calm: 'Calm' } },
+		templates: { intro: 'Hello {{name}}', close: 'Goodbye' },
+	},
+	incoming: {
+		labels: { cost: 'Price', guests: 'Guests' },
+		units: { cost: 'euro', guests: 'person' },
+		values: { quote: 'euro', charge: 'euro' },
+		formats: { dollar: { minimumFractionDigits: 2 }, euro: { style: 'currency', currency: 'EUR' } },
+		predicates: { parent: '{{1}} raised {{2}}', open: '{{1}} is open' },
+		scopes: { rent: 'Hire', drink: 'Drink' },
+		phrases: { tiers: { gold: 'Top', silver: 'Silver' }, sizes: { small: 'Small' } },
+		templates: { intro: 'Welcome {{name}}', thanks: 'Thank you' },
+	},
+	merged: {
+		labels: { cost: 'Price', age: 'Age', guests: 'Guests' },
+		units: { cost: 'euro', age: 'year', guests: 'person' },
+		values: { quote: 'euro', area: 'foot', charge: 'euro' },
+		formats: {
+			dollar: { minimumFractionDigits: 2 },
+			foot: { maximumFractionDigits: 1 },
+			euro: { style: 'currency', currency: 'EUR' },
+		},
+		predicates: {
+			parent: '{{1}} raised {{2}}',
+			ready: '{{1}} is ready',
+			open: '{{1}} is open',
+		},
+		scopes: { rent: 'Hire', food: 'Food', drink: 'Drink' },
+		phrases: {
+			tiers: { gold: 'Top', base: 'Base', silver: 'Silver' },
+			moods: { calm: 'Calm' },
+			sizes: { small: 'Small' },
+		},
+		templates: { intro: 'Welcome {{name}}', close: 'Goodbye', thanks: 'Thank you' },
+	},
 }

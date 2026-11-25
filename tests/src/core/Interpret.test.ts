@@ -36,7 +36,9 @@ import {
 	Interpret,
 	Extractor,
 	interpretationContract,
+	INTERPRET_TEXT_LIMIT,
 	InterpretContext,
+	isInterpretation,
 	isInterpretError,
 	isRecipe,
 	projectInterpretation,
@@ -60,6 +62,19 @@ import {
 	dropRecipeShapes,
 	UNCOMPILABLE_SHAPE,
 	createInterpretStageFailures,
+	AMENDED_TURNS,
+	buildCorpusInterpret,
+	buildInterpretation,
+	buildProposedEntity,
+	buildStatedEntity,
+	buildStatisticsRecipe,
+	collectInterpretCorpusRecipes,
+	composeInterpretation,
+	CONTINUED_TURNS,
+	CONTINUED_VALUES,
+	DISTRACTING_TURNS,
+	freezeFixture,
+	seedInterpretContext,
 } from '../../setup.js'
 
 // The `Interpret` orchestrator — registry, synchronous
@@ -1356,5 +1371,391 @@ describe('Interpret — boundaries of what crosses', () => {
 			expect(contract.is({ ...recipe, shape })).toBe(false)
 			expect(isRecipe({ ...recipe, shape })).toBe(false)
 		}
+	})
+})
+
+describe('T28: a turn continued from one earlier interpretation', () => {
+	it.each(CONTINUED_TURNS.flatMap((first) => [0, 8].map((history) => [first, history] as const)))(
+		'reads what a context holding only %j gives, at history %i',
+		(first, history) => {
+			const options = {
+				recipes: collectInterpretCorpusRecipes(),
+				extractor: createCorpusExtractor(),
+			}
+			const interpret = new Interpret({ ...options, history })
+			const previous = interpret.interpret(first)
+			const stored: unknown = JSON.parse(JSON.stringify(projectInterpretation(previous)))
+			if (!isInterpretation(stored)) throw new Error('The stored turn is no interpretation')
+			const context = seedInterpretContext([previous])
+			const seeded = new Interpret({ ...options, context })
+			const carried: unknown[] = []
+			for (const next of CONTINUED_TURNS) {
+				for (const turn of DISTRACTING_TURNS) interpret.interpret(turn)
+				const continued = interpret.interpret(next, { previous })
+				context.clear()
+				context.add(previous)
+				expect(continued).toEqual(seeded.interpret(next))
+				expect(interpret.interpret(next, { previous: stored })).toEqual(continued)
+				carried.push(
+					...continued.entities
+						.filter((entity) => entity.provenance.category === 'carried')
+						.map((entity) => entity.value),
+				)
+			}
+			expect([...new Set(carried.map((value) => JSON.stringify(value)))]).toEqual(
+				(CONTINUED_VALUES[first] ?? []).map((value) => JSON.stringify(value)),
+			)
+			interpret.destroy()
+			seeded.destroy()
+			context.destroy()
+		},
+	)
+
+	it('reads the history when no previous turn is given, and records every turn in it', () => {
+		const context = new InterpretContext({ history: 4 })
+		const interpret = new Interpret({
+			recipes: [buildInsuranceRecipe()],
+			extractor: createCorpusExtractor(),
+			context,
+		})
+		const first = interpret.interpret('calculate insurance age 25')
+		interpret.interpret('calculate insurance age 40')
+		expect(interpret.interpret('calculate insurance', {}).subject?.age).toBe(40)
+		const continued = interpret.interpret('calculate insurance', { previous: first })
+		expect(continued.subject?.age).toBe(25)
+		expect(context.previous().at(-1)).toBe(continued)
+		expect(context.previous()).toHaveLength(4)
+		interpret.destroy()
+		context.destroy()
+	})
+
+	it('refuses a previous turn that is no interpretation, and reads nothing', () => {
+		const interpret = buildCorpusInterpret()
+		const events = createRecorders<InterpretEventMap, 'interpret'>(interpret.emitter, ['interpret'])
+		for (const previous of [null, 5, 'calculate', [], {}, { text: 'calculate insurance age 25' }]) {
+			const error = captureError(() =>
+				invokeUnchecked(interpret, interpret.interpret, ['calculate insurance', { previous }]),
+			)
+			expect(isInterpretError(error) && error.code).toBe('INTERPRETATION')
+		}
+		expect(events.interpret.count).toBe(0)
+		interpret.destroy()
+		const gone = captureError(() => interpret.interpret('calculate insurance', {}))
+		expect(isInterpretError(gone) && gone.code).toBe('DESTROYED')
+	})
+})
+
+describe('T29: an interpretation amended', () => {
+	it.each(AMENDED_TURNS)(
+		'equals clarify, format, and generate composed by hand: $name',
+		({ recipe: build, earlier, text, amendment, stated, carried, unclaimed, open }) => {
+			const recipe = build()
+			const options = { recipes: [recipe], extractor: createCorpusExtractor() }
+			const reader = new Interpret({ ...options, history: 1 })
+			if (earlier !== undefined) reader.interpret(earlier)
+			const source = freezeFixture(reader.interpret(text))
+			const before = JSON.stringify(source)
+			const context = new InterpretContext({ history: 4 })
+			const interpret = new Interpret({ ...options, context })
+			const events = createRecorders<InterpretEventMap, 'interpret'>(interpret.emitter, [
+				'interpret',
+			])
+			const amended = interpret.amend(source, freezeFixture(structuredClone(amendment)))
+			expect(amended).toEqual(composeInterpretation(source, recipe, stated, carried, unclaimed))
+			expect(amended.ambiguities.map((ambiguity) => ambiguity.field)).toEqual(open)
+			const supplied = (amendment.entities ?? []).map((entity) => entity.name)
+			expect(
+				amended.entities
+					.filter((entity) => supplied.includes(entity.name))
+					.map((entity) => entity.provenance),
+			).toEqual(supplied.map(() => ({ category: 'proposed' })))
+			expect(JSON.stringify(source)).toBe(before)
+			expect(isInterpretation(amended)).toBe(true)
+			expect(interpretationContract.audit(projectInterpretation(amended))).toEqual([])
+			expect(events.interpret.calls).toEqual([[amended]])
+			expect(context.previous()).toEqual([])
+			expect([context.subjects.count, context.definitions.count]).toEqual([0, 0])
+			interpret.destroy()
+			reader.destroy()
+		},
+	)
+
+	it('an amendment of nothing gives the interpretation back, over the corpus', () => {
+		const recipes = collectInterpretCorpusRecipes()
+		const interpret = new Interpret({ recipes, extractor: createCorpusExtractor(), history: 1 })
+		for (const first of CONTINUED_TURNS) {
+			const previous = interpret.interpret(first)
+			for (const next of CONTINUED_TURNS) {
+				const read = interpret.interpret(next, { previous })
+				if (read.recipe === undefined) continue
+				expect(interpret.amend(read, {})).toEqual(read)
+				expect(interpret.amend(interpret.amend(read, {}), {})).toEqual(read)
+			}
+		}
+		interpret.destroy()
+	})
+
+	it('builds one amendment on another, and a withdrawn name stays withdrawn', () => {
+		const interpret = buildCorpusInterpret()
+		const read = interpret.interpret('calculate insurance age 25 and accidents 4')
+		const both = { entities: [{ name: 'coverage', value: 'gold' }], removed: ['accidents'] }
+		const once = interpret.amend(read, both)
+		expect(once.ambiguities.map(({ field, candidates }) => [field, candidates])).toEqual([
+			['accidents', ['4']],
+		])
+		const twice = interpret.amend(once, { removed: ['age'] })
+		expect(twice.entities.map((entity) => entity.name)).toEqual(['coverage', 'monthly'])
+		expect(twice.ambiguities.map((ambiguity) => ambiguity.field)).toEqual(['age', 'accidents'])
+		const done = interpret.amend(twice, {
+			entities: [
+				{ name: 'age', value: 31 },
+				{ name: 'accidents', value: 2 },
+			],
+		})
+		expect(done.subject).toEqual({
+			age: 31,
+			accidents: 2,
+			coverage: 'gold',
+			deductible: 500,
+			monthly: 500 / 12,
+		})
+		expect([done.ambiguities, done.failures]).toEqual([[], []])
+		expect(interpret.amend(done, {})).toEqual(done)
+		expect(interpret.amend(done, { removed: ['age'] }).subject).toBeUndefined()
+		expect(read.subject?.age).toBe(25)
+		expect(new Set([read, once, done].map((turn) => turn.digest)).size).toBe(3)
+		interpret.destroy()
+	})
+
+	it('reads what the text states again, whatever the interpretation claims it stated', () => {
+		const interpret = buildCorpusInterpret()
+		const read = interpret.interpret('calculate insurance age 25')
+		const claimed = {
+			...read,
+			entities: [buildStatedEntity('age', 99), buildStatedEntity('accidents', 4)],
+		}
+		const amended = interpret.amend(claimed, {})
+		expect(amended).toEqual(read)
+		expect(interpret.amend({ ...read, subject: { age: 1 }, mappings: [] }, {})).toEqual(read)
+		interpret.destroy()
+	})
+
+	it('keeps the refusals the text was read with, and weighs a number by who claims it', () => {
+		const interpret = buildCorpusInterpret()
+		const read = interpret.interpret('calculate insurance 25')
+		expect(read.refusals?.items.map((item) => item.reason)).toEqual(['unanchored'])
+		const answered = interpret.amend(read, { entities: [{ name: 'age', value: 25 }] })
+		expect(answered.refusals).toEqual(read.refusals)
+		expect(answered.subject).toMatchObject({ age: 25, accidents: 0, coverage: 'standard' })
+		const other = interpret.amend(read, { entities: [{ name: 'age', value: 30 }] })
+		expect(other.refusals).toEqual(read.refusals)
+		expect(other.ambiguities.map((ambiguity) => ambiguity.candidates)).toEqual([['25'], ['25']])
+		interpret.destroy()
+	})
+
+	it('owns what it was supplied, and shares no array with the amendment', () => {
+		const interpret = buildCorpusInterpret([buildStatisticsRecipe()])
+		const read = interpret.interpret('compute statistics value 10 and value 20')
+		const value = [1, 2]
+		const amended = interpret.amend(read, { entities: [{ name: 'value', value }] })
+		value.push(3)
+		expect(amended.subject).toEqual({ value: [1, 2] })
+		interpret.destroy()
+	})
+
+	it('takes an interpretation that crossed a boundary', () => {
+		const interpret = buildCorpusInterpret()
+		const read = interpret.interpret('calculate insurance age 25')
+		const stored: unknown = JSON.parse(JSON.stringify(projectInterpretation(read)))
+		if (!isInterpretation(stored)) throw new Error('The stored turn is no interpretation')
+		const amendment = { entities: [{ name: 'coverage', value: 'gold' }] }
+		expect(interpret.amend(stored, amendment)).toEqual(interpret.amend(read, amendment))
+		expect(interpret.amend({ ...stored, stages: [] }, {}).stages.slice(0, 2)).toEqual([
+			{ stage: 'normalize', input: undefined, output: undefined, failed: false },
+			{ stage: 'extract', input: undefined, output: undefined, failed: false },
+		])
+		interpret.destroy()
+	})
+
+	it('a low-confidence reading stays gated, with what was supplied beside what was stated', () => {
+		const interpret = new Interpret({
+			recipes: [buildInsuranceRecipe()],
+			extractor: createWeakInterpretExtractor(),
+		})
+		const read = interpret.interpret('calculate insurance age 25')
+		const amended = interpret.amend(read, { entities: [{ name: 'coverage', value: 'gold' }] })
+		expect(amended.failures.map((failure) => failure.code)).toEqual(['LOW_CONFIDENCE'])
+		expect(amended.entities).toEqual([
+			buildStatedEntity('age', 25),
+			buildProposedEntity('coverage', 'gold'),
+		])
+		expect(Object.hasOwn(amended, 'subject')).toBe(false)
+		interpret.destroy()
+	})
+
+	it('a stage that throws is a visible failure, and a later amendment can pass it', () => {
+		const failures = createInterpretStageFailures()
+		const options = { recipes: [buildInsuranceRecipe()], extractor: createCorpusExtractor() }
+		const working = new Interpret(options)
+		const read = working.interpret('calculate insurance age 25')
+		for (const [stage, code] of [
+			['clarifier', 'CLARIFY_FAILED'],
+			['formatter', 'FORMAT_FAILED'],
+			['generator', 'GENERATE_FAILED'],
+		] as const) {
+			const broken = new Interpret({ ...options, [stage]: failures[stage] })
+			const events = createRecorders<InterpretEventMap, 'error' | 'interpret'>(broken.emitter, [
+				'error',
+				'interpret',
+			])
+			const failed = broken.amend(read, { entities: [{ name: 'age', value: 30 }] })
+			expect(failed.failures.map((failure) => failure.code)).toEqual([code])
+			expect(failed.stages.map((record) => record.stage)).toEqual([
+				'normalize',
+				'extract',
+				'clarify',
+				'format',
+				'generate',
+			])
+			expect([events.error.count, events.interpret.count]).toEqual([1, 1])
+			expect(working.amend(failed, {}).subject?.age).toBe(30)
+			broken.destroy()
+		}
+		working.destroy()
+	})
+
+	it.each<[string, unknown]>([
+		['null', null],
+		['text', 'calculate insurance age 25'],
+		['a list', []],
+		['a partial record', { text: 'calculate insurance age 25' }],
+		['an entity with no name', { ...buildInterpretation(), entities: [{ value: 25 }] }],
+	])('refuses %s as no interpretation', (_label, value) => {
+		const interpret = buildCorpusInterpret()
+		const error = captureError(() => invokeUnchecked(interpret, interpret.amend, [value, {}]))
+		expect(isInterpretError(error) && error.code).toBe('INTERPRETATION')
+		interpret.destroy()
+	})
+
+	it('refuses an interpretation whose recipe version the registry does not hold', () => {
+		const interpret = buildCorpusInterpret()
+		const read = interpret.interpret('calculate insurance age 25')
+		const unmatched = interpret.interpret('hello there')
+		const strange = { ...read, recipe: 'a"b' }
+		const errors = [
+			captureError(() => interpret.amend(unmatched, {})),
+			captureError(() => interpret.amend(strange, {})),
+		]
+		interpret.add(buildInsuranceRecipe({ name: 'Changed' }))
+		errors.push(captureError(() => interpret.amend(read, {})))
+		interpret.remove('insurance-auto')
+		errors.push(captureError(() => interpret.amend(read, {})))
+		interpret.destroy()
+		errors.push(captureError(() => interpret.amend(read, {})))
+		expect(errors.map((error) => (isInterpretError(error) ? error.code : error))).toEqual([
+			'VERSION',
+			'VERSION',
+			'VERSION',
+			'VERSION',
+			'DESTROYED',
+		])
+		expect(errors.map((error) => (isInterpretError(error) ? error.message : error))).toEqual([
+			'The interpretation matched no recipe, so there is none to amend it under',
+			'Recipe "a\\"b" version 1 is not held; the registry holds no recipe of that id',
+			'Recipe "insurance-auto" version 1 is not held; the registry holds version 2',
+			'Recipe "insurance-auto" version 1 is not held; the registry holds no recipe of that id',
+			'Interpret has been destroyed',
+		])
+	})
+
+	it.each<[string, unknown, RegExp]>([
+		['null', null, /object/],
+		['an undeclared member', { remove: ['age'] }, /remove/],
+		['an entity with no value', { entities: [{ name: 'age' }] }, /value/],
+		[
+			'an entity that brings its own provenance',
+			{ entities: [{ name: 'age', value: 30, provenance: { category: 'extracted' } }] },
+			/provenance/,
+		],
+		['a value JSON does not hold', { entities: [{ name: 'age', value: Number.NaN }] }, /value/],
+		['a name that is no text', { removed: [5] }, /removed/],
+		[
+			'a name withdrawn and supplied',
+			{ entities: [{ name: 'age', value: 3 }], removed: ['age'] },
+			/"age" more than once/,
+		],
+		[
+			'a name supplied twice',
+			{
+				entities: [
+					{ name: 'age', value: 3 },
+					{ name: 'age', value: 4 },
+				],
+			},
+			/"age" more than once/,
+		],
+	])('refuses an amendment that is %s', (_label, amendment, message) => {
+		const interpret = buildCorpusInterpret()
+		const read = interpret.interpret('calculate insurance age 25')
+		const error = captureError(() => invokeUnchecked(interpret, interpret.amend, [read, amendment]))
+		expect(isInterpretError(error) && error.code).toBe('AMENDMENT')
+		expect(isInterpretError(error) && error.message).toMatch(message)
+		expect(isInterpretError(error) && Array.isArray(error.context?.faults)).toBe(true)
+		interpret.destroy()
+	})
+
+	it('a history still carries a value as it was read, and the amended turn named as previous does not', () => {
+		const interpret = new Interpret({
+			recipes: [buildInsuranceRecipe()],
+			extractor: createCorpusExtractor(),
+			history: 4,
+		})
+		const read = interpret.interpret('calculate insurance age 25 and accidents 2')
+		const amended = interpret.amend(read, {
+			entities: [{ name: 'age', value: 30 }],
+			removed: ['accidents'],
+		})
+		expect(interpret.interpret('calculate insurance').subject).toMatchObject({
+			age: 25,
+			accidents: 2,
+		})
+		const continued = interpret.interpret('calculate insurance', { previous: amended })
+		expect(continued.ambiguities.map((ambiguity) => ambiguity.field)).toEqual(['age'])
+		expect(continued.entities.map((entity) => entity.name)).not.toContain('accidents')
+		interpret.destroy()
+	})
+
+	it('keeps a carried value the door repaired, which is a repair no longer', () => {
+		const recipe = buildInsuranceRecipe({
+			mappings: [{ entity: 'plan', aliases: [], field: 'plan' }],
+			computations: [],
+			shape: objectShape({ plan: stringShape(), age: optionalShape(numberShape()) }),
+		})
+		const interpret = new Interpret({ recipes: [recipe], extractor: createCorpusExtractor() })
+		const previous = buildInterpretation({
+			recipe: recipe.id,
+			entities: [buildStatedEntity('plan', 7)],
+		})
+		const read = interpret.interpret('calculate insurance', { previous })
+		expect([read.subject, read.repairs.length]).toEqual([{ plan: '7' }, 1])
+		expect(interpret.amend(read, {})).toMatchObject({ subject: { plan: '7' }, repairs: [] })
+		interpret.destroy()
+	})
+
+	it('refuses a normalized text past the limit', () => {
+		const interpret = buildCorpusInterpret()
+		const read = interpret.interpret('calculate insurance age 25')
+		const error = captureError(() =>
+			interpret.amend({ ...read, normalized: 'a'.repeat(INTERPRET_TEXT_LIMIT + 1) }, {}),
+		)
+		expect(isInterpretError(error) && error.code).toBe('TEXT_LIMIT')
+		interpret.destroy()
+	})
+
+	it('withdraws nothing for a name the interpretation does not hold', () => {
+		const interpret = buildCorpusInterpret()
+		const read = interpret.interpret('calculate insurance age 25')
+		expect(interpret.amend(read, { removed: ['height'] })).toEqual(read)
+		interpret.destroy()
 	})
 })

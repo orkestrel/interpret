@@ -43,7 +43,23 @@ import {
 } from '@orkestrel/reason'
 import { describe, expect, it } from 'vitest'
 import {
+	AMENDED_TURNS,
 	buildBandTables,
+	buildCarriedEntity,
+	buildProposedEntity,
+	buildRuleChain,
+	buildStatedEntity,
+	buildTermsRecipe,
+	collectEvidenceAccounts,
+	collectFixtureAccounts,
+	composeInterpretation,
+	CONTINUED_TURNS,
+	CONTINUED_VALUES,
+	DISTRACTING_TURNS,
+	EVIDENCE_VALUES,
+	freezeFixture,
+	measureLines,
+	MERGED_GLOSSARY,
 	buildEligibilityRecipe,
 	buildExpressionTrees,
 	buildFamilyProgram,
@@ -1690,6 +1706,120 @@ describe('FAMILY_GLOSSARY', () => {
 		expect(scopes.filter((scope) => !rating.lines.some((line) => line.id === scope))).toEqual([])
 		expect(Object.keys(FAMILY_GLOSSARY.scopes)).toEqual(['rent'])
 		expect(rating.lines.find((line) => line.id === 'deposit')?.name).toBe('Deposit')
+	})
+})
+
+describe('the continuation fixtures', () => {
+	it('freezeFixture freezes everything a value reaches, and gives the same value', () => {
+		const value = { list: [{ name: 'a' }], none: null, count: 1 }
+		const frozen = freezeFixture(value)
+		expect(frozen).toBe(value)
+		expect([value, value.list, ...value.list].every((member) => Object.isFrozen(member))).toBe(true)
+		const cycle: { self?: unknown } = {}
+		cycle.self = cycle
+		expect(Object.isFrozen(freezeFixture(cycle))).toBe(true)
+		expect(freezeFixture('text')).toBe('text')
+	})
+
+	it('the continued turns name every corpus domain and one that none holds', () => {
+		const extractor = createCorpusExtractor()
+		const domains = CONTINUED_TURNS.map((text) => extractor.extract(text).intent.domain)
+		expect(new Set(domains)).toEqual(new Set([...Object.keys(INTERPRET_DOMAINS), undefined]))
+		expect(new Set(DISTRACTING_TURNS.map((text) => extractor.extract(text).intent.domain))).toEqual(
+			new Set(Object.keys(INTERPRET_DOMAINS)),
+		)
+		expect(DISTRACTING_TURNS.filter((text) => CONTINUED_TURNS.includes(text))).toEqual([])
+		expect(Object.keys(CONTINUED_VALUES).filter((text) => !CONTINUED_TURNS.includes(text))).toEqual(
+			[],
+		)
+	})
+
+	it('each amended turn has its own name, and states every entity it supplies as proposed', () => {
+		expect(new Set(AMENDED_TURNS.map((turn) => turn.name)).size).toBe(AMENDED_TURNS.length)
+		for (const { amendment, stated } of AMENDED_TURNS) {
+			for (const { name, value } of amendment.entities ?? []) {
+				expect(stated.filter((entity) => entity.name === name)).toMatchObject([
+					{ value, provenance: { category: 'proposed' } },
+				])
+			}
+			const names = stated.map((entity) => entity.name)
+			expect((amendment.removed ?? []).filter((name) => names.includes(name))).toEqual([])
+		}
+	})
+
+	it('builds an entity of each provenance an amendment meets', () => {
+		expect(
+			[
+				buildStatedEntity('age', 25),
+				buildProposedEntity('age', 25),
+				buildCarriedEntity('age', 25),
+			].map((entity) => [entity.name, entity.value, entity.provenance.category]),
+		).toEqual([
+			['age', 25, 'extracted'],
+			['age', 25, 'proposed'],
+			['age', 25, 'carried'],
+		])
+		expect(Object.hasOwn(buildProposedEntity('age', 25), 'field')).toBe(false)
+		expect(buildProposedEntity('a.b', 1, ['a', 'b']).field).toEqual(['a', 'b'])
+	})
+
+	it('the terms recipe defaults and computes nested fields that no mapping names', () => {
+		const recipe = buildTermsRecipe()
+		expect(collectShapeDefaults(recipe.shape).map((entry) => entry.field)).toEqual([['terms']])
+		expect(recipe.computations.map((entry) => entry.field)).toEqual([['terms', 'total']])
+		expect(recipe.mappings.map((entry) => entry.entity)).toEqual(['age'])
+	})
+
+	it('the rule chain nests one level of lines for each rule, under the verdict', () => {
+		const chain = buildRuleChain(5)
+		expect(chain.rules.map((rule) => rule.id)).toEqual(['r0', 'r1', 'r2', 'r3', 'r4'])
+		const result = createLogicalReasoner().reason({ seed: true }, chain)
+		expect(isLogicalResult(result) && result.conclusion).toBe('met')
+		expect(measureLines([])).toBe(0)
+	})
+
+	it('collects an account of every definition kind, the family’s included, and of each value', () => {
+		const accounts = collectFixtureAccounts()
+		const ids = new Set(accounts.map((account) => account.id))
+		const definitions = [
+			buildWorkshopRules(),
+			buildWorkshopGates(),
+			buildWorkshopScore(),
+			buildWorkshopFees(),
+			buildWorkshopQuote(),
+			buildWorkshopArea(),
+			buildWorkshopCharge(),
+			buildWorkshopFacts(),
+			buildWorkshopKin(),
+			buildFamilyQualification(),
+			buildFamilyRating(),
+			buildFamilyProgram(),
+		]
+		expect(definitions.map((definition) => definition.id).filter((id) => !ids.has(id))).toEqual([])
+		expect(new Set(accounts.map((account) => account.success))).toEqual(
+			new Set([undefined, true, false]),
+		)
+		expect(collectEvidenceAccounts()).toHaveLength(EVIDENCE_VALUES.length * 3)
+	})
+
+	it('the merged glossary gives each table a word of either side alone, and one of both', () => {
+		const { base, incoming, merged } = MERGED_GLOSSARY
+		expect(Object.keys(base)).toEqual(Object.keys(incoming))
+		expect(Object.keys(base)).toEqual(Object.keys(merged))
+	})
+
+	it('composes the stages after the two records the source holds, over what it is given', () => {
+		const source = buildInterpretation()
+		const composed = composeInterpretation(
+			source,
+			buildInsuranceRecipe(),
+			[buildStatedEntity('accidents', 2)],
+			[buildCarriedEntity('age', 40)],
+			[],
+		)
+		expect(composed.subject).toMatchObject({ age: 40, accidents: 2 })
+		expect(composed.stages.map((record) => record.stage)).toEqual(['clarify', 'format', 'generate'])
+		expect(source.entities).toEqual([buildStatedEntity('age', 25)])
 	})
 })
 

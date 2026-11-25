@@ -1,7 +1,12 @@
 import type {
+	Account,
+	AccountLine,
+	AccountSource,
 	Ambiguity,
+	Amendment,
 	ComputedField,
 	Entity,
+	EntityInput,
 	EntityMapping,
 	FamilyDerivation,
 	FamilyFinding,
@@ -22,6 +27,7 @@ import type {
 	FieldMapping,
 	FrameName,
 	Glossary,
+	GlossaryGap,
 	Intent,
 	Interpretation,
 	LexiconInput,
@@ -37,8 +43,10 @@ import {
 	holds,
 	isAuditFault,
 	isBoolean,
+	isJSONValue,
 	isNumber,
 	isNonNegativeInteger,
+	isObject,
 	whereOf,
 	isString,
 	literalOf,
@@ -48,6 +56,7 @@ import {
 } from '@orkestrel/contract'
 import {
 	isCheckState,
+	isComparison,
 	isContractShape,
 	isDefinition,
 	isFieldPath,
@@ -57,6 +66,8 @@ import {
 } from '@orkestrel/reason'
 import {
 	FRAME_SLOTS,
+	GAP_PARTS,
+	GAP_WORDS,
 	INTERPRET_ERROR_CODES,
 	INTERPRET_STAGES,
 	PROVENANCE_CATEGORIES,
@@ -64,7 +75,7 @@ import {
 	NUMBER_REFUSAL_REASONS,
 	NUMBER_UNREADABLE_REASONS,
 } from './constants.js'
-import { scanGlossary, scanLexicon } from './helpers.js'
+import { matchesAccountLines, scanGlossary, scanLexicon } from './helpers.js'
 
 // Every guard here is a total function — adversarial input (junk, hostile
 // prototypes, cyclic/deep nesting) returns `false`, never throws.
@@ -520,6 +531,174 @@ export function isLexiconInput(value: unknown): value is LexiconInput {
  */
 export function isGlossary(value: unknown): value is Glossary {
 	return holds(() => scanGlossary(value).length === 0)
+}
+
+// An account is this package's result, so its guards are open. A line's evidence is arbitrary data,
+// so a check's `value` and a result's `actual` go unread, and either may be absent in JSON.
+
+/**
+ * Determines whether a value is an open {@link GlossaryGap} record.
+ *
+ * @param value - The value to test
+ * @returns True if the published gap members conform; false otherwise
+ *
+ * @example
+ * ```ts
+ * import { isGlossaryGap } from '@orkestrel/interpret'
+ *
+ * isGlossaryGap({ word: 'label', field: 'cost' }) // true
+ * isGlossaryGap({ word: 'plural', field: 'cost' }) // false
+ * ```
+ */
+export function isGlossaryGap(value: unknown): value is GlossaryGap {
+	return objectOf(
+		{
+			word: literalOf(GAP_WORDS),
+			field: isFieldPath,
+			unit: isString,
+			part: literalOf(GAP_PARTS),
+			id: isString,
+		},
+		['field', 'unit', 'part', 'id'],
+	)(value)
+}
+
+/**
+ * Determines whether a value is an open {@link AccountSource} record.
+ *
+ * @remarks
+ * A check's `value` and a result's `actual` are not checked because their published type is
+ * `unknown`, and an absent one passes, because a value with no JSON form is omitted from JSON.
+ *
+ * @param value - The value to test
+ * @returns True if every checked source member conforms; false otherwise
+ *
+ * @example
+ * ```ts
+ * import { isAccountSource } from '@orkestrel/interpret'
+ *
+ * isAccountSource({ rule: 'adult', check: { field: 'age', operator: 'from', value: 18 } }) // true
+ * isAccountSource({ rule: 18 }) // false
+ * ```
+ */
+export function isAccountSource(value: unknown): value is AccountSource {
+	return objectOf(
+		{
+			rule: isString,
+			group: isString,
+			factor: isString,
+			equation: isString,
+			inference: isString,
+			fact: isString,
+			finding: isString,
+			scope: isString,
+			line: isString,
+			pass: isString,
+			check: objectOf({ field: isFieldPath, operator: isComparison }),
+			result: objectOf({ field: isFieldPath, state: isCheckState, error: isString }, ['error']),
+			fault: isAuditFault,
+		},
+		[
+			'rule',
+			'group',
+			'factor',
+			'equation',
+			'inference',
+			'fact',
+			'finding',
+			'scope',
+			'line',
+			'pass',
+			'check',
+			'result',
+			'fault',
+		],
+	)(value)
+}
+
+/**
+ * Determines whether a value is an open {@link AccountLine} record, and every line under it is too.
+ *
+ * @remarks
+ * A line nested deeper than `GUARD_DEPTH_LIMIT` levels, and so a line under itself, is refused.
+ *
+ * @param value - The value to test
+ * @returns True if every line's published members conform; false otherwise
+ *
+ * @example
+ * ```ts
+ * import { buildAccountLine, isAccountLine } from '@orkestrel/interpret'
+ *
+ * isAccountLine(buildAccountLine({ role: 'step', text: 'Loan holds' })) // true
+ * isAccountLine({ role: 'step', text: 'Loan holds' }) // false
+ * ```
+ */
+export function isAccountLine(value: unknown): value is AccountLine {
+	return holds(() => matchesAccountLines([value]))
+}
+
+/**
+ * Determines whether a value is an open {@link Account} record, in memory or in its JSON projection.
+ *
+ * @param value - The value to test
+ * @returns True if the published account members conform and every line is an {@link AccountLine};
+ * false otherwise
+ *
+ * @example
+ * ```ts
+ * import { buildAccountLine, isAccount } from '@orkestrel/interpret'
+ *
+ * const line = buildAccountLine({ role: 'verdict', text: 'Loan holds' })
+ * isAccount({ id: 'loan', name: 'Loan', success: true, lines: [line] }) // true
+ * isAccount({ id: 'loan', name: 'Loan' }) // false
+ * ```
+ */
+export function isAccount(value: unknown): value is Account {
+	return whereOf(
+		objectOf({ id: isString, name: isString, success: isBoolean, lines: arrayOf(isObject) }, [
+			'success',
+		]),
+		(account): account is Account => matchesAccountLines([account].flatMap((read) => read.lines)),
+	)(value)
+}
+
+/**
+ * Determines whether a value is an exact {@link EntityInput} record, whose value is JSON.
+ *
+ * @param value - The value to test
+ * @returns True if `value` is a well-formed entity input; false otherwise
+ *
+ * @example
+ * ```ts
+ * import { isEntityInput } from '@orkestrel/interpret'
+ *
+ * isEntityInput({ name: 'age', value: 25 }) // true
+ * isEntityInput({ name: 'age', value: 25, provenance: { category: 'extracted' } }) // false
+ * ```
+ */
+export function isEntityInput(value: unknown): value is EntityInput {
+	return recordOf({ name: isString, value: isJSONValue })(value)
+}
+
+/**
+ * Determines whether a value is an exact {@link Amendment} input record.
+ *
+ * @param value - The value to test
+ * @returns True if `value` is a well-formed amendment; false otherwise
+ *
+ * @example
+ * ```ts
+ * import { isAmendment } from '@orkestrel/interpret'
+ *
+ * isAmendment({ entities: [{ name: 'age', value: 25 }], removed: ['term'] }) // true
+ * isAmendment({ remove: ['term'] }) // false
+ * ```
+ */
+export function isAmendment(value: unknown): value is Amendment {
+	return recordOf({ entities: arrayOf(isEntityInput), removed: arrayOf(isString) }, [
+		'entities',
+		'removed',
+	])(value)
 }
 
 // The family guards check the members an account reads and admit every other member. A pass, a

@@ -13,11 +13,18 @@ import {
 	stringShape,
 } from '@orkestrel/contract'
 import {
+	CHECK_STATES,
+	checkResultShape,
+	COMPARISONS,
 	createDefinitionShape,
 	createSymbolicExpressionShape,
 	fieldPathShape,
 } from '@orkestrel/reason'
 import {
+	ACCOUNT_ROLES,
+	ACCOUNT_SHAPE_DEPTH,
+	GAP_PARTS,
+	GAP_WORDS,
 	INTERPRET_ERROR_CODES,
 	INTERPRET_STAGES,
 	NUMBER_FOREIGN_KINDS,
@@ -27,8 +34,9 @@ import {
 	PROVENANCE_CATEGORIES,
 } from './constants.js'
 
-// A recipe and an interpretation as shapes, so they reach an LLM, a tool, and MCP as JSON Schema.
-// An interpretation is shaped in its JSON projection, where a non-finite number is `null`.
+// A recipe, an interpretation, an amendment, and an account as shapes, so they reach an LLM, a tool,
+// and MCP as JSON Schema. An interpretation and an account are shaped in their JSON projections,
+// where a non-finite number is `null`.
 
 /** Describes a number `scanNumbers` read. */
 export const readNumberShape: ContractShape = objectShape({
@@ -160,6 +168,98 @@ export const stageRecordShape: ContractShape = objectShape({
 	output: optionalShape(jsonShape()),
 	failed: booleanShape(),
 	error: optionalShape(stringShape()),
+})
+
+/** Describes a `GlossaryGap`. */
+export const glossaryGapShape: ContractShape = objectShape({
+	word: literalShape(GAP_WORDS),
+	field: optionalShape(fieldPathShape),
+	unit: optionalShape(stringShape()),
+	part: optionalShape(literalShape(GAP_PARTS)),
+	id: optionalShape(stringShape()),
+})
+
+/**
+ * Describes an `AccountSource` in its JSON projection.
+ *
+ * @remarks
+ * A check's `value` and a result's `actual` are arbitrary data, so each is what
+ * `projectAccount` projects of it: a non-finite number as `null`, and a value with no JSON form
+ * absent.
+ */
+export const accountSourceShape: ContractShape = objectShape({
+	rule: optionalShape(stringShape()),
+	group: optionalShape(stringShape()),
+	factor: optionalShape(stringShape()),
+	equation: optionalShape(stringShape()),
+	inference: optionalShape(stringShape()),
+	fact: optionalShape(stringShape()),
+	finding: optionalShape(stringShape()),
+	scope: optionalShape(stringShape()),
+	line: optionalShape(stringShape()),
+	pass: optionalShape(stringShape()),
+	check: optionalShape(
+		objectShape({
+			field: fieldPathShape,
+			operator: literalShape(COMPARISONS),
+			value: optionalShape(jsonShape()),
+		}),
+	),
+	result: optionalShape(checkResultShape),
+	fault: optionalShape(auditFaultShape()),
+})
+
+/**
+ * Creates the shape of an `AccountLine` in its JSON projection, spelling out `depth` levels of lines.
+ *
+ * @remarks
+ * A line at the last level holds any JSON values under `lines`, because a shape refuses cycles and
+ * an account nests as deep as its rules chain. `isAccountLine` reads every level.
+ *
+ * @param depth - How many levels to spell out. Default: `ACCOUNT_SHAPE_DEPTH`
+ * @returns The line's shape
+ *
+ * @example
+ * ```ts
+ * import { createContract } from '@orkestrel/contract'
+ * import { buildAccountLine, createAccountLineShape } from '@orkestrel/interpret'
+ *
+ * const line = createContract(createAccountLineShape(1))
+ * line.is(buildAccountLine({ role: 'step', text: 'Loan holds' })) // true
+ * line.is({ role: 'step' }) // false
+ * ```
+ */
+export function createAccountLineShape(depth: number = ACCOUNT_SHAPE_DEPTH): ContractShape {
+	return objectShape({
+		role: literalShape(ACCOUNT_ROLES),
+		state: optionalShape(literalShape(CHECK_STATES)),
+		decisive: booleanShape(),
+		text: stringShape(),
+		summary: stringShape(),
+		source: accountSourceShape,
+		gaps: arrayShape(glossaryGapShape),
+		lines: arrayShape(depth <= 1 ? jsonShape() : createAccountLineShape(depth - 1)),
+	})
+}
+
+/** Describes an `Account` in its JSON projection, which `projectAccount` gives. */
+export const accountShape: ContractShape = objectShape({
+	id: stringShape(),
+	name: stringShape(),
+	success: optionalShape(booleanShape()),
+	lines: arrayShape(createAccountLineShape()),
+})
+
+/** Describes an `EntityInput`. */
+export const entityInputShape: ContractShape = objectShape({
+	name: stringShape(),
+	value: jsonShape(),
+})
+
+/** Describes an `Amendment`. */
+export const amendmentShape: ContractShape = objectShape({
+	entities: optionalShape(arrayShape(entityInputShape)),
+	removed: optionalShape(arrayShape(stringShape())),
 })
 
 /** Describes a `StageFailure`. */

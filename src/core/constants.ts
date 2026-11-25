@@ -1,5 +1,7 @@
 import type {
+	AccountRole,
 	FrameName,
+	GlossaryGap,
 	InterpretErrorCode,
 	InterpretStage,
 	Lexicon,
@@ -39,6 +41,9 @@ export const CONFIDENCE_COLLECT = 0.9
 
 /** Names the confidence assigned to a same-domain carried-over field, 0.7. */
 export const CONFIDENCE_CARRIED = 0.7
+
+/** Names the confidence assigned to an entity an amendment supplies, 1. */
+export const CONFIDENCE_PROPOSED = 1
 
 /** Names the confidence assigned to a default the door filled, 1. */
 export const CONFIDENCE_DEFAULT = 1
@@ -456,6 +461,46 @@ export const DEFAULT_FORMATS: Readonly<
  */
 export const TEXT_BREAK_PATTERN = /[\n\v\f\r\x85\p{Zl}\p{Zp}]+/u
 
+/** Lists every `AccountRole` literal, frozen. */
+export const ACCOUNT_ROLES: readonly AccountRole[] = Object.freeze([
+	'verdict',
+	'reason',
+	'condition',
+	'step',
+])
+
+/** Lists every `word` a `GlossaryGap` names, frozen. */
+export const GAP_WORDS: ReadonlyArray<GlossaryGap['word']> = Object.freeze([
+	'label',
+	'unit',
+	'format',
+	'name',
+	'predicate',
+])
+
+/** Lists every `part` a `GlossaryGap` names, frozen. */
+export const GAP_PARTS: ReadonlyArray<NonNullable<GlossaryGap['part']>> = Object.freeze([
+	'definition',
+	'rule',
+	'group',
+	'factor',
+	'equation',
+	'inference',
+	'pass',
+	'line',
+	'scope',
+])
+
+/**
+ * Holds how many levels of lines the published `Account` shape spells out.
+ *
+ * @remarks
+ * A shape refuses cycles and an account nests as deep as its rules chain, so a line past this level
+ * is any JSON value in the shape, and `isAccount` stays the authority on it. The schema is about
+ * 5 KB for each level.
+ */
+export const ACCOUNT_SHAPE_DEPTH = 6
+
 /**
  * Lists every `ProvenanceCategory` literal, frozen — the one home the result guards
  * check the union from, so a new category added to `types.ts` is added here
@@ -501,6 +546,9 @@ export const INTERPRET_ERROR_CODES: readonly InterpretErrorCode[] = Object.freez
 	'DEFINITION',
 	'LEXICON',
 	'GLOSSARY',
+	'INTERPRETATION',
+	'VERSION',
+	'AMENDMENT',
 	'DESTROYED',
 ])
 
