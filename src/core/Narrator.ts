@@ -1,5 +1,6 @@
 import type { AuditFault, FieldPath } from '@orkestrel/contract'
 import type {
+	Bounds,
 	Check,
 	CheckState,
 	Definition,
@@ -58,6 +59,7 @@ import {
 	collectUnitGaps,
 	findConditionRules,
 	findDecidingOperands,
+	findGoalRule,
 	findSoleExpression,
 	findWord,
 	matchesNumericCheck,
@@ -347,16 +349,31 @@ export class Narrator implements NarratorInterface {
 	#logicalLines(definition: Definition, result: LogicalResult): readonly AccountLine[] {
 		const context = this.#readContext(definition, result)
 		const seen = new Set<string>()
-		const verdict = this.#verdictLine(definition, result, context, seen)
+		const goal = this.#findGoal(definition, result, context)
+		const gates = result.success && goal === undefined
+		const verdict = gates
+			? this.#gatesLine(definition, result, context)
+			: this.#verdictLine(definition, result, context, seen, goal)
 		// Written before the sections they follow, because the deciding lines nest first.
-		const unread = this.#sectionLines(result, context, seen, 'unread')
+		const unread = this.#sectionLines(result, context, seen, 'unread', true)
 		return [
 			verdict,
-			...(result.success ? [this.#countLine(result)] : []),
-			...this.#sectionLines(result, context, seen, 'met'),
-			...this.#sectionLines(result, context, seen, 'unmet'),
+			...(result.success && !gates ? [this.#countLine(definition, result)] : []),
+			...this.#sectionLines(result, context, seen, 'met', gates),
+			...this.#sectionLines(result, context, seen, 'unmet', false),
 			...unread,
 		]
+	}
+
+	// The goal rule's result, where it is the outcome the run concluded.
+	#findGoal(
+		definition: Definition,
+		result: LogicalResult,
+		context: AccountContext,
+	): RuleResult | undefined {
+		const goal = definition.reasoning === 'logical' ? findGoalRule(definition) : undefined
+		const read = goal === undefined ? undefined : context.results.get(goal.id)
+		return read?.state === result.conclusion ? read : undefined
 	}
 
 	#readContext(definition: Definition, result: LogicalResult): AccountContext {
@@ -373,27 +390,27 @@ export class Narrator implements NarratorInterface {
 		}
 	}
 
-	// The verdict is the last enabled rule's outcome under the definition's name. A run that rule
-	// does not decide is refused, and names every rule and field left unread.
+	// The verdict is the goal rule's outcome under the definition's name. A run no goal answers is
+	// refused, and names every rule and field left unread.
 	#verdictLine(
 		definition: Definition,
 		result: LogicalResult,
 		context: AccountContext,
 		seen: Set<string>,
+		goal: RuleResult | undefined,
 	): AccountLine {
-		const last = result.rules.at(-1)
-		const answered = last !== undefined && last.state === result.conclusion
-		const reasons = answered ? this.#readReasons(last, context) : []
-		if (result.success || (result.conclusion === 'unread' && reasons.length > 0)) {
-			if (last !== undefined) seen.add(last.id)
+		const reasons = goal === undefined ? [] : this.#readReasons(goal, context)
+		const answered = result.success || (result.conclusion === 'unread' && reasons.length > 0)
+		if (goal !== undefined && answered) {
+			seen.add(goal.id)
 			const named = this.#writeName('definition', definition)
-			const word = this.#lexicon.verdicts[result.conclusion]
+			const word = this.#lexicon.verdicts[goal.state]
 			return buildAccountLine({
 				role: 'verdict',
-				state: result.conclusion,
+				state: goal.state,
 				decisive: true,
 				...this.#writeOutcome(named, word, reasons, context),
-				source: last === undefined ? {} : { rule: last.id },
+				source: { rule: goal.id },
 				lines: this.#reasonLines(reasons, context, seen),
 			})
 		}
@@ -411,28 +428,60 @@ export class Narrator implements NarratorInterface {
 		)
 	}
 
-	#countLine(result: LogicalResult): AccountLine {
+	// Independent rules answer as a count, and the rules that apply are its reasons.
+	#gatesLine(definition: Definition, result: LogicalResult, context: AccountContext): AccountLine {
+		const named = this.#writeName('definition', definition)
+		const count = this.#readCount(named, result)
+		const met = result.rules.filter((rule) => rule.state === 'met')
+		const shown = met
+			.slice(0, this.#lexicon.limits.reasons)
+			.map((rule) => this.#writeRuleName(rule, context))
+		const more = met.length - shown.length
+		const rest = more === 0 ? [] : [this.line('reason.more', { count: this.#plain.format(more) })]
+		const rules = this.#every.format([...shown.map((rule) => rule.text), ...rest])
 		return buildAccountLine({
-			role: 'step',
-			text: this.line('result.count', {
-				met: this.#plain.format(result.rules.filter((rule) => rule.state === 'met').length),
-				total: this.#plain.format(result.rules.length),
-			}),
+			role: 'verdict',
+			decisive: true,
+			text: this.line('result.count', count),
+			...(met.length === 0 ? {} : { summary: this.line('result.applied', { ...count, rules }) }),
+			gaps: [...named.gaps, ...shown.flatMap((rule) => rule.gaps)],
 		})
 	}
 
-	// A rule left unread decides the refusal it stands in, unless the verdict already stated it.
+	#countLine(definition: Definition, result: LogicalResult): AccountLine {
+		const named = this.#writeName('definition', definition)
+		return buildAccountLine({
+			role: 'step',
+			text: this.line('result.count', this.#readCount(named, result)),
+			gaps: named.gaps,
+		})
+	}
+
+	#readCount(
+		named: AccountText,
+		result: LogicalResult,
+	): Readonly<Record<'name' | 'met' | 'total', string>> {
+		const met = result.rules.filter((rule) => rule.state === 'met')
+		return {
+			name: named.text,
+			met: this.#plain.format(met.length),
+			total: this.#plain.format(result.rules.length),
+		}
+	}
+
+	// A rule the verdict already stated decides nothing more in its section.
 	#sectionLines(
 		result: LogicalResult,
 		context: AccountContext,
 		seen: Set<string>,
 		state: CheckState,
+		decisive: boolean,
 	): readonly AccountLine[] {
 		return result.rules
 			.filter((rule) => rule.state === state)
 			.map((rule) => {
-				const decisive = state === 'unread' && !seen.has(rule.id)
-				return { ...this.#ruleLine(rule, context, seen), decisive }
+				const decides = decisive && !seen.has(rule.id)
+				return { ...this.#ruleLine(rule, context, seen), decisive: decides }
 			})
 	}
 
@@ -661,7 +710,67 @@ export class Narrator implements NarratorInterface {
 			text: this.line('result.value', { name: named.text, value }),
 			gaps: [...named.gaps, ...gaps],
 		})
-		return [verdict, ...groups, ...this.#totalLines(authored, value, gaps)]
+		return [
+			verdict,
+			...this.#baseLines(authored?.base, context.unit),
+			...groups,
+			...this.#boundsLines(authored?.bounds, context.unit),
+			...this.#totalLines(authored, value, gaps),
+		]
+	}
+
+	// A base, a weight, and a bound print wherever one is authored, so a worksheet's numbers can be
+	// followed. A bound states its range alone, because a result does not say whether one applied.
+	#baseLines(
+		base: number | undefined,
+		unit: string | undefined,
+		source: AccountSource = {},
+	): readonly AccountLine[] {
+		if (base === 0 || !isFiniteNumber(base)) return []
+		const value = this.#writeNumber(unit, base)
+		return [this.#settingLine(this.line('worksheet.base', { value }), unit, source)]
+	}
+
+	#weightLines(weight: number | undefined, source: AccountSource): readonly AccountLine[] {
+		if (weight === 1 || !isFiniteNumber(weight)) return []
+		const value = this.#writeNumber(undefined, weight)
+		return [this.#settingLine(this.line('worksheet.weight', { value }), undefined, source)]
+	}
+
+	#boundsLines(
+		authored: Bounds | undefined,
+		unit: string | undefined,
+		source: AccountSource = {},
+	): readonly AccountLine[] {
+		const bounds = this.#writeBounds(authored, unit)
+		return bounds === undefined
+			? []
+			: [this.#settingLine(this.line('worksheet.bounds', { bounds }), unit, source)]
+	}
+
+	#writeBounds(bounds: Bounds | undefined, unit: string | undefined): string | undefined {
+		const minimum = isFiniteNumber(bounds?.minimum)
+			? this.#writeNumber(unit, bounds.minimum)
+			: undefined
+		const maximum = isFiniteNumber(bounds?.maximum)
+			? this.#writeNumber(unit, bounds.maximum)
+			: undefined
+		if (minimum === undefined) {
+			return maximum === undefined ? undefined : this.line('value.maximum', { maximum })
+		}
+		return maximum === undefined
+			? this.line('value.minimum', { minimum })
+			: this.line('value.range', { minimum, maximum })
+	}
+
+	#settingLine(text: string, unit: string | undefined, source: AccountSource): AccountLine {
+		return buildAccountLine({
+			role: 'step',
+			decisive: true,
+			text,
+			source,
+			gaps: collectUnitGaps(unit, this.#units),
+		})
 	}
 
 	// The total prints only where the aggregation alone gives the value, because a bound or a base
@@ -738,23 +847,28 @@ export class Narrator implements NarratorInterface {
 		const authored = context.groups.get(group.id)
 		const named = this.#writeName('group', authored ?? { id: group.id, name: group.id })
 		const stated = context.stated && group.applied
+		const unit = authored?.aggregation === 'product' ? undefined : context.unit
+		const source = { group: group.id }
+		const factors = group.factors.map((factor) =>
+			this.#factorLine(
+				group,
+				factor,
+				{ ...context, stated: context.stated && (group.applied || !factor.applied), unit },
+				context.stated,
+			),
+		)
 		return buildAccountLine({
 			role: 'step',
 			decisive: stated,
 			...this.#writeStep('worksheet.group', named, group, stated, context.unit),
-			source: { group: group.id },
-			lines: group.factors.map((factor) =>
-				this.#factorLine(
-					group,
-					factor,
-					{
-						...context,
-						stated: context.stated && (group.applied || !factor.applied),
-						unit: authored?.aggregation === 'product' ? undefined : context.unit,
-					},
-					context.stated,
-				),
-			),
+			source,
+			lines: stated
+				? [
+						...this.#baseLines(authored?.base, context.unit, source),
+						...factors,
+						...this.#boundsLines(authored?.bounds, context.unit, source),
+					]
+				: factors,
 		})
 	}
 
@@ -792,7 +906,19 @@ export class Narrator implements NarratorInterface {
 				: this.#evidenceLines(authored, factor, context, source)
 		const step = this.#writeStep('worksheet.factor', named, factor, context.stated, context.unit)
 		if (factor.applied) {
-			return buildAccountLine({ role: 'step', decisive: context.stated, ...step, source, lines })
+			const settings = context.stated
+				? [
+						...this.#boundsLines(authored?.bounds, context.unit, source),
+						...this.#weightLines(authored?.weight, source),
+					]
+				: []
+			return buildAccountLine({
+				role: 'step',
+				decisive: context.stated,
+				...step,
+				source,
+				lines: [...lines, ...settings],
+			})
 		}
 		const name = named.text
 		const cited = this.#writeReasons(lines)
@@ -841,8 +967,20 @@ export class Narrator implements NarratorInterface {
 				? undefined
 				: context.faults.find((entry) => formatField(entry.path) === formatField(origin.field))
 		if (fault !== undefined) return [this.#faultLine(fault, source)]
-		// A factor with no value says where it looked, and states no number.
+		// A factor with no value says where it looked and what it missed, and states no number.
 		if (!result.applied && origin.origin === 'static') return []
+		const missed = !result.applied && result.raw === undefined
+		if (missed && (origin.origin === 'lookup' || origin.origin === 'range')) {
+			return [
+				buildAccountLine({
+					role: 'reason',
+					decisive: true,
+					text: this.line('source.missed', { label: this.label(origin.field) }),
+					source,
+					gaps: this.#collectLabelGaps(origin.field),
+				}),
+			]
+		}
 		const read = result.applied ? result : undefined
 		return this.#writeSource(factor, context.unit, read).map((entry) =>
 			buildAccountLine({ role: 'reason', decisive: true, ...entry, source }),
@@ -914,20 +1052,39 @@ export class Narrator implements NarratorInterface {
 		}
 	}
 
+	// A part's line names it once, so the condition nested beneath leaves the name out.
 	#partLine(
 		named: AccountText,
 		source: AccountSource,
 		description: string | undefined,
 		lines: readonly AccountLine[],
-		summary = named.text,
+		written?: AccountText,
 	): AccountLine {
+		const name = named.text
+		const condition = written?.text
 		return buildAccountLine({
 			role: 'condition',
 			decisive: true,
 			...named,
-			summary,
+			...(condition === undefined
+				? {}
+				: { summary: this.line('rule.condition', { name, condition }) }),
 			source,
-			lines: [...this.#descriptionLines(description), ...lines],
+			lines: [
+				...this.#descriptionLines(description),
+				...lines,
+				...(written === undefined
+					? []
+					: [
+							buildAccountLine({
+								role: 'condition',
+								decisive: true,
+								text: this.line('condition.when', { condition: written.text }),
+								source,
+								gaps: written.gaps,
+							}),
+						]),
+			],
 		})
 	}
 
@@ -950,10 +1107,9 @@ export class Narrator implements NarratorInterface {
 		const rules = definition.rules.filter((rule) => rule.enabled !== false)
 		const concluders = collectConcluders(rules)
 		return rules.map((rule) => {
-			const source = { rule: rule.id }
 			const named = this.#writeName('rule', rule)
-			const lines = this.#conditionLines('rule.condition', named, rule.premises, concluders, source)
-			return this.#partLine(named, source, rule.description, lines, lines[0]?.text)
+			const condition = this.#writePremises(rule.premises, concluders)
+			return this.#partLine(named, { rule: rule.id }, rule.description, [], condition)
 		})
 	}
 
@@ -978,32 +1134,19 @@ export class Narrator implements NarratorInterface {
 			buildAccountLine({ role: 'condition', decisive: true, ...entry, source }),
 		)
 		const checks = (factor.checks ?? []).map((check): Expression => ({ form: 'atom', check }))
-		const gate = this.#conditionLines('factor.condition', named, checks, new Map(), source)
-		return this.#partLine(named, source, factor.description, [...origin, ...gate])
+		const gate = this.#writePremises(checks, new Map())
+		return this.#partLine(named, source, factor.description, origin, gate)
 	}
 
 	// A tree too deep to walk has no condition to print.
-	#conditionLines(
-		frame: FrameName,
-		named: AccountText,
+	#writePremises(
 		premises: readonly Expression[],
 		concluders: ReadonlyMap<string, readonly Rule[]>,
-		source: AccountSource,
-	): readonly AccountLine[] {
-		if (premises.length === 0) return []
+	): AccountText | undefined {
+		if (premises.length === 0) return undefined
 		const every: Expression = { form: 'compound', operator: 'and', operands: premises }
 		const written = attempt(() => this.#writeCondition(every, false, concluders))
-		if (!isSuccess(written)) return []
-		const condition = written.value.text
-		return [
-			buildAccountLine({
-				role: 'condition',
-				decisive: true,
-				text: this.line(frame, { name: named.text, condition }),
-				source,
-				gaps: written.value.gaps,
-			}),
-		]
+		return isSuccess(written) ? written.value : undefined
 	}
 
 	// Writes an expression as a condition, parenthesized where it stands inside another.
@@ -1016,6 +1159,7 @@ export class Narrator implements NarratorInterface {
 		if (sole.form === 'atom') return this.#writeAtom(sole.check, true, inner, concluders)
 		const { operator, operands } = sole
 		if (operator === 'not') return this.#writeNegation(operands, inner, concluders)
+		if (operator === 'implies') return this.#writeImplication(operands, true, inner, concluders)
 		const parts = operands.map((operand) => this.#writeCondition(operand, true, concluders))
 		const [first, second] = parts
 		const gaps = parts.flatMap((part) => part.gaps)
@@ -1027,14 +1171,41 @@ export class Narrator implements NarratorInterface {
 			return { text: this.#lexicon.missing, gaps }
 		}
 		const slots = { first: first.text, second: second.text }
-		return this.#writeGroup(this.line(`condition.${operator}`, slots), gaps, inner)
+		return this.#writeGroup(this.line('condition.xor', slots), gaps, inner)
+	}
+
+	// An implication reads as its equivalent, the failing words of its first operand or its second;
+	// one that fails, as its first operand and the failing words of its second.
+	#writeImplication(
+		operands: readonly Expression[],
+		holds: boolean,
+		inner: boolean,
+		concluders: ReadonlyMap<string, readonly Rule[]>,
+	): AccountText {
+		const [first, second] = operands
+		if (first === undefined || second === undefined || operands.length !== 2) {
+			return { text: this.#lexicon.missing, gaps: [] }
+		}
+		const parts = holds
+			? [
+					this.#writeNegation([first], true, concluders),
+					this.#writeCondition(second, true, concluders),
+				]
+			: [
+					this.#writeCondition(first, true, concluders),
+					this.#writeNegation([second], true, concluders),
+				]
+		const list = holds ? this.#either : this.#every
+		const gaps = parts.flatMap((part) => part.gaps)
+		return this.#writeGroup(list.format(parts.map((part) => part.text)), gaps, inner)
 	}
 
 	#writeGroup(condition: string, gaps: readonly GlossaryGap[], inner: boolean): AccountText {
 		return { text: inner ? this.line('condition.group', { condition }) : condition, gaps }
 	}
 
-	// Under `not`, a check takes its failing words and a second `not` cancels the first.
+	// Under `not`, a check takes its failing words, a second `not` cancels the first, and an
+	// implication reads as what makes it fail.
 	#writeNegation(
 		operands: readonly Expression[],
 		inner: boolean,
@@ -1049,6 +1220,9 @@ export class Narrator implements NarratorInterface {
 		const [twice, ...rest] = sole.operands
 		if (sole.operator === 'not' && twice !== undefined && rest.length === 0) {
 			return this.#writeCondition(twice, inner, concluders)
+		}
+		if (sole.operator === 'implies') {
+			return this.#writeImplication(sole.operands, false, inner, concluders)
 		}
 		const written = this.#writeCondition(sole, false, concluders)
 		return {

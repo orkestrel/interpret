@@ -733,9 +733,9 @@ await new GuideCommand({
 			expect(renderAccount(narrator.describe(definition)).split('\n')).toEqual([
 				'Loan',
 				'Adult applicant',
-				'  Adult applicant holds when Age is at least 18',
+				'  applies when Age is at least 18',
 				'Approval',
-				'  Approval holds when Adult applicant applies and Cost is at most $1,250.00',
+				'  applies when Adult applicant applies and Cost is at most $1,250.00',
 			])
 			expect(narrator.audit([definition])).toEqual([])
 		})
@@ -842,7 +842,7 @@ await new GuideCommand({
 			const answer = createQuantitativeReasoner().reason({ value: 42 }, ARITHMETIC.definition)
 			expect(
 				renderAccount(interpret.narrate(ARITHMETIC.definition, answer), { detail: 'line' }),
-			).toBe('Arithmetic is 42')
+			).toBe('Arithmetic: 42')
 			expect(interpret.remove('t1')).toBe(true)
 			interpret.destroy()
 		})

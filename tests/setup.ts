@@ -1404,6 +1404,131 @@ export const WORKSHOP_SUBJECTS: Readonly<Record<string, WorkshopCase>> = {
 }
 
 /**
+ * Builds the booking gates: five independent rules, none of which reads what another concludes,
+ * so the definition has no goal. Each has an authored name and description.
+ *
+ * @returns A fresh logical definition with id `gates`
+ */
+export function buildWorkshopGates(): LogicalDefinition {
+	return createLogicalDefinition(
+		'gates',
+		'Booking gates',
+		[
+			createRule('early', [createAtom('start', 'below', 10)], createAtom('early', 'equals', true), {
+				name: 'Early start',
+				description: 'Someone opens the workshop for an early booking.',
+			}),
+			createRule('noisy', [createAtom('noise', 'above', 40)], createAtom('noisy', 'equals', true), {
+				name: 'Loud activity',
+				description: 'The neighbors hear about a loud activity.',
+			}),
+			createRule(
+				'costly',
+				[createAtom('cost', 'above', 1250)],
+				createAtom('costly', 'equals', true),
+				{ name: 'High cost', description: 'The treasurer signs a booking with a high cost.' },
+			),
+			createRule(
+				'visitor',
+				[createAtom('member', 'equals', 'guest')],
+				createAtom('visitor', 'equals', true),
+				{ name: 'Visiting booker', description: 'A member stays with a visiting booker.' },
+			),
+			createRule(
+				'crowded',
+				[createAtom('guests', 'above', 30)],
+				createAtom('crowded', 'equals', true),
+				{ name: 'Large party', description: 'A large party takes the hall.' },
+			),
+		],
+		{ description: 'Lists what a booking needs from the workshop.' },
+	)
+}
+
+/** Holds the booking every gates subject varies: no rule applies. */
+export const WORKSHOP_CALM: Subject = {
+	start: 12,
+	noise: 30,
+	cost: 1000,
+	member: 'gold',
+	guests: 8,
+}
+
+/**
+ * Names the gates subjects: no rule applies, the last alone applies, others apply and the last
+ * does not, all five apply, and two whose missing field leaves a rule unread, the last one and
+ * the first.
+ */
+export const WORKSHOP_GATES: Readonly<Record<string, WorkshopCase>> = {
+	calm: {
+		subject: WORKSHOP_CALM,
+		success: true,
+		states: {
+			early: 'unmet',
+			noisy: 'unmet',
+			costly: 'unmet',
+			visitor: 'unmet',
+			crowded: 'unmet',
+		},
+		faults: [],
+	},
+	crowd: {
+		subject: { ...WORKSHOP_CALM, guests: 31 },
+		success: true,
+		states: {
+			early: 'unmet',
+			noisy: 'unmet',
+			costly: 'unmet',
+			visitor: 'unmet',
+			crowded: 'met',
+		},
+		faults: [],
+	},
+	dawn: {
+		subject: { ...WORKSHOP_CALM, start: 9, noise: 40.5 },
+		success: true,
+		states: {
+			early: 'met',
+			noisy: 'met',
+			costly: 'unmet',
+			visitor: 'unmet',
+			crowded: 'unmet',
+		},
+		faults: [],
+	},
+	festival: {
+		subject: { start: 9, noise: 55, cost: 2000, member: 'guest', guests: 40 },
+		success: true,
+		states: { early: 'met', noisy: 'met', costly: 'met', visitor: 'met', crowded: 'met' },
+		faults: [],
+	},
+	noguests: {
+		subject: { start: 9, noise: 30, cost: 1000, member: 'gold' },
+		success: false,
+		states: {
+			early: 'met',
+			noisy: 'unmet',
+			costly: 'unmet',
+			visitor: 'unmet',
+			crowded: 'unread',
+		},
+		faults: ['guests'],
+	},
+	nostart: {
+		subject: { noise: 30, cost: 1000, member: 'gold', guests: 40 },
+		success: false,
+		states: {
+			early: 'unread',
+			noisy: 'unmet',
+			costly: 'unmet',
+			visitor: 'unmet',
+			crowded: 'met',
+		},
+		faults: ['start'],
+	},
+}
+
+/**
  * Builds the booking score: a `sum` group of fees with a field factor, a static factor, and a
  * static factor gated by a membership check, and a `maximum` group whose lookup table has no
  * entry for the `garage` room and no fallback.
@@ -1676,6 +1801,7 @@ export const WORKSHOP_GLOSSARY: {
 		noise: 'decibel',
 		start: 'plain',
 		score: 'count',
+		guests: 'count',
 	},
 	values: { score: 'count', fees: 'money' },
 	formats: {

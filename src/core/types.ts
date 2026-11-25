@@ -714,9 +714,8 @@ export interface ComparisonPhrase {
  *
  * @remarks
  * `fact.*`, `value.*`, `condition.*`, `reason.*`, `rule.*`, `result.*`, `worksheet.*`,
- * `source.*`, `group.*`, `factor.*`, and `equation.*` frame the account. `subject.*`,
- * `prompt.*`, and `ambiguity.*` frame the forward direction. `FRAME_SLOTS` lists the slots each
- * frame offers.
+ * `source.*`, `group.*`, and `equation.*` frame the account. `subject.*`, `prompt.*`, and
+ * `ambiguity.*` frame the forward direction. `FRAME_SLOTS` lists the slots each frame offers.
  */
 export type FrameName =
 	| 'fact.equal'
@@ -724,10 +723,12 @@ export type FrameName =
 	| 'fact.listed'
 	| 'fact.unread'
 	| 'value.range'
+	| 'value.minimum'
+	| 'value.maximum'
+	| 'condition.when'
 	| 'condition.equal'
 	| 'condition.compared'
 	| 'condition.listed'
-	| 'condition.implies'
 	| 'condition.xor'
 	| 'condition.group'
 	| 'condition.not'
@@ -740,6 +741,7 @@ export type FrameName =
 	| 'result.refused'
 	| 'result.because'
 	| 'result.count'
+	| 'result.applied'
 	| 'result.value'
 	| 'result.solution'
 	| 'result.derived'
@@ -750,14 +752,17 @@ export type FrameName =
 	| 'worksheet.blocked'
 	| 'worksheet.empty'
 	| 'worksheet.raw'
+	| 'worksheet.base'
+	| 'worksheet.weight'
+	| 'worksheet.bounds'
 	| 'worksheet.total'
 	| 'source.static'
 	| 'source.field'
 	| 'source.lookup'
 	| 'source.range'
+	| 'source.missed'
 	| 'source.fallback'
 	| 'group.aggregation'
-	| 'factor.condition'
 	| 'equation.target'
 	| 'subject.fields'
 	| 'subject.empty'
@@ -778,7 +783,7 @@ export type FrameName =
  * `joins.reasons` stands between reasons and `joins.last` before the last one. `frames` are
  * `@orkestrel/template` templates whose slots `FRAME_SLOTS` lists. `limits.list` is the
  * longest list printed in full, a longer one being counted, and `limits.reasons` the most
- * reasons one sentence gives.
+ * reasons, or rules that apply, one sentence gives.
  */
 export interface Lexicon {
 	readonly comparisons: Readonly<Record<Comparison, ComparisonPhrase>>
@@ -1394,9 +1399,11 @@ export interface NarratorInterface {
 	 * Writes a result's verdict with the evidence that decided it.
 	 *
 	 * @remarks
-	 * A quantitative result is written as a worksheet of its groups and factors. A result whose
-	 * `success` is false states no value, count, or solution: its verdict names each field that
-	 * was not read and each factor that found no value.
+	 * A logical result's verdict is its goal rule's outcome, as `findGoalRule` finds it, and a
+	 * definition without a goal counts the rules that apply. A quantitative result is written as a
+	 * worksheet of its groups and factors. A result whose `success` is false states no value, count,
+	 * or solution: its verdict names each field that was not read and each factor that found no
+	 * value.
 	 *
 	 * @param definition - The definition the result answers
 	 * @param result - The result to narrate

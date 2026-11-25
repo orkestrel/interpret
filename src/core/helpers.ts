@@ -5,6 +5,7 @@ import type {
 	CheckState,
 	Definition,
 	Expression,
+	LogicalDefinition,
 	LogicalOperator,
 	Rule,
 	RuleResult,
@@ -1371,6 +1372,40 @@ export function findDecidingOperands(
 }
 
 /**
+ * Finds the rule a logical definition's verdict is the outcome of.
+ *
+ * @remarks
+ * A definition has a goal when it has one enabled rule, or when its last enabled rule reads a
+ * key another enabled rule concludes. Otherwise its rules are independent, and the last one
+ * decides nothing about the others.
+ *
+ * @param definition - The definition to read
+ * @returns The goal rule, or `undefined` when the definition has none
+ *
+ * @example
+ * ```ts
+ * import { createAtom, createLogicalDefinition, createRule } from '@orkestrel/reason'
+ * import { findGoalRule } from '@orkestrel/interpret'
+ *
+ * const adult = createRule('adult', [createAtom('age', 'from', 18)], createAtom('adult', 'equals', true))
+ * const local = createRule('local', [createAtom('city', 'equals', 'Rome')], createAtom('local', 'equals', true))
+ * const open = createRule('open', [createAtom('adult', 'equals', true)], createAtom('open', 'equals', true))
+ * findGoalRule(createLogicalDefinition('d', 'D', [adult, open])) // open
+ * findGoalRule(createLogicalDefinition('d', 'D', [adult, local])) // undefined
+ * ```
+ */
+export function findGoalRule(definition: LogicalDefinition): Rule | undefined {
+	const rules = definition.rules.filter((rule) => rule.enabled !== false)
+	const last = rules.at(-1)
+	if (last === undefined || rules.length === 1) return last
+	const concluders = collectConcluders(rules)
+	const reads = last.premises
+		.flatMap((premise) => extractAtoms(premise))
+		.flatMap((atom) => concluders.get(formatField(atom.check.field)) ?? [])
+	return reads.some((rule) => rule !== last) ? last : undefined
+}
+
+/**
  * Finds the expression an `and` or an `or` over one operand stands for.
  *
  * @param expression - The expression to read
@@ -1723,7 +1758,7 @@ export function collectAccountText(
  * 	createFactorGroup('drivers', 'sum', [createStaticFactor('floor', 10)]),
  * ])
  * const result = createQuantitativeReasoner().reason({}, definition)
- * renderAccount(createNarrator().narrate(definition, result), { detail: 'line' }) // 'Risk is 10'
+ * renderAccount(createNarrator().narrate(definition, result), { detail: 'line' }) // 'Risk: 10'
  * ```
  */
 export function renderAccount(account: Account, options?: AccountOptions): string {

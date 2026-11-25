@@ -62,6 +62,7 @@ import {
 	findLinkedNumbers,
 	findSpanOffset,
 	findFieldDescription,
+	findGoalRule,
 	findSoleExpression,
 	findUnclaimedNumbers,
 	findWord,
@@ -100,6 +101,8 @@ import { captureError, createHostileValues } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import {
 	buildInterpretRecipe,
+	buildWorkshopGates,
+	buildWorkshopRules,
 	EXTREME_NUMBERS,
 	InterpretFixtureValue,
 	OPEN_SHAPE,
@@ -1170,7 +1173,7 @@ describe('the words', () => {
 			},
 			rules: { met: 'fires', unmet: 'does not apply', unread: 'cannot be decided' },
 			joins: { reasons: '; ', last: ' plus ' },
-			limits: { list: 2, reasons: 3 },
+			limits: { list: 2, reasons: 4 },
 			missing: 'is unknown',
 		})
 		input.rules.met = 'changed'
@@ -1389,6 +1392,54 @@ describe('the reasons', () => {
 		).toEqual([])
 		const unknown: Check = JSON.parse('{"field":"tier","operator":"near","value":1}')
 		expect(findConditionRules(unknown, concluders)).toEqual([])
+	})
+
+	it('findGoalRule finds the workshop approval, and no goal among independent gates', () => {
+		expect(findGoalRule(buildWorkshopRules())?.id).toBe('approve')
+		expect(findGoalRule(buildWorkshopGates())).toBe(undefined)
+	})
+
+	it('findGoalRule reads the enabled rules alone', () => {
+		const first = createRule('first', [a], createAtom('one', 'equals', true))
+		const apart = createRule('apart', [b], createAtom('two', 'equals', true))
+		const goal = createRule(
+			'goal',
+			[b, createCompound('not', [createCompound('or', [a, createAtom('one', 'equals', true)])])],
+			createAtom('three', 'equals', true),
+		)
+		const off = { enabled: false } as const
+		const cases = [
+			['one rule', [apart], apart],
+			['a last rule that reads a concluded key', [first, apart, goal], goal],
+			['a goal that is not last', [first, goal, apart], undefined],
+			['a disabled last rule behind a goal', [first, goal, { ...apart, ...off }], goal],
+			['a disabled last rule, the goal', [first, apart, { ...goal, ...off }], undefined],
+			['one rule left enabled', [first, { ...goal, ...off }], first],
+			['a concluder that is disabled', [{ ...first, ...off }, apart, goal], undefined],
+			['every rule disabled', [{ ...first, ...off }], undefined],
+			['no rule', [], undefined],
+		] as const
+		for (const [title, rules, found] of cases) {
+			const definition = createLogicalDefinition('d', 'D', rules)
+			expect([title, findGoalRule(definition)]).toEqual([title, found])
+		}
+	})
+
+	it('findGoalRule reads a key by its display path, and no key a rule reads of itself', () => {
+		const nested = createRule('nested', [a], createAtom(['seat', 'free'], 'equals', true))
+		const reader = createRule(
+			'reader',
+			[createAtom('seat.free', 'equals', true)],
+			createAtom('open', 'equals', true),
+		)
+		const selfish = createRule(
+			'selfish',
+			[createAtom('open', 'equals', true)],
+			createAtom('open', 'equals', true),
+		)
+		expect(findGoalRule(createLogicalDefinition('d', 'D', [nested, reader]))).toBe(reader)
+		expect(findGoalRule(createLogicalDefinition('d', 'D', [nested, selfish]))).toBe(undefined)
+		expect(findGoalRule(createLogicalDefinition('d', 'D', [nested, reader, selfish]))).toBe(selfish)
 	})
 
 	it('findSoleExpression unwraps an and or an or over one operand, and nothing else', () => {

@@ -45,6 +45,7 @@ import {
 	buildWorkshopArea,
 	buildWorkshopFacts,
 	buildWorkshopFees,
+	buildWorkshopGates,
 	buildWorkshopRules,
 	buildWorkshopScore,
 	collectConnectives,
@@ -61,6 +62,7 @@ import {
 	TRICKY_KEYS,
 	WORKSHOP_AREA,
 	WORKSHOP_FEES,
+	WORKSHOP_GATES,
 	WORKSHOP_GLOSSARY,
 	WORKSHOP_RESTRICTED,
 	WORKSHOP_SCORES,
@@ -537,6 +539,68 @@ describe('WORKSHOP_SUBJECTS', () => {
 	})
 })
 
+describe('buildWorkshopGates', () => {
+	it('is a valid definition of five named, described rules', () => {
+		const definition = buildWorkshopGates()
+
+		expect(createLogicalReasoner().validate(definition)).toEqual({
+			valid: true,
+			errors: [],
+			warnings: [],
+		})
+		expect(definition.rules.map((rule) => rule.name)).toEqual([
+			'Early start',
+			'Loud activity',
+			'High cost',
+			'Visiting booker',
+			'Large party',
+		])
+		expect(definition.rules.filter((rule) => (rule.description ?? '').trim() === '')).toEqual([])
+	})
+
+	it('holds rules that read nothing another concludes', () => {
+		const rules = buildWorkshopGates().rules
+		const concluded = rules.flatMap((rule) => collectExpressionFields(rule.conclusion))
+		const reads = rules.flatMap((rule) => rule.premises.flatMap(collectExpressionFields))
+
+		expect(concluded).toEqual(['early', 'noisy', 'costly', 'visitor', 'crowded'])
+		expect(reads).toEqual(['start', 'noise', 'cost', 'member', 'guests'])
+	})
+})
+
+describe('WORKSHOP_GATES', () => {
+	it.each(Object.entries(WORKSHOP_GATES))(
+		'settles the %s booking on the expected states, as the real engine reads it',
+		(_name, expected) => {
+			const result = createLogicalReasoner().reason(expected.subject, buildWorkshopGates())
+			if (!isLogicalResult(result)) throw new Error('Expected a logical result')
+
+			expect(Object.fromEntries(result.rules.map((rule) => [rule.id, rule.state]))).toEqual(
+				expected.states,
+			)
+			expect(result.success).toBe(expected.success)
+			expect(result.faults.map((fault) => formatField(fault.path))).toEqual(expected.faults)
+		},
+	)
+
+	it('concludes the state of its last rule alone, whatever the others settle on', () => {
+		const conclusions = Object.values(WORKSHOP_GATES).map(({ subject }) => {
+			const result = createLogicalReasoner().reason(subject, buildWorkshopGates())
+			if (!isLogicalResult(result)) throw new Error('Expected a logical result')
+			return [result.conclusion, result.count]
+		})
+
+		expect(conclusions).toEqual([
+			['unmet', 0],
+			['met', 1],
+			['unmet', 2],
+			['met', 5],
+			['unread', 1],
+			['unread', 1],
+		])
+	})
+})
+
 describe('buildWorkshopScore', () => {
 	it('authors a name that differs from its id on the definition, every group, and every factor', () => {
 		const definition = buildWorkshopScore()
@@ -730,7 +794,7 @@ describe('WORKSHOP_GLOSSARY', () => {
 	const compared = ['above', 'below', 'from', 'to', 'between', 'outside']
 
 	it('labels every field path the definitions read, keyed by the display path', () => {
-		const logical = buildWorkshopRules().rules.flatMap((rule) =>
+		const logical = [...buildWorkshopRules().rules, ...buildWorkshopGates().rules].flatMap((rule) =>
 			rule.premises.flatMap(collectExpressionFields),
 		)
 		const quantitative = buildWorkshopScore()
@@ -761,14 +825,17 @@ describe('WORKSHOP_GLOSSARY', () => {
 	})
 
 	it('gives a unit to every field the rules compare as a number', () => {
-		const numeric = buildWorkshopRules().rules.flatMap((rule) =>
+		const numeric = [...buildWorkshopRules().rules, ...buildWorkshopGates().rules].flatMap((rule) =>
 			rule.premises
 				.flatMap((premise) => extractAtoms(premise))
 				.filter((atom) => compared.includes(atom.check.operator))
 				.map((atom) => formatField(atom.check.field)),
 		)
 
-		expect(numeric).toEqual(['terms.excess', 'start', 'score', 'noise', 'cost'])
+		expect(numeric).toEqual([
+			...['terms.excess', 'start', 'score', 'noise', 'cost'],
+			...['start', 'noise', 'cost', 'guests'],
+		])
 		expect(numeric.filter((field) => !Object.hasOwn(WORKSHOP_GLOSSARY.units, field))).toEqual([])
 		expect(WORKSHOP_GLOSSARY.units).toEqual({
 			cost: 'money',
@@ -777,6 +844,7 @@ describe('WORKSHOP_GLOSSARY', () => {
 			noise: 'decibel',
 			start: 'plain',
 			score: 'count',
+			guests: 'count',
 		})
 		expect(WORKSHOP_GLOSSARY.values).toEqual({ score: 'count', fees: 'money' })
 	})

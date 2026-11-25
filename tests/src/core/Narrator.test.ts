@@ -37,6 +37,7 @@ import {
 	buildWorkshopArea,
 	buildWorkshopFacts,
 	buildWorkshopFees,
+	buildWorkshopGates,
 	buildWorkshopRules,
 	buildWorkshopScore,
 	collectTreeSubjects,
@@ -45,6 +46,7 @@ import {
 	WORKSHOP_AREA,
 	WORKSHOP_BASE,
 	WORKSHOP_FEES,
+	WORKSHOP_GATES,
 	WORKSHOP_GLOSSARY,
 	WORKSHOP_SCORES,
 	WORKSHOP_SUBJECTS,
@@ -129,7 +131,7 @@ const BLANK_TEXT =
 	/undefined|NaN|∞|[\n\v\f\r\x85\p{Zl}\p{Zp}]|^\s*$|\s$|\bis ,|\bis $|which is\s*(?:,|$)|, because\s*(?:,|$)|\(\s*\)|:\s*$|\b(?:when|by|from|at|if|then|either|or|and|not)\s*(?:,|$)/u
 
 const WORKSHOP_HELD_LINE =
-	'Workshop booking holds, because Trusted booker applies (wOrkshop tier is gold); Quiet activity applies (noise level is 30, which is not more than 40); Restricted activity does not apply (activity is pottery, which is not one of the 40 listed); and 1 more'
+	'Workshop booking holds, because Trusted booker applies (wOrkshop tier is gold); Quiet activity applies (noise level is 30, which is not more than 40); Restricted activity does not apply (activity is pottery, which is not one of the 40 listed); and cost is $1,000.00, which is at most $1,250.00'
 
 const WORKSHOP_HELD_FULL = [
 	'Workshop booking holds',
@@ -140,9 +142,9 @@ const WORKSHOP_HELD_FULL = [
 	'  Restricted activity does not apply',
 	'    activity is pottery, which is not one of the 40 listed',
 	'  cost is $1,000.00, which is at most $1,250.00',
-	'Rules that hold: 6 of 8',
+	'Workshop booking: 6 of 8 rules apply',
 	'Opening hours applies',
-	'  start hour is 10, which is within 8 to 18',
+	'  start hour is 10, which is in the range 8 to 18',
 	'Trusted booker applies',
 	'Quiet activity applies',
 	'Tools with training applies',
@@ -456,28 +458,28 @@ describe('Narrator', () => {
 				'  Decides whether a community workshop lends a room for an activity.',
 				'Restricted activity',
 				'  The workshop never lends a room for an activity on its restricted list.',
-				'  Restricted activity holds when activity is one of the 40 listed',
+				'  applies when activity is one of the 40 listed',
 				'Over capacity',
 				'  A booking that asks for more places than the room holds is over capacity.',
-				'  Over capacity holds when places over capacity is more than $0.00',
+				'  applies when places over capacity is more than $0.00',
 				'Opening hours',
 				'  A booking must start while the workshop is open.',
-				'  Opening hours holds when start hour is within 8 to 18',
+				'  applies when start hour is in the range 8 to 18',
 				'Trusted booker',
 				'  A gold member, or a booker with a good score, is trusted.',
-				'  Trusted booker holds when wOrkshop tier is gold or booking score is at least 700',
+				'  applies when wOrkshop tier is gold or booking score is at least 700',
 				'Quiet activity',
 				'  An activity that stays at or under the noise limit is quiet.',
-				'  Quiet activity holds when noise level is not more than 40',
+				'  applies when noise level is not more than 40',
 				'Tools with training',
 				'  A booking that brings tools needs a trained supervisor.',
-				'  Tools with training holds when if tools brought is true, then trained supervisor is true',
+				'  applies when tools brought is not true or trained supervisor is true',
 				'One session',
 				'  A booking takes the morning or the evening, never both.',
-				'  One session holds when either morning session is true or evening session is true, but not both',
+				'  applies when either morning session is true or evening session is true, but not both',
 				'Approval',
 				'  A trusted, quiet booking of an unrestricted activity within budget is approved.',
-				'  Approval holds when Trusted booker applies, Quiet activity applies, Restricted activity does not apply, and cost is at most $1,250.00',
+				'  applies when Trusted booker applies, Quiet activity applies, Restricted activity does not apply, and cost is at most $1,250.00',
 			])
 			expect(renderAccount(account).split('\n')).toEqual(
 				texts.filter((text) => !/^ {2}.*\.$/.test(text)),
@@ -485,14 +487,17 @@ describe('Narrator', () => {
 			expect(renderAccount(account, { detail: 'line' })).toBe('Workshop booking')
 			const approval = account.lines.find((line) => line.source.rule === 'approve')
 			expect(approval?.text).toBe('Approval')
-			expect(approval?.summary).toBe(texts.at(-1)?.trim())
+			expect(approval?.summary).toBe(
+				'Approval applies when Trusted booker applies, Quiet activity applies, Restricted activity does not apply, and cost is at most $1,250.00',
+			)
 		})
 
 		it('writes each group with its aggregation, and each factor with its source and gate', () => {
 			const narrator = new Narrator({ glossary: WORKSHOP_GLOSSARY })
-			expect(
-				renderAccount(narrator.describe(buildWorkshopFees()), { detail: 'full' }).split('\n'),
-			).toEqual([
+			const account = narrator.describe(buildWorkshopFees())
+			const deposit = account.lines[1]?.lines.find((line) => line.source.factor === 'deposit')
+			expect(deposit?.summary).toBe('Deposit applies when cost is at most $1,250.00')
+			expect(renderAccount(account, { detail: 'full' }).split('\n')).toEqual([
 				'Booking fees',
 				'  Prices one booking.',
 				'  Total of the values that apply',
@@ -506,7 +511,7 @@ describe('Narrator', () => {
 				'    set by the range guest count falls in',
 				'  Deposit',
 				'    fixed at $50.00',
-				'    Deposit applies when cost is at most $1,250.00',
+				'    applies when cost is at most $1,250.00',
 				'Share',
 				'  Product of the values that apply',
 				'  Discount',
@@ -517,7 +522,7 @@ describe('Narrator', () => {
 				'  Average of the values that apply',
 				'  Tool hire',
 				'    fixed at $10.00',
-				'    Tool hire applies when tools brought is true and noise level is at most 40',
+				'    applies when tools brought is true and noise level is at most 40',
 				'  Towels',
 				'    fixed at $20.00',
 			])
@@ -549,7 +554,7 @@ describe('Narrator', () => {
 				[createCompound('not', [b]), 'b is not more than 2'],
 				[createCompound('and', [a, b, c]), 'a is x, b is more than 2, and c is not z'],
 				[createCompound('or', [a, b]), 'a is x or b is more than 2'],
-				[createCompound('implies', [a, b]), 'if a is x, then b is more than 2'],
+				[createCompound('implies', [a, b]), 'a is not x or b is more than 2'],
 				[createCompound('xor', [a, b]), 'either a is x or b is more than 2, but not both'],
 				[
 					createCompound('not', [createCompound('and', [a, b])]),
@@ -558,7 +563,28 @@ describe('Narrator', () => {
 				[createCompound('not', [createCompound('or', [a, b])]), 'not (a is x or b is more than 2)'],
 				[
 					createCompound('not', [createCompound('implies', [a, b])]),
-					'not (if a is x, then b is more than 2)',
+					'a is x and b is not more than 2',
+				],
+				[
+					createCompound('not', [
+						createCompound('implies', [
+							createCompound('or', [a, b]),
+							createCompound('and', [b, c]),
+						]),
+					]),
+					'(a is x or b is more than 2) and not (b is more than 2 and c is not z)',
+				],
+				[
+					createCompound('or', [createCompound('not', [createCompound('implies', [a, b])]), c]),
+					'(a is x and b is not more than 2) or c is not z',
+				],
+				[
+					createCompound('implies', [createCompound('not', [a]), createCompound('or', [b, c])]),
+					'a is x or (b is more than 2 or c is not z)',
+				],
+				[
+					createCompound('implies', [createCompound('implies', [a, b]), c]),
+					'(a is x and b is not more than 2) or c is not z',
 				],
 				[
 					createCompound('not', [createCompound('xor', [a, b])]),
@@ -579,11 +605,11 @@ describe('Narrator', () => {
 				],
 				[
 					createCompound('implies', [createCompound('and', [a, b]), createCompound('not', [c])]),
-					'if (a is x and b is more than 2), then c is z',
+					'not (a is x and b is more than 2) or c is z',
 				],
 				[
 					createCompound('xor', [createCompound('implies', [a, b]), c]),
-					'either (if a is x, then b is more than 2) or c is not z, but not both',
+					'either (a is not x or b is more than 2) or c is not z, but not both',
 				],
 				[createCompound('and', [createCompound('or', [a])]), 'a is x'],
 				[createCompound('not', [createCompound('and', [a])]), 'a is not x'],
@@ -593,7 +619,7 @@ describe('Narrator', () => {
 					createRule('r', [premise], createAtom('x', 'equals', true), { name: 'Rule' }),
 				])
 				expect(renderAccount(new Narrator().describe(definition))).toBe(
-					`D\nRule\n  Rule holds when ${condition}`,
+					`D\nRule\n  applies when ${condition}`,
 				)
 			}
 			const several = createLogicalDefinition('d', 'D', [
@@ -602,15 +628,65 @@ describe('Narrator', () => {
 				}),
 			])
 			expect(renderAccount(new Narrator().describe(several))).toBe(
-				'D\nRule\n  Rule holds when (a is x or b is more than 2) and c is not z',
+				'D\nRule\n  applies when (a is x or b is more than 2) and c is not z',
 			)
 		})
+
+		// Each condition's words are read as a truth table over the four assignments of two checks,
+		// written out by hand, and held to the state the engine gives the rule.
+		it.each([
+			['implies', false, 'a is not true or b is true', ['met', 'unmet', 'met', 'met']],
+			['implies', true, 'a is true and b is not true', ['unmet', 'met', 'unmet', 'unmet']],
+			[
+				'xor',
+				false,
+				'either a is true or b is true, but not both',
+				['unmet', 'met', 'met', 'unmet'],
+			],
+			[
+				'xor',
+				true,
+				'not (either a is true or b is true, but not both)',
+				['met', 'unmet', 'unmet', 'met'],
+			],
+		] as const)(
+			'words %s (under not: %s) as what makes the rule apply',
+			(operator, negated, condition, states) => {
+				const plain = createCompound(operator, [
+					createAtom('a', 'equals', true),
+					createAtom('b', 'equals', true),
+				])
+				const definition = createLogicalDefinition('d', 'D', [
+					createRule(
+						'r',
+						[negated ? createCompound('not', [plain]) : plain],
+						createAtom('x', 'equals', true),
+						{ name: 'Rule' },
+					),
+				])
+				expect(requireValue(new Narrator().describe(definition).lines[1]).summary).toBe(
+					`Rule applies when ${condition}`,
+				)
+				const assignments = [
+					[true, true],
+					[true, false],
+					[false, true],
+					[false, false],
+				] as const
+				const read = assignments.map(([a, b]) => {
+					const result = REASON.reason({ a, b }, definition)
+					if (!isLogicalResult(result)) throw new Error('Expected a logical result')
+					return result.conclusion
+				})
+				expect(read).toEqual(states)
+			},
+		)
 
 		it('words a condition for every generated tree', () => {
 			const wrong = buildExpressionTrees().flatMap((definition) => {
 				const rule = requireValue(definition.rules[0])
 				const text = requireValue(SHIPPED.describe(definition).lines[1]).summary
-				const opening = `${rule.name} holds when `
+				const opening = `${rule.name} applies when `
 				return text.startsWith(opening) && text.length > opening.length ? [] : [definition.id]
 			})
 			expect(wrong).toEqual([])
@@ -626,8 +702,8 @@ describe('Narrator', () => {
 				['to', 5, 'n is at most 5', 'n is more than 5'],
 				['any', [5, 7], 'n is one of 5 and 7', 'n is not one of 5 and 7'],
 				['none', [5, 7], 'n is not one of 5 and 7', 'n is one of 5 and 7'],
-				['between', [5, 7], 'n is within 5 to 7', 'n is outside 5 to 7'],
-				['outside', [5, 7], 'n is outside 5 to 7', 'n is within 5 to 7'],
+				['between', [5, 7], 'n is in the range 5 to 7', 'n is outside the range 5 to 7'],
+				['outside', [5, 7], 'n is outside the range 5 to 7', 'n is in the range 5 to 7'],
 				['any', [1, 2, 3, 4, 5], 'n is one of the 5 listed', 'n is not one of the 5 listed'],
 				['none', [1, 2, 3, 4, 5], 'n is not one of the 5 listed', 'n is one of the 5 listed'],
 			] as const
@@ -642,9 +718,9 @@ describe('Narrator', () => {
 				expect(renderAccount(new Narrator().describe(definition)).split('\n')).toEqual([
 					'D',
 					'R',
-					`  R holds when ${holds}`,
+					`  applies when ${holds}`,
 					'S',
-					`  S holds when ${fails}`,
+					`  applies when ${fails}`,
 				])
 			}
 		})
@@ -685,14 +761,14 @@ describe('Narrator', () => {
 					{ name: 'R6' },
 				),
 			])
-			const texts = renderAccount(new Narrator().describe(definition)).split('\n')
-			expect(texts.filter((text) => /^ {2}R\d/.test(text))).toEqual([
-				'  R1 holds when Tin applies',
-				'  R2 holds when Gold applies or Gilt applies',
-				'  R3 holds when Gold does not apply and Gilt does not apply',
-				'  R4 holds when Gold does not apply, Gilt does not apply, and Tin does not apply',
-				'  R5 holds when tier is lead',
-				'  R6 holds when (Gold applies or Gilt applies) and a is 1',
+			const summaries = new Narrator().describe(definition).lines.map((line) => line.summary)
+			expect(summaries.slice(4)).toEqual([
+				'R1 applies when Tin applies',
+				'R2 applies when Gold applies or Gilt applies',
+				'R3 applies when Gold does not apply and Gilt does not apply',
+				'R4 applies when Gold does not apply, Gilt does not apply, and Tin does not apply',
+				'R5 applies when tier is lead',
+				'R6 applies when (Gold applies or Gilt applies) and a is 1',
 			])
 		})
 
@@ -709,7 +785,7 @@ describe('Narrator', () => {
 			const account = new Narrator().describe(definition)
 			expect(account.name).toBe('loan')
 			expect(renderAccount(account, { detail: 'full' })).toBe(
-				'loan\nadult\n  adult holds when age is at least 18',
+				'loan\nadult\n  applies when age is at least 18',
 			)
 			expect(account.lines.flatMap((line) => line.gaps)).toEqual([
 				{ word: 'name', part: 'definition', id: 'loan' },
@@ -741,8 +817,13 @@ describe('Narrator', () => {
 
 		it('prints no fact twice, at any detail', () => {
 			const narrator = new Narrator({ glossary: WORKSHOP_GLOSSARY })
-			const definition = buildWorkshopRules()
-			for (const { subject } of Object.values(WORKSHOP_SUBJECTS)) {
+			const rules = buildWorkshopRules()
+			const gates = buildWorkshopGates()
+			const runs = [
+				...Object.values(WORKSHOP_SUBJECTS).map(({ subject }) => [rules, subject] as const),
+				...Object.values(WORKSHOP_GATES).map(({ subject }) => [gates, subject] as const),
+			]
+			for (const [definition, subject] of runs) {
 				const account = narrator.narrate(definition, REASON.reason(subject, definition))
 				const facts = renderAccount(account, { detail: 'full' })
 					.split('\n')
@@ -829,10 +910,9 @@ describe('Narrator', () => {
 				{ detail: 'full' },
 			).split('\n')
 			expect(texts).toEqual([
-				'List holds',
-				'  kind is z, which is not one of the 3 listed',
-				'Rules that hold: 1 of 2',
+				'List: 1 of 2 rules apply',
 				'Three applies',
+				'  kind is z, which is not one of the 3 listed',
 				'Two does not apply',
 				'  kind is z, which is not one of a and b',
 			])
@@ -857,10 +937,10 @@ describe('Narrator', () => {
 				['any', [5, 7], 6, 'n is 6, which is not one of 5 and 7'],
 				['none', [5, 7], 6, 'n is 6, which is not one of 5 and 7'],
 				['none', [5, 7], 5, 'n is 5, which is one of 5 and 7'],
-				['between', [5, 7], 5, 'n is 5, which is within 5 to 7'],
-				['between', [5, 7], 8, 'n is 8, which is outside 5 to 7'],
-				['outside', [5, 7], 8, 'n is 8, which is outside 5 to 7'],
-				['outside', [5, 7], 5, 'n is 5, which is within 5 to 7'],
+				['between', [5, 7], 5, 'n is 5, which is in the range 5 to 7'],
+				['between', [5, 7], 8, 'n is 8, which is outside the range 5 to 7'],
+				['outside', [5, 7], 8, 'n is 8, which is outside the range 5 to 7'],
+				['outside', [5, 7], 5, 'n is 5, which is in the range 5 to 7'],
 			] as const
 			for (const [operator, expected, actual, text] of facts) {
 				const definition = createLogicalDefinition('d', 'D', [
@@ -993,23 +1073,124 @@ describe('Narrator', () => {
 			const other = createLogicalDefinition('e', 'Other', [])
 			const account = new Narrator().narrate(other, REASON.reason({ age: 30 }, definition))
 			expect(renderAccount(account, { detail: 'full' }).split('\n')).toEqual([
-				'Other holds',
-				'Rules that hold: 1 of 1',
+				'Other: 1 of 1 rules apply',
 				'r applies',
 			])
-			expect(account.lines[2]?.gaps).toEqual([{ word: 'name', part: 'rule', id: 'r' }])
+			expect(account.lines[0]?.summary).toBe('Other: 1 of 1 rules apply (r)')
+			expect(account.lines[0]?.gaps).toEqual([{ word: 'name', part: 'rule', id: 'r' }])
+			expect(account.lines[1]?.gaps).toEqual([{ word: 'name', part: 'rule', id: 'r' }])
 		})
 
-		it('prints a verdict when no rule is enabled', () => {
+		it('counts no rule when no rule is enabled', () => {
 			const definition = createLogicalDefinition('d', 'Loan', [
 				createRule('r', [createAtom('age', 'from', 18)], createAtom('x', 'equals', true), {
 					enabled: false,
 				}),
 			])
 			const account = new Narrator().narrate(definition, REASON.reason({ age: 30 }, definition))
-			expect(renderAccount(account, { detail: 'full' })).toBe(
-				'Loan does not hold\nRules that hold: 0 of 0',
+			expect(renderAccount(account, { detail: 'full' })).toBe('Loan: 0 of 0 rules apply')
+			expect(renderAccount(account, { detail: 'line' })).toBe('Loan: 0 of 0 rules apply')
+		})
+
+		it('counts independent rules, names those that apply, and gives their facts as its reasons', () => {
+			const definition = buildWorkshopGates()
+			const narrator = new Narrator({ glossary: WORKSHOP_GLOSSARY })
+			const dawn = requireValue(WORKSHOP_GATES.dawn)
+			const account = narrator.narrate(definition, REASON.reason(dawn.subject, definition))
+			expect(renderAccount(account, { detail: 'line' })).toBe(
+				'Booking gates: 2 of 5 rules apply (Early start and Loud activity)',
 			)
+			expect(renderAccount(account).split('\n')).toEqual([
+				'Booking gates: 2 of 5 rules apply',
+				'Early start applies',
+				'  start hour is 9, which is less than 10',
+				'Loud activity applies',
+				'  noise level is 40.5, which is more than 40',
+			])
+			expect(renderAccount(account, { detail: 'full' }).split('\n')).toEqual([
+				'Booking gates: 2 of 5 rules apply',
+				'Early start applies',
+				'  start hour is 9, which is less than 10',
+				'Loud activity applies',
+				'  noise level is 40.5, which is more than 40',
+				'High cost does not apply',
+				'  cost is $1,000.00, which is not more than $1,250.00',
+				'Visiting booker does not apply',
+				'  wOrkshop tier is gold, which is not guest',
+				'Large party does not apply',
+				'  guest count is 8, which is not more than 30',
+			])
+			expect(account.lines[0]).toEqual({
+				role: 'verdict',
+				decisive: true,
+				text: 'Booking gates: 2 of 5 rules apply',
+				summary: 'Booking gates: 2 of 5 rules apply (Early start and Loud activity)',
+				source: {},
+				gaps: [],
+				lines: [],
+			})
+		})
+
+		it('bounds the names a gates verdict gives, and says how many more', () => {
+			const definition = buildWorkshopGates()
+			const festival = requireValue(WORKSHOP_GATES.festival)
+			const result = REASON.reason(festival.subject, definition)
+			const lines = [undefined, 1, 5].map((reasons) =>
+				renderAccount(
+					new Narrator({
+						glossary: WORKSHOP_GLOSSARY,
+						...(reasons === undefined ? {} : { lexicon: { limits: { reasons } } }),
+					}).narrate(definition, result),
+					{ detail: 'line' },
+				),
+			)
+			expect(lines).toEqual([
+				'Booking gates: 5 of 5 rules apply (Early start, Loud activity, High cost, Visiting booker, and 1 more)',
+				'Booking gates: 5 of 5 rules apply (Early start and 4 more)',
+				'Booking gates: 5 of 5 rules apply (Early start, Loud activity, High cost, Visiting booker, and Large party)',
+			])
+		})
+
+		it('decides by the goal where the last enabled rule reads what another concludes', () => {
+			const early = createRule(
+				'early',
+				[createAtom('start', 'below', 10)],
+				createAtom('early', 'equals', true),
+				{ name: 'Early' },
+			)
+			const staffed = createRule(
+				'staffed',
+				[createCompound('not', [createAtom('early', 'equals', true)])],
+				createAtom('staffed', 'equals', true),
+				{ name: 'Staffed' },
+			)
+			const loud = createRule(
+				'loud',
+				[createAtom('noise', 'above', 40)],
+				createAtom('loud', 'equals', true),
+				{ name: 'Loud' },
+			)
+			const narrator = new Narrator()
+			const subject = { start: 9, noise: 50 }
+			const texts = [
+				[early, staffed],
+				[early, staffed, loud],
+				[early, staffed, { ...loud, enabled: false }],
+				[early, { ...loud, enabled: false }],
+				[{ ...early, enabled: false }, loud, staffed],
+			].map((rules) => {
+				const definition = createLogicalDefinition('d', 'Day', rules)
+				return renderAccount(narrator.narrate(definition, REASON.reason(subject, definition)), {
+					detail: 'line',
+				})
+			})
+			expect(texts).toEqual([
+				'Day does not hold, because Early applies (start is 9, which is less than 10)',
+				'Day: 2 of 3 rules apply (Early and Loud)',
+				'Day does not hold, because Early applies (start is 9, which is less than 10)',
+				'Day holds, because start is 9, which is less than 10',
+				'Day gave no answer, because Staffed cannot be decided (early is not known)',
+			])
 		})
 
 		it('writes one verdict line for a quantitative, a symbolic, and an inferential answer', () => {
@@ -1026,7 +1207,7 @@ describe('Narrator', () => {
 				renderAccount(narrator.narrate(score, REASON.reason(gold.subject, score)), {
 					detail: 'line',
 				}),
-			).toBe('Booking score is $165.00')
+			).toBe('Booking score: $165.00')
 			const pair = createSymbolicDefinition('pair', 'Pair', [
 				createEquation('w', createVariable('width'), createConstant(1200), 'width'),
 				createEquation('d', createVariable('depth'), createConstant(10), 'depth'),
@@ -1085,7 +1266,7 @@ describe('Narrator', () => {
 			)
 			expect(account.success).toBe(false)
 			const texts = renderAccount(account, { detail: 'full' }).split('\n')
-			expect(texts.filter((text) => text.startsWith('Rules that hold'))).toEqual([])
+			expect(texts.filter((text) => text.includes('rules apply'))).toEqual([])
 			expect(texts.at(-1)).toBe('Approval cannot be decided')
 			expect(renderAccount(account, { detail: 'line' })).toBe(
 				'Workshop booking cannot be decided, because cost is not known',
@@ -1139,7 +1320,90 @@ describe('Narrator', () => {
 			])
 		})
 
-		it('states a rule left unread beside a last rule left unread', () => {
+		it('refuses a run without a goal, and names each rule left unread with its field', () => {
+			const definition = buildWorkshopGates()
+			const narrator = new Narrator({ glossary: WORKSHOP_GLOSSARY })
+			const accounts = [WORKSHOP_GATES.noguests, WORKSHOP_GATES.nostart].map((entry) =>
+				narrator.narrate(definition, REASON.reason(requireValue(entry).subject, definition)),
+			)
+			expect(accounts.map((account) => renderAccount(account, { detail: 'line' }))).toEqual([
+				'Booking gates gave no answer, because Large party cannot be decided (guest count is not known)',
+				'Booking gates gave no answer, because Early start cannot be decided (start hour is not known)',
+			])
+			expect(accounts.map((account) => renderAccount(account).split('\n'))).toEqual([
+				[
+					'Booking gates gave no answer',
+					'  Large party cannot be decided',
+					'    guest count is not known',
+				],
+				[
+					'Booking gates gave no answer',
+					'  Early start cannot be decided',
+					'    start hour is not known',
+				],
+			])
+			expect(renderAccount(requireValue(accounts[0]), { detail: 'full' }).split('\n')).toEqual([
+				'Booking gates gave no answer',
+				'  Large party cannot be decided',
+				'    guest count is not known',
+				'Early start applies',
+				'  start hour is 9, which is less than 10',
+				'Loud activity does not apply',
+				'  noise level is 30, which is not more than 40',
+				'High cost does not apply',
+				'  cost is $1,000.00, which is not more than $1,250.00',
+				'Visiting booker does not apply',
+				'  wOrkshop tier is gold, which is not guest',
+				'Large party cannot be decided',
+			])
+		})
+
+		it('states a rule left unread beside a goal left unread', () => {
+			const definition = createLogicalDefinition('d', 'Loan', [
+				createRule('a', [createAtom('income', 'above', 1)], createAtom('a', 'equals', true), {
+					name: 'Income',
+				}),
+				createRule('b', [createAtom('debt', 'below', 9)], createAtom('b', 'equals', true), {
+					name: 'Debt',
+				}),
+				createRule('c', [createAtom('b', 'equals', true)], createAtom('c', 'equals', true), {
+					name: 'Grant',
+				}),
+			])
+			const account = new Narrator().narrate(definition, REASON.reason({}, definition))
+			expect(renderAccount(account, { detail: 'line' })).toBe(
+				'Loan cannot be decided, because Debt cannot be decided (debt is not known)',
+			)
+			expect(renderAccount(account).split('\n')).toEqual([
+				'Loan cannot be decided',
+				'  Debt cannot be decided',
+				'    debt is not known',
+				'Income cannot be decided',
+				'  income is not known',
+			])
+		})
+
+		it('gives no verdict of a goal settled beside a rule left unread', () => {
+			const definition = createLogicalDefinition('d', 'Loan', [
+				createRule('a', [createAtom('income', 'above', 1)], createAtom('a', 'equals', true), {
+					name: 'Income',
+				}),
+				createRule('b', [createAtom('debt', 'below', 9)], createAtom('b', 'equals', true), {
+					name: 'Debt',
+				}),
+				createRule('c', [createAtom('b', 'equals', true)], createAtom('c', 'equals', true), {
+					name: 'Grant',
+				}),
+			])
+			const account = new Narrator().narrate(definition, REASON.reason({ debt: 1 }, definition))
+			expect(renderAccount(account).split('\n')).toEqual([
+				'Loan gave no answer',
+				'  Income cannot be decided',
+				'    income is not known',
+			])
+		})
+
+		it('names two independent rules left unread', () => {
 			const definition = createLogicalDefinition('d', 'Loan', [
 				createRule('a', [createAtom('income', 'above', 1)], createAtom('a', 'equals', true), {
 					name: 'Income',
@@ -1150,10 +1414,11 @@ describe('Narrator', () => {
 			])
 			const account = new Narrator().narrate(definition, REASON.reason({}, definition))
 			expect(renderAccount(account).split('\n')).toEqual([
-				'Loan cannot be decided',
-				'  debt is not known',
-				'Income cannot be decided',
-				'  income is not known',
+				'Loan gave no answer',
+				'  Income cannot be decided',
+				'    income is not known',
+				'  Debt cannot be decided',
+				'    debt is not known',
 			])
 		})
 
@@ -1239,7 +1504,7 @@ describe('Narrator', () => {
 			expect(accounts.map((account) => account.success)).toEqual([false, false, false, false])
 			expect(accounts.map((account) => renderAccount(account, { detail: 'line' }))).toEqual([
 				'Booking score gave no answer, because Base fee found no value to use (cost is not known)',
-				'Booking score gave no answer, because Room rate found no value to use (looked up by room)',
+				'Booking score gave no answer, because Room rate found no value to use (no entry matches room)',
 				'Floor area gave no answer, because depth is not known',
 				'Booking facts gave no answer',
 			])
@@ -1258,7 +1523,7 @@ describe('Narrator', () => {
 			expect(texts[1]?.split('\n')).toEqual([
 				'Booking score gave no answer',
 				'  Room rate found no value to use',
-				'    looked up by room',
+				'    no entry matches room',
 				'Fees applied',
 				'  Base fee applied',
 				'  Service charge applied',
@@ -1305,6 +1570,24 @@ describe('Narrator', () => {
 					/71\.35|106\.35|1\.35|\b40\b|\b55\b|\b90\b/,
 				)
 			}
+		})
+
+		it('says that no entry matched where a lookup or a range found none, and its field is read', () => {
+			const narrator = new Narrator()
+			const tables = createQuantitativeDefinition('d', 'D', [
+				createFactorGroup('g', 'sum', [
+					createLookupFactor('l', 'kind', { a: 1 }, { name: 'L' }),
+					createRangeFactor('r', 'size', [{ bounds: { maximum: 5 }, value: 1 }], { name: 'R' }),
+				]),
+			])
+			const texts = [{ kind: 'z', size: 9 }, { kind: 'z' }, { size: 9 }].map(
+				(subject) => narrator.narrate(tables, REASON.reason(subject, tables)).lines[0]?.summary,
+			)
+			expect(texts).toEqual([
+				'D gave no answer, because L found no value to use (no entry matches kind); and R found no value to use (no entry matches size)',
+				'D gave no answer, because L found no value to use (no entry matches kind); and R found no value to use (size is not known)',
+				'D gave no answer, because L found no value to use (kind is not known); and R found no value to use (no entry matches size)',
+			])
 		})
 
 		it('names a gate it could not read', () => {
@@ -1369,6 +1652,31 @@ describe('Narrator', () => {
 				return new Set(rules.map((line) => line.source.rule)).size
 			})
 			expect(stated).toEqual(Object.values(WORKSHOP_SUBJECTS).map(() => 8))
+		})
+
+		it('agrees with the state the fixture gives every gate, and claims no outcome of them together', () => {
+			const definition = buildWorkshopGates()
+			const narrator = new Narrator({ glossary: WORKSHOP_GLOSSARY })
+			const names = new Map(definition.rules.map((rule) => [rule.id, rule.name]))
+			for (const { subject, success, states } of Object.values(WORKSHOP_GATES)) {
+				const account = narrator.narrate(definition, REASON.reason(subject, definition))
+				const lines = account.lines.slice(1)
+				for (const line of lines) {
+					const state = requireValue(states[line.source.rule ?? ''])
+					const name = requireValue(names.get(line.source.rule ?? ''))
+					expect(line.state).toBe(state)
+					expect(line.text).toBe(`${name} ${RULE_WORDS[state]}`)
+					expect(line.decisive).toBe(success && state === 'met')
+				}
+				expect(new Set(lines.map((line) => line.source.rule)).size).toBe(5)
+				const verdict = requireValue(account.lines[0])
+				expect(verdict.text).not.toMatch(/\bholds?\b|cannot be decided/)
+				// The verdict names only rules that apply, and a refusal only rules left unread.
+				const named = [...names].filter(([, name]) => verdict.summary.includes(name))
+				const expected = success ? 'met' : 'unread'
+				expect(named.filter(([id]) => states[id] !== expected)).toEqual([])
+				expect(named.length > 0).toBe(Object.values(states).includes(expected))
+			}
 		})
 
 		it('agrees with the engine over every generated tree and assignment', () => {
@@ -1475,7 +1783,7 @@ describe('Narrator', () => {
 			)
 			const texts = renderAccount(account, { detail: 'full' }).split('\n')
 			expect(texts).toEqual([
-				'Booking score is 130',
+				'Booking score: 130',
 				'Fees: 110',
 				'  Base fee: 100',
 				'    cost is $100.00',
@@ -1491,7 +1799,7 @@ describe('Narrator', () => {
 			expect(renderAccount(account).split('\n')).toEqual(
 				texts.filter((text) => !/Gold bonus|not gold/.test(text)),
 			)
-			expect(renderAccount(account, { detail: 'line' })).toBe('Booking score is 130')
+			expect(renderAccount(account, { detail: 'line' })).toBe('Booking score: 130')
 			const gated = account.lines[1]?.lines[2]
 			expect(gated?.summary).toBe(
 				'Gold bonus did not apply, because wOrkshop tier is silver, which is not gold',
@@ -1515,7 +1823,7 @@ describe('Narrator', () => {
 				accounts.map((account) => renderAccount(account, { detail: 'full' }).split('\n')),
 			).toEqual([
 				[
-					'Booking fees is $121.35',
+					'Booking fees: $121.35',
 					'Hire: $105.00',
 					'  Room rate: $40.00',
 					'    hourly rate is $20.00',
@@ -1537,12 +1845,12 @@ describe('Narrator', () => {
 					'Total: $121.35',
 				],
 				[
-					'Booking fees is $210.90',
+					'Booking fees: $210.90',
 					'Hire: $210.00',
 					'  Room rate: $40.00',
 					'    hourly rate is $20.00',
 					'  Crowd charge: $120.00',
-					'    its fallback, because guest count matches no entry',
+					'    its fallback, because no entry matches guest count',
 					'    before its changes: 40',
 					'  Deposit: $50.00',
 					'    fixed at $50.00',
@@ -1550,7 +1858,7 @@ describe('Narrator', () => {
 					'  Discount: 0.9',
 					'    fixed at 0.9',
 					'  Season: 1',
-					'    its fallback, because season matches no entry',
+					'    its fallback, because no entry matches season',
 					'Extras did not apply',
 					'  Tool hire did not apply',
 					'    tools brought is false',
@@ -1575,15 +1883,221 @@ describe('Narrator', () => {
 				createQuantitativeDefinition('d', 'D', groups, { bounds: { maximum: 5 } }),
 			].map((definition) => {
 				const account = narrator.narrate(definition, REASON.reason({}, definition))
-				return [account.lines[0]?.text, account.lines.slice(3).map((line) => line.text)]
+				return account.lines.map((line) => line.text)
 			})
 			expect(last).toEqual([
-				['D is 7', ['Total: 7']],
-				['D is 9', ['Total: 9']],
-				['D is 3.5', ['Average: 3.5']],
-				['D is 4', ['Highest: 4']],
-				['D is 6', []],
-				['D is 5', []],
+				['D: 7', 'a: 3', 'b: 4', 'Total: 7'],
+				['D: 9', 'base: 2', 'a: 3', 'b: 4', 'Total: 9'],
+				['D: 3.5', 'a: 3', 'b: 4', 'Average: 3.5'],
+				['D: 4', 'a: 3', 'b: 4', 'Highest: 4'],
+				['D: 6', 'base: 2', 'a: 3', 'b: 4'],
+				['D: 5', 'a: 3', 'b: 4', 'bounds: at most 5'],
+			])
+		})
+
+		it('states a base, a weight, and a bound wherever one is authored', () => {
+			const worksheet = createQuantitativeDefinition(
+				'w',
+				'Quote',
+				[
+					createFactorGroup(
+						'g',
+						'sum',
+						[
+							createStaticFactor('s', 3, {
+								name: 'Seats',
+								weight: 2,
+								bounds: { minimum: 4, maximum: 9 },
+							}),
+							createFieldFactor('f', 'n', { name: 'Nights', weight: 1, bounds: { maximum: 50 } }),
+							createStaticFactor('o', 5, {
+								name: 'Off',
+								weight: 3,
+								bounds: { minimum: 1 },
+								checks: [{ field: 'n', operator: 'above', value: 100 }],
+							}),
+						],
+						{ name: 'Stay', base: 10, bounds: { minimum: 5 } },
+					),
+					createFactorGroup('h', 'sum', [createStaticFactor('t', 1, { name: 'Tax' })], {
+						name: 'Extra',
+						base: 0,
+						bounds: {},
+					}),
+					createFactorGroup(
+						'p',
+						'product',
+						[createStaticFactor('r', 2, { name: 'Ratio', bounds: { maximum: 3 } })],
+						{ name: 'Scale', base: 1 },
+					),
+				],
+				{ base: 100, bounds: { minimum: 50, maximum: 1500 } },
+			)
+			const narrator = new Narrator({
+				glossary: {
+					labels: { n: 'night count' },
+					units: { n: 'plain' },
+					values: { w: 'money' },
+					formats: { money: { style: 'currency', currency: 'USD' } },
+				},
+			})
+			const account = narrator.narrate(worksheet, REASON.reason({ n: 7 }, worksheet))
+			const texts = renderAccount(account, { detail: 'full' }).split('\n')
+			expect(texts).toEqual([
+				'Quote: $129.00',
+				'base: $100.00',
+				'Stay: $25.00',
+				'  base: $10.00',
+				'  Seats: $4.00',
+				'    fixed at 3',
+				'    bounds: $4.00 to $9.00',
+				'    weight: 2',
+				'  Nights: $7.00',
+				'    night count is 7',
+				'    bounds: at most $50.00',
+				'  Off did not apply',
+				'    night count is 7, which is not more than 100',
+				'  bounds: at least $5.00',
+				'Extra: $1.00',
+				'  Tax: $1.00',
+				'    fixed at $1.00',
+				'Scale: $3.00',
+				'  base: $1.00',
+				'  Ratio: 2',
+				'    fixed at 2',
+				'    bounds: at most 3',
+				'bounds: $50.00 to $1,500.00',
+			])
+			expect(renderAccount(account).split('\n')).toEqual(
+				texts.filter((text) => !/Off did not|not more than/.test(text)),
+			)
+			expect(renderAccount(account, { detail: 'line' })).toBe('Quote: $129.00')
+			const base = account.lines[1]
+			expect([base?.role, base?.source, base?.lines]).toEqual(['step', {}, []])
+			expect(account.lines[2]?.lines[0]?.source).toEqual({ group: 'g' })
+			expect(account.lines[2]?.lines[1]?.lines[2]?.source).toEqual({ group: 'g', factor: 's' })
+			const unformatted = new Narrator({ glossary: { labels: {}, values: { w: 'guilder' } } })
+			const lines = [...unformatted.narrate(worksheet, REASON.reason({ n: 7 }, worksheet)).lines]
+			for (const line of lines) lines.push(...line.lines)
+			expect(
+				lines
+					.filter((line) => /^(?:base|bounds|weight): /.test(line.text))
+					.map((line) => [line.text, line.gaps.length]),
+			).toEqual([
+				['base: 100', 1],
+				['bounds: 50 to 1500', 1],
+				['base: 10', 1],
+				['bounds: at least 5', 1],
+				['base: 1', 1],
+				['bounds: 4 to 9', 1],
+				['weight: 2', 0],
+				['bounds: at most 50', 1],
+				['bounds: at most 3', 0],
+			])
+		})
+
+		it('states no base, weight, or bound of a refused run, or of a group that did not apply', () => {
+			const factors = [
+				createFieldFactor('f', 'n', { name: 'F', weight: 4, bounds: { maximum: 9 } }),
+				createStaticFactor('s', 1, {
+					name: 'S',
+					weight: 4,
+					bounds: { maximum: 9 },
+					checks: [{ field: 'on', operator: 'equals', value: true }],
+				}),
+			]
+			const worksheet = createQuantitativeDefinition(
+				'w',
+				'W',
+				[
+					createFactorGroup('g', 'sum', factors, {
+						name: 'G',
+						base: 4,
+						bounds: { maximum: 9 },
+						strict: true,
+					}),
+					createFactorGroup('h', 'sum', [createStaticFactor('t', 1, { name: 'T' })], { name: 'H' }),
+				],
+				{ base: 4, bounds: { maximum: 9 } },
+			)
+			const narrator = new Narrator()
+			const texts = [{ on: true }, { n: 2, on: false }].map((subject) =>
+				renderAccount(narrator.narrate(worksheet, REASON.reason(subject, worksheet)), {
+					detail: 'full',
+				}).split('\n'),
+			)
+			expect(texts).toEqual([
+				[
+					'W gave no answer',
+					'  F found no value to use',
+					'    n is not known',
+					'G did not apply',
+					'  F found no value to use',
+					'  S applied',
+					'H applied',
+					'  T applied',
+				],
+				[
+					'W: 5',
+					'base: 4',
+					'G did not apply',
+					'  F applied',
+					'  S did not apply',
+					'    on is false',
+					'H: 1',
+					'  T: 1',
+					'    fixed at 1',
+					'bounds: at most 9',
+				],
+			])
+		})
+
+		it('states only the finite ends of a bound, and no base or weight that is not finite', () => {
+			const ends = [
+				{ minimum: Number.NEGATIVE_INFINITY, maximum: 9 },
+				{ minimum: 0, maximum: Number.POSITIVE_INFINITY },
+				{ minimum: Number.NEGATIVE_INFINITY, maximum: Number.POSITIVE_INFINITY },
+				{ minimum: 0, maximum: 0 },
+			]
+			const texts = ends.map((bounds) => {
+				const worksheet = createQuantitativeDefinition(
+					'w',
+					'W',
+					[createFactorGroup('g', 'sum', [createStaticFactor('s', 0)])],
+					{ bounds },
+				)
+				// The reasoner alone, because the engine's shape refuses an infinite bound.
+				const result = createQuantitativeReasoner().reason({}, worksheet)
+				const account = new Narrator().narrate(worksheet, result)
+				return account.lines.slice(2).map((line) => line.text)
+			})
+			expect(texts).toEqual([['bounds: at most 9'], ['bounds: at least 0'], [], ['bounds: 0 to 0']])
+			const broken = createQuantitativeDefinition(
+				'w',
+				'W',
+				[
+					createFactorGroup('g', 'sum', [createStaticFactor('s', 1, { weight: Number.NaN })], {
+						base: Number.POSITIVE_INFINITY,
+					}),
+				],
+				{ base: Number.NaN },
+			)
+			const result = createQuantitativeReasoner().reason({}, broken)
+			if (!isQuantitativeResult(result)) throw new Error('Expected a quantitative result')
+			const claimed = new Narrator().narrate(broken, {
+				...result,
+				success: true,
+				value: 1,
+				groups: [
+					{ id: 'g', applied: true, value: 1, factors: [{ id: 's', applied: true, value: 1 }] },
+				],
+			})
+			expect(renderAccount(claimed, { detail: 'full' }).split('\n')).toEqual([
+				'W: 1',
+				'g: 1',
+				'  s: 1',
+				'    fixed at 1',
+				'Total: 1',
 			])
 		})
 
@@ -1615,7 +2129,7 @@ describe('Narrator', () => {
 			const other = createQuantitativeDefinition('o', 'Other', [])
 			const account = new Narrator().narrate(other, REASON.reason(gold.subject, score))
 			expect(renderAccount(account, { detail: 'full' }).split('\n')).toEqual([
-				'Other is 165',
+				'Other: 165',
 				'fees: 135',
 				'  base: 100',
 				'  service: 10',
@@ -1635,10 +2149,14 @@ describe('Narrator', () => {
 			const area = buildWorkshopArea()
 			const facts = buildWorkshopFacts()
 			const fees = buildWorkshopFees()
+			const gates = buildWorkshopGates()
 			for (const narrator of [new Narrator(), new Narrator({ glossary: WORKSHOP_GLOSSARY })]) {
 				const accounts = [
 					...Object.values(WORKSHOP_SUBJECTS).map(({ subject }) =>
 						narrator.narrate(rules, REASON.reason(subject, rules)),
+					),
+					...Object.values(WORKSHOP_GATES).map(({ subject }) =>
+						narrator.narrate(gates, REASON.reason(subject, gates)),
 					),
 					...Object.values(WORKSHOP_SCORES).map(({ subject }) =>
 						narrator.narrate(score, REASON.reason(subject, score)),
@@ -1650,7 +2168,9 @@ describe('Narrator', () => {
 						narrator.narrate(fees, REASON.reason(subject, fees)),
 					),
 					narrator.narrate(facts, REASON.reason({}, facts)),
-					...[rules, score, fees, area, facts].map((definition) => narrator.describe(definition)),
+					...[rules, gates, score, fees, area, facts].map((definition) =>
+						narrator.describe(definition),
+					),
 				]
 				const lines = accounts.flatMap((account) => account.lines)
 				for (const line of lines) lines.push(...line.lines)
@@ -1702,7 +2222,12 @@ describe('Narrator', () => {
 							'q\nq',
 							[
 								createFactorGroup('g', aggregation, [
-									createStaticFactor('s', number, { name: ' ', description: 'x\ny' }),
+									createStaticFactor('s', number, {
+										name: ' ',
+										description: 'x\ny',
+										weight: number,
+										bounds: { minimum: number, maximum: number },
+									}),
 									createFieldFactor('f', 'n', {
 										transforms: [{ operation: 'multiply', operand: 10 }],
 									}),
@@ -1713,7 +2238,7 @@ describe('Narrator', () => {
 									}),
 								]),
 							],
-							{ aggregation },
+							{ aggregation, base: number, bounds: { maximum: number } },
 						)
 						const result = createQuantitativeReasoner().reason({ n: actual }, definition)
 						if (!isQuantitativeResult(result)) throw new Error('Expected a quantitative result')
@@ -1819,7 +2344,7 @@ describe('Narrator', () => {
 				),
 			])
 			expect(renderAccount(narrator.describe(rules)).split('\n').at(-1)).toBe(
-				'  R holds when places over capacity is within $3.00 to $1,250.50 and cost is $1,250.50',
+				'  applies when places over capacity is in the range $3.00 to $1,250.50 and cost is $1,250.50',
 			)
 			const worksheet = createQuantitativeDefinition('w', 'W', [
 				createFactorGroup(
@@ -1842,7 +2367,7 @@ describe('Narrator', () => {
 					detail: 'full',
 				}).split('\n'),
 			).toEqual([
-				'W is 2501',
+				'W: 2501',
 				'G: 2501',
 				'  F: 1250.5',
 				'    cost is $1,250.50',
@@ -1895,7 +2420,7 @@ describe('Narrator', () => {
 				renderAccount(narrator.narrate(worksheet, REASON.reason({ tier: 2 }, worksheet))).split(
 					'\n',
 				),
-			).toEqual(['the SUM is 2', 'gROUP: 2', '  fACTOR: 2', '    iD Trade is 2', 'Total: 2'])
+			).toEqual(['the SUM: 2', 'gROUP: 2', '  fACTOR: 2', '    iD Trade is 2', 'Total: 2'])
 			expect(renderAccount(narrator.describe(worksheet), { detail: 'full' }).split('\n')).toEqual([
 				'the SUM',
 				'  Total of the values that apply',
@@ -1917,25 +2442,60 @@ describe('Narrator', () => {
 	})
 
 	describe('T8: a count names what it counts', () => {
-		it('counts the met rules of the enabled ones', () => {
+		it('counts the met rules of the enabled ones, beside a goal', () => {
 			const definition = createLogicalDefinition('d', 'Loan', [
 				createRule('a', [createAtom('n', 'above', 1)], createAtom('a', 'equals', true)),
-				createRule('b', [createAtom('n', 'above', 2)], createAtom('b', 'equals', true)),
 				createRule('c', [createAtom('n', 'above', 9)], createAtom('c', 'equals', true)),
+				createRule('b', [createAtom('a', 'equals', true)], createAtom('b', 'equals', true)),
 				createRule('d', [createAtom('n', 'above', 0)], createAtom('d', 'equals', true), {
 					enabled: false,
 				}),
 			])
 			const account = new Narrator().narrate(definition, REASON.reason({ n: 5 }, definition))
+			expect(account.lines[0]?.text).toBe('Loan holds')
 			expect(account.lines[1]).toEqual({
 				role: 'step',
 				decisive: false,
-				text: 'Rules that hold: 2 of 3',
-				summary: 'Rules that hold: 2 of 3',
+				text: 'Loan: 2 of 3 rules apply',
+				summary: 'Loan: 2 of 3 rules apply',
 				source: {},
 				gaps: [],
 				lines: [],
 			})
+		})
+
+		it('counts in the verdict where there is no goal, once, whatever the last rule settled on', () => {
+			const definition = buildWorkshopGates()
+			const narrator = new Narrator({ glossary: WORKSHOP_GLOSSARY })
+			const texts = ['calm', 'crowd', 'dawn', 'festival'].map((name) => {
+				const { subject } = requireValue(WORKSHOP_GATES[name])
+				const account = narrator.narrate(definition, REASON.reason(subject, definition))
+				return renderAccount(account, { detail: 'full' })
+					.split('\n')
+					.filter((text) => /\d of \d/.test(text))
+			})
+			expect(texts).toEqual([
+				['Booking gates: 0 of 5 rules apply'],
+				['Booking gates: 1 of 5 rules apply'],
+				['Booking gates: 2 of 5 rules apply'],
+				['Booking gates: 5 of 5 rules apply'],
+			])
+			const { subject } = requireValue(WORKSHOP_GATES.calm)
+			const calm = narrator.narrate(definition, REASON.reason(subject, definition))
+			expect(renderAccount(calm)).toBe('Booking gates: 0 of 5 rules apply')
+			expect(renderAccount(calm, { detail: 'line' })).toBe('Booking gates: 0 of 5 rules apply')
+		})
+
+		it('counts the met rules of the enabled ones, without a goal', () => {
+			const definition = createLogicalDefinition('d', 'Loan', [
+				createRule('a', [createAtom('n', 'above', 1)], createAtom('a', 'equals', true)),
+				createRule('b', [createAtom('n', 'above', 9)], createAtom('b', 'equals', true)),
+				createRule('d', [createAtom('n', 'above', 0)], createAtom('d', 'equals', true), {
+					enabled: false,
+				}),
+			])
+			const account = new Narrator().narrate(definition, REASON.reason({ n: 5 }, definition))
+			expect(account.lines[0]?.summary).toBe('Loan: 1 of 2 rules apply (a)')
 		})
 	})
 
@@ -2012,7 +2572,7 @@ describe('Narrator', () => {
 			const carried = new Set(lines.flatMap((line) => line.gaps).map((gap) => JSON.stringify(gap)))
 			expect([...carried].toSorted()).toEqual(gaps.map((gap) => JSON.stringify(gap)).toSorted())
 			const texts = renderAccount(account, { detail: 'full' }).split('\n')
-			expect(texts).toContain('  start is 10, which is within 8 to 18')
+			expect(texts).toContain('  start is 10, which is in the range 8 to 18')
 			expect(texts).toContain('  cost is 1000, which is at most 1250')
 			expect(texts).toContain('quiet applies')
 			const guide = narrator.describe(definition)
@@ -2069,6 +2629,7 @@ describe('Narrator', () => {
 			const narrator = new Narrator({ glossary: WORKSHOP_GLOSSARY })
 			const definitions = [
 				buildWorkshopRules(),
+				buildWorkshopGates(),
 				buildWorkshopScore(),
 				buildWorkshopFees(),
 				buildWorkshopArea(),
@@ -2117,7 +2678,7 @@ describe('Narrator', () => {
 			const gold = requireValue(WORKSHOP_SCORES.gold)
 			const account = narrator.narrate(score, REASON.reason(gold.subject, score))
 			expect(account.lines[0]?.gaps).toEqual([])
-			expect(account.lines[0]?.text).toBe('Booking score is unit:165')
+			expect(account.lines[0]?.text).toBe('Booking score: unit:165')
 		})
 	})
 })
