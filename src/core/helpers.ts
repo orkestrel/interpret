@@ -86,6 +86,7 @@ import {
 	CONFIDENCE_EXACT,
 	DEFAULT_LEXICON,
 	FRAME_SLOTS,
+	WORD_SLOTS,
 	NUMBER_PATTERN,
 	TEXT_BREAK_PATTERN,
 } from './constants.js'
@@ -844,10 +845,33 @@ export function scanWords(
  * ```
  */
 export function scanFrame(id: FrameName, frame: string): readonly string[] {
-	const slots = FRAME_SLOTS[id]
-	const path = renderPath(['frames', id])
+	return scanSlots(renderPath(['frames', id]), frame, FRAME_SLOTS[id])
+}
+
+/**
+ * Scans a template for slots it is not offered.
+ *
+ * @param path - The template's place, for the findings
+ * @param template - The template to scan
+ * @param slots - The slots it is offered
+ * @returns One finding per slot that is not among them
+ *
+ * @example
+ * ```ts
+ * import { scanSlots } from '@orkestrel/interpret'
+ *
+ * scanSlots('operations.add', '{{left}} + {{right}}', ['left', 'right']) // []
+ * scanSlots('operations.add', '{{left}} + {{top}}', ['left', 'right'])
+ * // ['operations.add names the slot "top", and it offers left, right']
+ * ```
+ */
+export function scanSlots(
+	path: string,
+	template: string,
+	slots: readonly string[],
+): readonly string[] {
 	const offered = slots.join(', ') || 'none'
-	return [...frame.matchAll(new RegExp(FILL_PATTERN.source, FILL_PATTERN.flags))].flatMap(
+	return [...template.matchAll(new RegExp(FILL_PATTERN.source, FILL_PATTERN.flags))].flatMap(
 		([, token]) => {
 			const slot = token?.trim()
 			return slot === undefined || slots.includes(slot)
@@ -896,9 +920,28 @@ export function scanLexicon(input: unknown): readonly string[] {
 			case 'verdicts':
 			case 'aggregations':
 			case 'faults':
+			case 'expected':
+			case 'unreadables':
+			case 'eligibilities':
+			case 'effects':
+			case 'statuses':
+			case 'decisions':
 			case 'values':
 			case 'joins':
 				return scanWords([table], words, Object.keys(DEFAULT_LEXICON[table]))
+			case 'constraints':
+			case 'lengths':
+			case 'operations':
+			case 'transforms':
+			case 'refusals':
+				return [
+					...scanWords([table], words, Object.keys(DEFAULT_LEXICON[table])),
+					...Object.entries(isRecord(words) ? words : {}).flatMap(([key, word]) =>
+						isString(word) && Object.hasOwn(DEFAULT_LEXICON[table], key)
+							? scanSlots(renderPath([table, key]), word, WORD_SLOTS[table])
+							: [],
+					),
+				]
 			case 'frames':
 				return [
 					...scanWords(['frames'], words, Object.keys(FRAME_SLOTS)),
@@ -1029,6 +1072,17 @@ export function mergeLexicon(base: Lexicon, input: LexiconInput): Lexicon {
 		verdicts: Object.freeze({ ...base.verdicts, ...input.verdicts }),
 		aggregations: Object.freeze({ ...base.aggregations, ...input.aggregations }),
 		faults: Object.freeze({ ...base.faults, ...input.faults }),
+		expected: Object.freeze({ ...base.expected, ...input.expected }),
+		constraints: Object.freeze({ ...base.constraints, ...input.constraints }),
+		lengths: Object.freeze({ ...base.lengths, ...input.lengths }),
+		operations: Object.freeze({ ...base.operations, ...input.operations }),
+		transforms: Object.freeze({ ...base.transforms, ...input.transforms }),
+		refusals: Object.freeze({ ...base.refusals, ...input.refusals }),
+		unreadables: Object.freeze({ ...base.unreadables, ...input.unreadables }),
+		eligibilities: Object.freeze({ ...base.eligibilities, ...input.eligibilities }),
+		effects: Object.freeze({ ...base.effects, ...input.effects }),
+		statuses: Object.freeze({ ...base.statuses, ...input.statuses }),
+		decisions: Object.freeze({ ...base.decisions, ...input.decisions }),
 		values: Object.freeze({ ...base.values, ...input.values }),
 		joins: Object.freeze({ ...base.joins, ...input.joins }),
 		frames: Object.freeze({ ...base.frames, ...input.frames }),
@@ -1872,7 +1926,10 @@ export function collectListJoins(
  * renderReasons(['a', 'b', 'c'], { reasons: '; ', last: '; and ' }) // 'a; b; and c'
  * ```
  */
-export function renderReasons(reasons: readonly string[], joins: Lexicon['joins']): string {
+export function renderReasons(
+	reasons: readonly string[],
+	joins: Pick<Lexicon['joins'], 'reasons' | 'last'>,
+): string {
 	const last = reasons.at(-1) ?? ''
 	return reasons.length < 2
 		? last

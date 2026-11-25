@@ -2,16 +2,23 @@ import type { Check, Expression } from '@orkestrel/reason'
 import type { Account, Entity, NarratorFormatter, NarratorOptions } from '@src/core'
 import {
 	arrayShape,
+	FAULT_CONSTRAINTS,
+	FAULT_KINDS,
 	isFunction,
 	isObject,
+	isString,
 	nullableShape,
 	numberShape,
 	objectShape,
 	optionalShape,
 } from '@orkestrel/contract'
 import {
+	AGGREGATIONS,
+	applyOperation,
+	CHECK_STATES,
 	collectConcluders,
 	combineStates,
+	COMPARISONS,
 	createAtom,
 	createCompound,
 	createConstant,
@@ -30,7 +37,10 @@ import {
 	createSymbolicReasoner,
 	createVariable,
 	LOGICAL_OPERATORS,
+	MATH_OPERATIONS,
+	resolveOperand,
 } from '@orkestrel/reason'
+import { fillTemplate } from '@orkestrel/template'
 import {
 	applyReplacements,
 	assertRecipe,
@@ -82,6 +92,8 @@ import {
 	isInterpretError,
 	matchRecipe,
 	normalizeLine,
+	NUMBER_REFUSAL_REASONS,
+	NUMBER_UNREADABLE_REASONS,
 	readNarratorOption,
 	renderAccount,
 	renderName,
@@ -95,6 +107,7 @@ import {
 	scanFrame,
 	scanGlossary,
 	scanLexicon,
+	scanSlots,
 	scanWord,
 	scanWords,
 	scoreRecipe,
@@ -105,16 +118,20 @@ import {
 	SubjectManager,
 	tokenize,
 	variablesOf,
+	WORD_SLOTS,
 } from '@src/core'
 import { captureError, createHostileValues } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import {
+	ABSENT_OPERAND_READINGS,
 	buildInterpretRecipe,
 	buildWorkshopGates,
 	buildWorkshopRules,
 	EXTREME_NUMBERS,
 	InterpretFixtureValue,
 	OPEN_SHAPE,
+	OPERATION_READINGS,
+	TRANSFORM_READINGS,
 	UNBOUND_LINK_READINGS,
 	NUMBER_LINK_READINGS,
 	UNCOMPILABLE_SHAPE,
@@ -1080,7 +1097,7 @@ describe('the words', () => {
 		[{ checks: { read: 'x' } }, 'checks.read is not one of met, unmet, unread'],
 		[{ rules: { met: 5 } }, 'rules.met is not text'],
 		[{ verdicts: { won: 'x' } }, 'verdicts.won is not one of met, unmet, unread'],
-		[{ joins: { first: 'x' } }, 'joins.first is not one of reasons, last'],
+		[{ joins: { first: 'x' } }, 'joins.first is not one of reasons, last, steps'],
 		[{ joins: { last: ' ' } }, 'joins.last is empty'],
 		[
 			{ aggregations: { mode: 'x' } },
@@ -1104,8 +1121,51 @@ describe('the words', () => {
 		[{ missing: 'a\nb' }, 'missing holds a line break'],
 		[
 			{ labels: { cost: 'Cost' } },
-			'labels is not one of comparisons, checks, rules, verdicts, aggregations, faults, values, joins, frames, limits, missing',
+			'labels is not one of comparisons, checks, rules, verdicts, aggregations, faults, expected, constraints, lengths, operations, transforms, refusals, unreadables, eligibilities, effects, statuses, decisions, values, joins, frames, limits, missing',
 		],
+		[{ expected: { text: 'x' } }, `expected.text is not one of ${FAULT_KINDS.join(', ')}`],
+		[
+			{ constraints: { least: 'x' } },
+			`constraints.least is not one of ${FAULT_CONSTRAINTS.join(', ')}`,
+		],
+		[{ lengths: { over: 'x' } }, 'lengths.over is not one of min, max'],
+		[{ lengths: { min: '{{size}}' } }, 'lengths.min names the slot "size", and it offers limit'],
+		[
+			{ constraints: { max: 'up to {{bound}}' } },
+			'constraints.max names the slot "bound", and it offers limit',
+		],
+		[
+			{ operations: { add: '{{left}} and {{operand}}' } },
+			'operations.add names the slot "operand", and it offers left, right',
+		],
+		[
+			{ operations: { modulo: '{{left}}' } },
+			`operations.modulo is not one of ${MATH_OPERATIONS.join(', ')}`,
+		],
+		[
+			{ transforms: { add: 'plus {{right}}' } },
+			'transforms.add names the slot "right", and it offers operand',
+		],
+		[
+			{ refusals: { unanchored: '{{value}}' } },
+			'refusals.unanchored names the slot "value", and it offers text',
+		],
+		[{ refusals: [] }, 'refusals is not a table of words'],
+		[{ operations: { add: ' ' } }, 'operations.add is empty'],
+		[{ unreadables: { range: 'a\nb' } }, 'unreadables.range holds a line break'],
+		[
+			{ eligibilities: { maybe: 'x' } },
+			'eligibilities.maybe is not one of eligible, ineligible, referral',
+		],
+		[
+			{ effects: { bonus: 'x' } },
+			'effects.bonus is not one of restriction, referral, condition, notice, limit',
+		],
+		[
+			{ statuses: { open: 'x' } },
+			'statuses.open is not one of ineligible, referral, incomplete, conditional, unrated, eligible',
+		],
+		[{ decisions: { held: 'x' } }, 'decisions.held is not one of approved, denied, submitted'],
 	])('scanLexicon refuses %j', (input, finding) => {
 		expect(scanLexicon(input)).toEqual([finding])
 	})
@@ -1181,13 +1241,161 @@ describe('the words', () => {
 				from: { holds: 'is at least', fails: 'is below' },
 			},
 			rules: { met: 'fires', unmet: 'does not apply', unread: 'cannot be decided' },
-			joins: { reasons: '; ', last: ' plus ' },
+			joins: { reasons: '; ', last: ' plus ', steps: ', then ' },
 			limits: { list: 2, reasons: 4 },
 			missing: 'is unknown',
 		})
 		input.rules.met = 'changed'
 		expect(merged.rules.met).toBe('fires')
 		expect(Object.isFrozen(merged) && Object.isFrozen(merged.comparisons.from)).toBe(true)
+	})
+
+	it('mergeLexicon overrides one word of each table alone', () => {
+		const input = {
+			expected: { number: 'a figure' },
+			constraints: { min: 'no less than {{limit}}' },
+			lengths: { max: 'at most {{limit}} parts' },
+			operations: { add: '{{left}} plus {{right}}' },
+			transforms: { abs: 'made positive' },
+			refusals: { unanchored: '{{text}} stands alone' },
+			unreadables: { range: 'it is one of two' },
+			eligibilities: { referral: 'under review' },
+			effects: { limit: 'Cap' },
+			statuses: { unrated: 'no price' },
+			decisions: { submitted: 'sent on' },
+			joins: { steps: ' and then ' },
+		}
+		const merged = mergeLexicon(DEFAULT_LEXICON, input)
+		const tables = [
+			'expected',
+			'constraints',
+			'lengths',
+			'operations',
+			'transforms',
+			'refusals',
+			'unreadables',
+			'eligibilities',
+			'effects',
+			'statuses',
+			'decisions',
+			'joins',
+		] as const
+		expect(Object.keys(input)).toEqual(tables)
+		for (const table of tables) {
+			expect(merged[table]).toEqual({ ...DEFAULT_LEXICON[table], ...input[table] })
+			expect(Object.isFrozen(merged[table])).toBe(true)
+			const changed = Object.entries(merged[table]).filter(
+				([key, word]) => new Map(Object.entries(DEFAULT_LEXICON[table])).get(key) !== word,
+			)
+			expect(changed).toEqual(Object.entries(input[table]))
+		}
+		expect(scanLexicon(input)).toEqual([])
+	})
+
+	it('scanGlossary refuses a phrase table under any name the lexicon owns', () => {
+		for (const name of Object.keys(DEFAULT_LEXICON)) {
+			expect(scanGlossary({ labels: {}, phrases: { [name]: { a: 'b' } } })).toEqual([
+				`phrases.${name} is a table of the lexicon`,
+			])
+		}
+	})
+
+	it('scanSlots finds each slot a template is not offered', () => {
+		expect(scanSlots('a', 'plain', [])).toEqual([])
+		expect(scanSlots('a', '{{ x }} {{y}} {{z}}', ['x'])).toEqual([
+			'a names the slot "y", and it offers x',
+			'a names the slot "z", and it offers x',
+		])
+		expect(scanSlots('a', '{{x}}', [])).toEqual(['a names the slot "x", and it offers none'])
+	})
+
+	// T11. Each list is the one its package exports. The two packages this one does not install own
+	// the lists named beside their tables, so those are written out here.
+	it('T11: every member of every closed vocabulary has a word, one line and not blank', () => {
+		const tables: ReadonlyArray<readonly [string, object, readonly string[]]> = [
+			['comparisons', DEFAULT_LEXICON.comparisons, COMPARISONS],
+			['checks', DEFAULT_LEXICON.checks, CHECK_STATES],
+			['rules', DEFAULT_LEXICON.rules, CHECK_STATES],
+			['verdicts', DEFAULT_LEXICON.verdicts, CHECK_STATES],
+			['aggregations', DEFAULT_LEXICON.aggregations, AGGREGATIONS],
+			['operations', DEFAULT_LEXICON.operations, MATH_OPERATIONS],
+			['transforms', DEFAULT_LEXICON.transforms, MATH_OPERATIONS],
+			['expected', DEFAULT_LEXICON.expected, FAULT_KINDS],
+			['constraints', DEFAULT_LEXICON.constraints, FAULT_CONSTRAINTS],
+			['lengths', DEFAULT_LEXICON.lengths, ['min', 'max']],
+			// `AuditFault['reason']` of `@orkestrel/contract`, which exports no list of it.
+			[
+				'faults',
+				DEFAULT_LEXICON.faults,
+				['type', 'missing', 'constraint', 'variant', 'oneOf', 'extra', 'hidden'],
+			],
+			['refusals', DEFAULT_LEXICON.refusals, NUMBER_REFUSAL_REASONS],
+			['unreadables', DEFAULT_LEXICON.unreadables, NUMBER_UNREADABLE_REASONS],
+			['frames', DEFAULT_LEXICON.frames, Object.keys(FRAME_SLOTS)],
+			// `ELIGIBILITIES` of `@orkestrel/qualifier`.
+			['eligibilities', DEFAULT_LEXICON.eligibilities, ['eligible', 'ineligible', 'referral']],
+			// `QUALIFICATION_EFFECTS` of `@orkestrel/qualifier`, then `PROGRAM_EFFECTS` of
+			// `@orkestrel/program`.
+			[
+				'effects',
+				DEFAULT_LEXICON.effects,
+				['restriction', 'referral', 'condition', 'notice', 'limit'],
+			],
+			// `STATUSES` of `@orkestrel/program`.
+			[
+				'statuses',
+				DEFAULT_LEXICON.statuses,
+				['ineligible', 'referral', 'incomplete', 'conditional', 'unrated', 'eligible'],
+			],
+			// `DECISIONS` of `@orkestrel/program`.
+			['decisions', DEFAULT_LEXICON.decisions, ['approved', 'denied', 'submitted']],
+		]
+		for (const [table, words, members] of tables) {
+			expect([table, Object.keys(words).toSorted()]).toEqual([table, members.toSorted()])
+		}
+		const words = Object.entries(DEFAULT_LEXICON).flatMap(([table, held]) =>
+			table === 'comparisons'
+				? Object.values(DEFAULT_LEXICON.comparisons).flatMap(({ holds, fails }) => [holds, fails])
+				: table === 'limits'
+					? []
+					: isString(held)
+						? [held]
+						: Object.values(held),
+		)
+		expect(words.length).toBeGreaterThan(150)
+		expect(words.flatMap((word) => scanWord('word', word))).toEqual([])
+		for (const [table, slots] of Object.entries(WORD_SLOTS)) {
+			const held = tables.find(([name]) => name === table)?.[1] ?? {}
+			expect(
+				Object.entries(held).flatMap(([key, word]) =>
+					scanSlots(`${table}.${key}`, String(word), slots),
+				),
+			).toEqual([])
+		}
+	})
+
+	// T12. The English is written by hand, over operands whose order changes the value, and the value
+	// is worked out from the English.
+	it("T12: an operation's words say what the engine computes", () => {
+		expect(OPERATION_READINGS.map(([operation]) => operation)).toEqual(MATH_OPERATIONS)
+		for (const [operation, left, right, text, value] of OPERATION_READINGS) {
+			const slots = { left: String(left), right: String(right) }
+			expect(fillTemplate(DEFAULT_LEXICON.operations[operation], slots)).toBe(text)
+			expect(applyOperation(operation, left, right)).toBe(value)
+		}
+		expect(TRANSFORM_READINGS.map(([operation]) => operation)).toEqual(MATH_OPERATIONS)
+		for (const [operation, value, given, text, after] of TRANSFORM_READINGS) {
+			const operand = resolveOperand(operation, given)
+			const filled = fillTemplate(DEFAULT_LEXICON.transforms[operation], { operand })
+			expect(filled).toBe(text)
+			expect(applyOperation(operation, value, operand)).toBe(after)
+		}
+		// An operand left out is the one `resolveOperand` gives, so its words hold that number.
+		for (const [operation, text, after] of ABSENT_OPERAND_READINGS) {
+			const operand = resolveOperand(operation)
+			expect(fillTemplate(DEFAULT_LEXICON.transforms[operation], { operand })).toBe(text)
+			expect(applyOperation(operation, 7, operand)).toBe(after)
+		}
 	})
 
 	it('DEFAULT_LEXICON words every frame with only the slots it offers', () => {

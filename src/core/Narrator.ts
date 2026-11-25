@@ -1,4 +1,4 @@
-import type { AuditFault, FieldPath } from '@orkestrel/contract'
+import type { AuditFault, FaultKind, FieldPath } from '@orkestrel/contract'
 import type {
 	Aggregation,
 	Bounds,
@@ -31,12 +31,14 @@ import type {
 	NarratorFormatter,
 	NarratorInterface,
 	NarratorOptions,
+	NumberRefusal,
 	RuleReason,
 	WorksheetContext,
 } from './types.js'
 import {
 	attempt,
 	isArray,
+	isAuditFault,
 	isBoolean,
 	isFiniteNumber,
 	isNull,
@@ -46,7 +48,13 @@ import {
 	isUndefined,
 	preview,
 } from '@orkestrel/contract'
-import { collectConcluders, combineStates, formatField, readClosedState } from '@orkestrel/reason'
+import {
+	collectConcluders,
+	combineStates,
+	formatField,
+	readClosedState,
+	readExpectedKind,
+} from '@orkestrel/reason'
 import { fillTemplate } from '@orkestrel/template'
 import { DEFAULT_FORMATS, TEXT_BREAK_PATTERN } from './constants.js'
 import {
@@ -64,6 +72,7 @@ import {
 	findSoleExpression,
 	findWord,
 	matchesNumericCheck,
+	normalizeLine,
 	readNarratorOption,
 	renderName,
 	renderReasons,
@@ -72,6 +81,7 @@ import {
 	resolveLexicon,
 	resolveLocale,
 } from './helpers.js'
+import { isNumberRefusal } from './validators.js'
 
 /**
  * Implements a stateless rendering engine that writes a reasons run as a worded account, over
@@ -147,12 +157,8 @@ export class Narrator implements NarratorInterface {
 	}
 
 	line(id: string, values: Readonly<Record<string, unknown>>): string {
-		const template =
-			findWord(this.#glossary.templates, id) ?? findWord(this.#lexicon.frames, id) ?? ''
-		const filled = attempt(() =>
-			fillTemplate(template, values, { missing: 'empty', locale: this.#locale }),
-		)
-		return isSuccess(filled) ? filled.value : ''
+		const template = findWord(this.#glossary.templates, id) ?? findWord(this.#lexicon.frames, id)
+		return this.#fill(template ?? '', values)
 	}
 
 	describe(definition: Definition): Account {
@@ -181,8 +187,27 @@ export class Narrator implements NarratorInterface {
 		}
 	}
 
+	explain(fault: AuditFault): string
+	explain(refusal: NumberRefusal): string
+	// A record neither guard admits, and one that throws as it is read, reads as a value nobody read.
+	explain(record: AuditFault | NumberRefusal): string {
+		const written = attempt(() => {
+			if (isNumberRefusal(record)) return this.#writeRefusal(record)
+			return isAuditFault(record) ? this.#writeFault(record).text : ''
+		})
+		const text = isSuccess(written) ? normalizeLine(written.value) : ''
+		return text.trim() === '' ? this.#lexicon.missing : text
+	}
+
 	audit(definitions: readonly Definition[]): readonly GlossaryGap[] {
 		return collectGaps(definitions, this.#glossary, this.#units)
+	}
+
+	#fill(template: string, values: Readonly<Record<string, unknown>>): string {
+		const filled = attempt(() =>
+			fillTemplate(template, values, { missing: 'empty', locale: this.#locale }),
+		)
+		return isSuccess(filled) ? filled.value : ''
 	}
 
 	// Reads one of the lexicon's string tables by name; a comparison reads its holding wording.
@@ -197,6 +222,17 @@ export class Narrator implements NarratorInterface {
 			case 'verdicts':
 			case 'aggregations':
 			case 'faults':
+			case 'expected':
+			case 'constraints':
+			case 'lengths':
+			case 'operations':
+			case 'transforms':
+			case 'refusals':
+			case 'unreadables':
+			case 'eligibilities':
+			case 'effects':
+			case 'statuses':
+			case 'decisions':
 			case 'values':
 			case 'joins':
 			case 'frames':
@@ -340,26 +376,90 @@ export class Narrator implements NarratorInterface {
 		})
 	}
 
-	#faultLine(fault: AuditFault, source: AccountSource = {}): AccountLine {
+	#faultLine(fault: AuditFault, source: AccountSource = {}, kind?: FaultKind): AccountLine {
 		return buildAccountLine({
 			role: 'reason',
 			state: 'unread',
 			decisive: true,
-			...this.#writeUnread(fault.path, fault),
+			...this.#writeFault(fault, kind),
 			source: { ...source, fault },
 		})
 	}
 
 	// An unread value prints its label and what its fault makes it, or the word for no value.
-	#writeUnread(field: FieldPath, fault?: AuditFault): AccountText {
+	#writeUnread(field: FieldPath, reason?: AuditFault['reason']): AccountText {
 		const missing =
-			fault === undefined
+			reason === undefined
 				? this.#lexicon.missing
-				: this.phrase('faults', fault.reason, this.#lexicon.missing)
+				: this.phrase('faults', reason, this.#lexicon.missing)
 		return {
 			text: this.line('fact.unread', { label: this.label(field), missing }),
 			gaps: this.#collectLabelGaps(field),
 		}
+	}
+
+	// States what a fault needed of its field, and what it got where the fault holds that. A run holds
+	// one fault for a field, so a reader that needed another kind states no expectation.
+	#writeFault(fault: AuditFault, kind?: FaultKind): AccountText {
+		const { path } = fault
+		const plain = this.#writeUnread(path, fault.reason)
+		const { gaps } = plain
+		const label = this.label(path)
+		if (kind !== undefined && 'expected' in fault && fault.expected !== kind) return plain
+		if (fault.reason === 'missing' || fault.reason === 'type') {
+			const expected = findWord(this.#lexicon.expected, fault.expected)
+			if (expected === undefined) return plain
+			// `NaN` and an absent value print as no value everywhere.
+			if (
+				fault.reason === 'missing' ||
+				fault.received === preview(Number.NaN) ||
+				fault.received === preview(undefined)
+			) {
+				const absent = this.#lexicon.faults.missing
+				return { text: this.line('fault.missing', { label, missing: absent, expected }), gaps }
+			}
+			const received = this.#writeScalar(path, fault.received)
+			return { text: this.line('fault.type', { label, expected, received }), gaps }
+		}
+		return fault.reason === 'constraint' ? (this.#writeBound(fault) ?? plain) : plain
+	}
+
+	// A bound on text, a date, or a list is a length, and any other prints in its field's unit.
+	#writeBound(
+		fault: Extract<AuditFault, { readonly reason: 'constraint' }>,
+	): AccountText | undefined {
+		const { path, expected, constraint, limit } = fault
+		const label = this.label(path)
+		const sized =
+			(constraint === 'min' || constraint === 'max') &&
+			(expected === 'string' || expected === 'date' || expected === 'array')
+		const template = findWord(sized ? this.#lexicon.lengths : this.#lexicon.constraints, constraint)
+		if (template === undefined) return undefined
+		const bound =
+			sized && isNumber(limit) ? this.#writeNumber(undefined, limit) : this.value(path, limit)
+		const words = { label, constraint: this.#fill(template, { limit: bound }) }
+		if (sized) return { text: this.line('fault.length', words), gaps: this.#collectLabelGaps(path) }
+		const received = this.#writeScalar(path, fault.received)
+		return {
+			text: this.line('fault.constraint', { ...words, received }),
+			gaps: isNumber(limit)
+				? collectFieldGaps(path, true, this.#glossary, this.#units)
+				: this.#collectLabelGaps(path),
+		}
+	}
+
+	#writeRefusal({ text, reason, unreadable, field }: NumberRefusal): string {
+		const refused = text.trim() === '' ? preview(text) : text
+		const refusal =
+			reason === 'unreadable' && unreadable !== undefined
+				? this.line('refusal.unreadable', {
+						text: refused,
+						cause: this.#lexicon.unreadables[unreadable],
+					})
+				: this.#fill(this.#lexicon.refusals[reason], { text: refused })
+		return field === undefined
+			? refusal
+			: this.line('refusal.field', { refusal, label: this.label(field) })
 	}
 
 	// A refused run derives nothing it can't vouch for: an error that is no fault's leaves every state
@@ -649,7 +749,12 @@ export class Narrator implements NarratorInterface {
 	#writeFact(reason: RuleReason, faults: readonly AuditFault[]): AccountText {
 		const { check, result } = reason
 		const { field, operator } = check
-		if (result.state === 'unread') return this.#writeUnread(field, this.#findFault(reason, faults))
+		if (result.state === 'unread') {
+			const fault = this.#findFault(reason, faults)
+			return fault === undefined
+				? this.#writeUnread(field)
+				: this.#writeFault(fault, readExpectedKind(check))
+		}
 		const actual = this.value(field, result.actual)
 		const holds = result.state === 'met'
 		// A boolean's value says both what it is and what it is not.
@@ -1000,7 +1105,8 @@ export class Narrator implements NarratorInterface {
 			origin.origin === 'static' || result.raw !== undefined
 				? undefined
 				: context.faults.find((entry) => formatField(entry.path) === formatField(origin.field))
-		if (fault !== undefined) return [this.#faultLine(fault, source)]
+		const kind = origin.origin === 'lookup' ? 'union' : 'number'
+		if (fault !== undefined) return [this.#faultLine(fault, source, kind)]
 		// A factor with no value says where it looked and what it missed, and no number of its own.
 		if (!result.applied && origin.origin === 'static') return []
 		const missed = !result.applied && result.raw === undefined

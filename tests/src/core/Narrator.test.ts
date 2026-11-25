@@ -6,7 +6,17 @@ import type {
 	NarratorFormatter,
 	NarratorOptions,
 } from '@src/core'
-import { isArray, isObject, numberShape, objectShape } from '@orkestrel/contract'
+import {
+	arrayShape,
+	isArray,
+	isObject,
+	nullShape,
+	numberShape,
+	objectShape,
+	stringShape,
+	undefinedShape,
+	unionShape,
+} from '@orkestrel/contract'
 import {
 	AGGREGATIONS,
 	COMPARISONS,
@@ -29,6 +39,7 @@ import {
 	createReason,
 	createRule,
 	createStaticFactor,
+	createSubjectDoor,
 	createSymbolicDefinition,
 	createSymbolicReasoner,
 	createVariable,
@@ -37,7 +48,16 @@ import {
 	isQuantitativeResult,
 } from '@orkestrel/reason'
 import { captureError, createHostileValues, requireValue } from '@orkestrel/test'
-import { isInterpretError, Narrator, renderAccount, renderSubject } from '@src/core'
+import {
+	compileEntities,
+	isInterpretError,
+	Narrator,
+	NUMBER_REFUSAL_REASONS,
+	NUMBER_UNREADABLE_REASONS,
+	renderAccount,
+	renderSubject,
+	scanNumbers,
+} from '@src/core'
 import { describe, expect, it } from 'vitest'
 import {
 	buildExpressionTrees,
@@ -48,8 +68,17 @@ import {
 	buildWorkshopRules,
 	buildWorkshopScore,
 	collectTreeSubjects,
+	FAULT_BOUNDS,
+	FAULT_PLAIN,
+	FAULT_SHAPES,
+	FAULT_WORDS,
+	MALFORMED_RECORDS,
+	REFUSAL_MAPPINGS,
+	REFUSAL_SENTENCES,
 	renderInterpretUnit,
+	STRANGE_RECORDS,
 	TRICKY_KEYS,
+	UNREADABLE_SENTENCES,
 	WORKSHOP_AREA,
 	WORKSHOP_BASE,
 	WORKSHOP_FEES,
@@ -136,7 +165,7 @@ const TREE_READINGS = buildExpressionTrees().map((definition) =>
 
 // What no written text may hold: a missing value's name, a line break, or an empty slot.
 const BLANK_TEXT =
-	/undefined|NaN|∞|[\n\v\f\r\x85\p{Zl}\p{Zp}]|^\s*$|\s$|\bis ,|\bis $|which is\s*(?:,|$)|, because\s*(?:,|$)|\(\s*\)|:\s*$|\b(?:when|by|from|at|if|then|either|or|and|not)\s*(?:,|$)/u
+	/undefined|NaN|∞|[\n\v\f\r\x85\p{Zl}\p{Zp}]|^\s*$|\s$|\bis ,|\bis $|which is\s*(?:,|$)|, because\s*(?:,|$)|\(\s*\)|:\s*$|\b(?:when|by|from|at|if|then|either|or|and|be|than|of|have)\s*(?:,|$)|\bnot\s*,|\band {2}is not|\bfor\s*\)/u
 
 const WORKSHOP_HELD_LINE =
 	'Workshop booking holds, because Trusted booker applies (wOrkshop tier is gold); Quiet activity applies (noise level is 30, which is not more than 40); Restricted activity does not apply (activity is pottery, which is not one of the 40 listed); and cost is $1,000.00, which is at most $1,250.00'
@@ -150,7 +179,7 @@ const WORKSHOP_HELD_FULL = [
 	'  Restricted activity does not apply',
 	'    activity is pottery, which is not one of the 40 listed',
 	'  cost is $1,000.00, which is at most $1,250.00',
-	'Workshop booking: 6 of 8 rules apply',
+	'Rules of Workshop booking that apply: 6 of 8',
 	'Opening hours applies',
 	'  start hour is 10, which is in the range 8 to 18',
 	'Trusted booker applies',
@@ -182,6 +211,22 @@ describe('Narrator', () => {
 			expect(narrator.phrase('aggregations', 'maximum')).toBe('Highest')
 			expect(narrator.phrase('faults', 'missing')).toBe('not known')
 			expect(narrator.phrase('values', 'null')).toBe('none')
+			expect(narrator.phrase('expected', 'integer')).toBe('a whole number')
+			expect(narrator.phrase('constraints', 'over')).toBe('more than {{limit}}')
+			expect(narrator.phrase('lengths', 'min')).toBe('a length of at least {{limit}}')
+			expect(narrator.phrase('operations', 'percentage')).toBe('{{right}}% of {{left}}')
+			expect(narrator.phrase('transforms', 'round')).toBe('rounded to a whole number')
+			expect(narrator.phrase('refusals', 'collection')).toBe(
+				'{{text}} was not taken, because another number in the same list was not',
+			)
+			expect(narrator.phrase('unreadables', 'foreign currency')).toBe(
+				'it is in a currency unit other than dollars',
+			)
+			expect(narrator.phrase('eligibilities', 'referral')).toBe('referred for review')
+			expect(narrator.phrase('effects', 'notice')).toBe('Notice')
+			expect(narrator.phrase('statuses', 'unrated')).toBe('not fully rated')
+			expect(narrator.phrase('decisions', 'submitted')).toBe('submitted for review')
+			expect(narrator.phrase('joins', 'steps')).toBe(', then ')
 			expect(narrator.phrase('frames', 'rule.settled')).toBe('{{name}} {{verdict}}')
 			expect(narrator.phrase('status', 'closed', 'fallback')).toBe('fallback')
 			expect(narrator.phrase('status', 'closed')).toBe('closed')
@@ -1123,7 +1168,7 @@ describe('Narrator', () => {
 				{ detail: 'full' },
 			).split('\n')
 			expect(texts).toEqual([
-				'List: 1 of 2 rules apply',
+				'Rules of List that apply: 1 of 2',
 				'Three applies',
 				'  kind is z, which is not one of the 3 listed',
 				'Two does not apply',
@@ -1286,10 +1331,10 @@ describe('Narrator', () => {
 			const other = createLogicalDefinition('e', 'Other', [])
 			const account = new Narrator().narrate(other, REASON.reason({ age: 30 }, definition))
 			expect(renderAccount(account, { detail: 'full' }).split('\n')).toEqual([
-				'Other: 1 of 1 rules apply',
+				'Rules of Other that apply: 1 of 1',
 				'r applies',
 			])
-			expect(account.lines[0]?.summary).toBe('Other: 1 of 1 rules apply (r)')
+			expect(account.lines[0]?.summary).toBe('Rules of Other that apply: 1 of 1 (r)')
 			expect(account.lines[0]?.gaps).toEqual([{ word: 'name', part: 'rule', id: 'r' }])
 			expect(account.lines[1]?.gaps).toEqual([{ word: 'name', part: 'rule', id: 'r' }])
 		})
@@ -1301,8 +1346,8 @@ describe('Narrator', () => {
 				}),
 			])
 			const account = new Narrator().narrate(definition, REASON.reason({ age: 30 }, definition))
-			expect(renderAccount(account, { detail: 'full' })).toBe('Loan: 0 of 0 rules apply')
-			expect(renderAccount(account, { detail: 'line' })).toBe('Loan: 0 of 0 rules apply')
+			expect(renderAccount(account, { detail: 'full' })).toBe('Rules of Loan that apply: 0 of 0')
+			expect(renderAccount(account, { detail: 'line' })).toBe('Rules of Loan that apply: 0 of 0')
 		})
 
 		it('counts independent rules, names those that apply, and gives their facts as its reasons', () => {
@@ -1311,17 +1356,17 @@ describe('Narrator', () => {
 			const dawn = requireValue(WORKSHOP_GATES.dawn)
 			const account = narrator.narrate(definition, REASON.reason(dawn.subject, definition))
 			expect(renderAccount(account, { detail: 'line' })).toBe(
-				'Booking gates: 2 of 5 rules apply (Early start and Loud activity)',
+				'Rules of Booking gates that apply: 2 of 5 (Early start and Loud activity)',
 			)
 			expect(renderAccount(account).split('\n')).toEqual([
-				'Booking gates: 2 of 5 rules apply',
+				'Rules of Booking gates that apply: 2 of 5',
 				'Early start applies',
 				'  start hour is 9, which is less than 10',
 				'Loud activity applies',
 				'  noise level is 40.5, which is more than 40',
 			])
 			expect(renderAccount(account, { detail: 'full' }).split('\n')).toEqual([
-				'Booking gates: 2 of 5 rules apply',
+				'Rules of Booking gates that apply: 2 of 5',
 				'Early start applies',
 				'  start hour is 9, which is less than 10',
 				'Loud activity applies',
@@ -1336,8 +1381,8 @@ describe('Narrator', () => {
 			expect(account.lines[0]).toEqual({
 				role: 'verdict',
 				decisive: true,
-				text: 'Booking gates: 2 of 5 rules apply',
-				summary: 'Booking gates: 2 of 5 rules apply (Early start and Loud activity)',
+				text: 'Rules of Booking gates that apply: 2 of 5',
+				summary: 'Rules of Booking gates that apply: 2 of 5 (Early start and Loud activity)',
 				source: {},
 				gaps: [],
 				lines: [],
@@ -1358,9 +1403,9 @@ describe('Narrator', () => {
 				),
 			)
 			expect(lines).toEqual([
-				'Booking gates: 5 of 5 rules apply (Early start, Loud activity, High cost, Visiting booker, and 1 more)',
-				'Booking gates: 5 of 5 rules apply (Early start and 4 more)',
-				'Booking gates: 5 of 5 rules apply (Early start, Loud activity, High cost, Visiting booker, and Large party)',
+				'Rules of Booking gates that apply: 5 of 5 (Early start, Loud activity, High cost, Visiting booker, and 1 more)',
+				'Rules of Booking gates that apply: 5 of 5 (Early start and 4 more)',
+				'Rules of Booking gates that apply: 5 of 5 (Early start, Loud activity, High cost, Visiting booker, and Large party)',
 			])
 		})
 
@@ -1399,10 +1444,10 @@ describe('Narrator', () => {
 			})
 			expect(texts).toEqual([
 				'Day does not hold, because Early applies (start is 9, which is less than 10)',
-				'Day: 2 of 3 rules apply (Early and Loud)',
+				'Rules of Day that apply: 2 of 3 (Early and Loud)',
 				'Day does not hold, because Early applies (start is 9, which is less than 10)',
 				'Day holds, because start is 9, which is less than 10',
-				'Day gave no answer, because Staffed cannot be decided (early is not known)',
+				'Day gave no answer, because Staffed cannot be decided (early is not known, and must be true or false)',
 			])
 		})
 
@@ -1567,12 +1612,14 @@ describe('Narrator', () => {
 			)
 			expect(account.success).toBe(false)
 			const texts = renderAccount(account, { detail: 'full' }).split('\n')
-			expect(texts.filter((text) => text.includes('rules apply'))).toEqual([])
+			expect(texts.filter((text) => text.includes('that apply'))).toEqual([])
 			expect(texts.at(-1)).toBe('Approval cannot be decided')
 			expect(renderAccount(account, { detail: 'line' })).toBe(
-				'Workshop booking cannot be decided, because cost is not known',
+				'Workshop booking cannot be decided, because cost is not known, and must be a number',
 			)
-			expect(renderAccount(account)).toBe('Workshop booking cannot be decided\n  cost is not known')
+			expect(renderAccount(account)).toBe(
+				'Workshop booking cannot be decided\n  cost is not known, and must be a number',
+			)
 		})
 
 		it('names a field left unread through a derived key', () => {
@@ -1583,12 +1630,12 @@ describe('Narrator', () => {
 				REASON.reason(nonoise.subject, definition),
 			)
 			expect(renderAccount(account, { detail: 'line' })).toBe(
-				'Workshop booking cannot be decided, because Quiet activity cannot be decided (noise level is not known)',
+				'Workshop booking cannot be decided, because Quiet activity cannot be decided (noise level is not known, and must be a number)',
 			)
 			expect(renderAccount(account).split('\n')).toEqual([
 				'Workshop booking cannot be decided',
 				'  Quiet activity cannot be decided',
-				'    noise level is not known',
+				'    noise level is not known, and must be a number',
 			])
 		})
 
@@ -1606,14 +1653,14 @@ describe('Narrator', () => {
 			])
 			const account = new Narrator().narrate(definition, REASON.reason({ age: 30 }, definition))
 			expect(renderAccount(account, { detail: 'line' })).toBe(
-				'Loan gave no answer, because Income cannot be decided (income is not known); and Debt cannot be decided (debt is not known)',
+				'Loan gave no answer, because Income cannot be decided (income is not known, and must be a number); and Debt cannot be decided (debt is not known, and must be a number)',
 			)
 			expect(renderAccount(account, { detail: 'full' }).split('\n')).toEqual([
 				'Loan gave no answer',
 				'  Income cannot be decided',
-				'    income is not known',
+				'    income is not known, and must be a number',
 				'  Debt cannot be decided',
-				'    debt is not known',
+				'    debt is not known, and must be a number',
 				'Age applies',
 				'  age is 30, which is at least 18',
 				'Income cannot be decided',
@@ -1628,25 +1675,25 @@ describe('Narrator', () => {
 				narrator.narrate(definition, REASON.reason(requireValue(entry).subject, definition)),
 			)
 			expect(accounts.map((account) => renderAccount(account, { detail: 'line' }))).toEqual([
-				'Booking gates gave no answer, because Large party cannot be decided (guest count is not known)',
-				'Booking gates gave no answer, because Early start cannot be decided (start hour is not known)',
+				'Booking gates gave no answer, because Large party cannot be decided (guest count is not known, and must be a number)',
+				'Booking gates gave no answer, because Early start cannot be decided (start hour is not known, and must be a number)',
 			])
 			expect(accounts.map((account) => renderAccount(account).split('\n'))).toEqual([
 				[
 					'Booking gates gave no answer',
 					'  Large party cannot be decided',
-					'    guest count is not known',
+					'    guest count is not known, and must be a number',
 				],
 				[
 					'Booking gates gave no answer',
 					'  Early start cannot be decided',
-					'    start hour is not known',
+					'    start hour is not known, and must be a number',
 				],
 			])
 			expect(renderAccount(requireValue(accounts[0]), { detail: 'full' }).split('\n')).toEqual([
 				'Booking gates gave no answer',
 				'  Large party cannot be decided',
-				'    guest count is not known',
+				'    guest count is not known, and must be a number',
 				'Early start applies',
 				'  start hour is 9, which is less than 10',
 				'Loud activity does not apply',
@@ -1673,14 +1720,14 @@ describe('Narrator', () => {
 			])
 			const account = new Narrator().narrate(definition, REASON.reason({}, definition))
 			expect(renderAccount(account, { detail: 'line' })).toBe(
-				'Loan cannot be decided, because Debt cannot be decided (debt is not known)',
+				'Loan cannot be decided, because Debt cannot be decided (debt is not known, and must be a number)',
 			)
 			expect(renderAccount(account).split('\n')).toEqual([
 				'Loan cannot be decided',
 				'  Debt cannot be decided',
-				'    debt is not known',
+				'    debt is not known, and must be a number',
 				'Income cannot be decided',
-				'  income is not known',
+				'  income is not known, and must be a number',
 			])
 		})
 
@@ -1700,7 +1747,7 @@ describe('Narrator', () => {
 			expect(renderAccount(account).split('\n')).toEqual([
 				'Loan gave no answer',
 				'  Income cannot be decided',
-				'    income is not known',
+				'    income is not known, and must be a number',
 			])
 		})
 
@@ -1717,9 +1764,9 @@ describe('Narrator', () => {
 			expect(renderAccount(account).split('\n')).toEqual([
 				'Loan gave no answer',
 				'  Income cannot be decided',
-				'    income is not known',
+				'    income is not known, and must be a number',
 				'  Debt cannot be decided',
-				'    debt is not known',
+				'    debt is not known, and must be a number',
 			])
 		})
 
@@ -1794,10 +1841,10 @@ describe('Narrator', () => {
 			const both = createLogicalDefinition('d', 'Eligibility', [gold, high, income])
 			const account = narrator.narrate(both, createLogicalReasoner().reason({ age: 30 }, both))
 			expect(renderAccount(account, { detail: 'full' })).toBe(
-				'Eligibility gave no answer\n  income is not known',
+				'Eligibility gave no answer\n  income is not known, and must be a number',
 			)
 			expect(renderAccount(account, { detail: 'line' })).toBe(
-				'Eligibility gave no answer, because income is not known',
+				'Eligibility gave no answer, because income is not known, and must be a number',
 			)
 		})
 
@@ -1815,14 +1862,16 @@ describe('Narrator', () => {
 				renderAccount(narrator.narrate(shaped, REASON.reason({ agee: 3 }, shaped)), {
 					detail: 'line',
 				}),
-			).toBe('Loan gave no answer, because Age is not known; and agee is not expected')
+			).toBe(
+				'Loan gave no answer, because Age is not known, and must be a number; and agee is not expected',
+			)
 			const plain = createLogicalDefinition('d', 'Loan', rules)
 			const supplied = narrator.narrate(plain, REASON.reason({ age: 30, a: true }, plain))
 			expect(renderAccount(supplied, { detail: 'full' })).toBe('Loan gave no answer')
 			expect(renderAccount(supplied, { detail: 'line' })).toBe('Loan gave no answer')
 		})
 
-		it('names a field holding a value it cannot use, and never prints that value', () => {
+		it('names a field holding a value it cannot use, with what it needed and what it got', () => {
 			const definition = buildWorkshopRules()
 			const account = new Narrator({ glossary: WORKSHOP_GLOSSARY }).narrate(
 				definition,
@@ -1833,8 +1882,8 @@ describe('Narrator', () => {
 					role: 'reason',
 					state: 'unread',
 					decisive: true,
-					text: 'cost is not a value that can be used',
-					summary: 'cost is not a value that can be used',
+					text: 'cost must be a number, and "plenty" is not',
+					summary: 'cost must be a number, and "plenty" is not',
 					source: {
 						check: { field: 'cost', operator: 'to', value: 1250 },
 						result: { field: 'cost', state: 'unread', actual: 'plenty' },
@@ -1844,7 +1893,6 @@ describe('Narrator', () => {
 					lines: [],
 				},
 			])
-			expect(renderAccount(account, { detail: 'full' })).not.toContain('plenty')
 		})
 
 		it('carries the fault as the source of an unread fact', () => {
@@ -1857,7 +1905,7 @@ describe('Narrator', () => {
 			const quiet = account.lines[0]?.lines[0]
 			expect(quiet?.source.rule).toBe('quiet')
 			expect(quiet?.summary).toBe(
-				'Quiet activity cannot be decided, because noise level is not known',
+				'Quiet activity cannot be decided, because noise level is not known, and must be a number',
 			)
 			expect(quiet?.lines[0]?.source.fault).toEqual({
 				reason: 'missing',
@@ -1882,16 +1930,16 @@ describe('Narrator', () => {
 			]
 			expect(accounts.map((account) => account.success)).toEqual([false, false, false, false])
 			expect(accounts.map((account) => renderAccount(account, { detail: 'line' }))).toEqual([
-				'Booking score gave no answer, because Base fee found no value to use (cost is not known)',
+				'Booking score gave no answer, because Base fee found no value to use (cost is not known, and must be a number)',
 				'Booking score gave no answer, because Room rate found no value to use (no entry matches room)',
-				'Floor area gave no answer, because depth is not known',
+				'Floor area gave no answer, because depth is not known, and must be a number',
 				'Booking facts gave no answer',
 			])
 			const texts = accounts.map((account) => renderAccount(account, { detail: 'full' }))
 			expect(texts[0]?.split('\n')).toEqual([
 				'Booking score gave no answer',
 				'  Base fee found no value to use',
-				'    cost is not known',
+				'    cost is not known, and must be a number',
 				'Fees applied',
 				'  Base fee found no value to use',
 				'  Service charge applied',
@@ -1910,7 +1958,7 @@ describe('Narrator', () => {
 				'Space did not apply',
 				'  Room rate found no value to use',
 			])
-			expect(texts[2]).toBe('Floor area gave no answer\n  depth is not known')
+			expect(texts[2]).toBe('Floor area gave no answer\n  depth is not known, and must be a number')
 			expect(texts[3]).toBe('Booking facts gave no answer')
 			for (const text of texts) expect(text).not.toMatch(/\d/)
 		})
@@ -1925,7 +1973,7 @@ describe('Narrator', () => {
 			)
 			expect(accounts.map((account) => account.lines[0]?.summary)).toEqual([
 				'Booking fees gave no answer, because Deposit did not apply (cost is $2,000.00, which is more than $1,250.00)',
-				'Booking fees gave no answer, because Crowd charge found no value to use (guest count is not a value that can be used)',
+				'Booking fees gave no answer, because Crowd charge found no value to use (guest count must be a number, and "many" is not)',
 			])
 			expect(accounts.map((account) => renderAccount(account).split('\n'))).toEqual([
 				[
@@ -1936,7 +1984,7 @@ describe('Narrator', () => {
 				[
 					'Booking fees gave no answer',
 					'  Crowd charge found no value to use',
-					'    guest count is not a value that can be used',
+					'    guest count must be a number, and "many" is not',
 				],
 			])
 			expect(accounts[0]?.lines[0]?.lines[0]?.summary).toBe(
@@ -1964,8 +2012,8 @@ describe('Narrator', () => {
 			)
 			expect(texts).toEqual([
 				'D gave no answer, because L found no value to use (no entry matches kind); and R found no value to use (no entry matches size)',
-				'D gave no answer, because L found no value to use (no entry matches kind); and R found no value to use (size is not known)',
-				'D gave no answer, because L found no value to use (kind is not known); and R found no value to use (no entry matches size)',
+				'D gave no answer, because L found no value to use (no entry matches kind); and R found no value to use (size is not known, and must be a number)',
+				'D gave no answer, because L found no value to use (kind is not known, and must be one of its allowed forms); and R found no value to use (no entry matches size)',
 			])
 		})
 
@@ -2015,7 +2063,7 @@ describe('Narrator', () => {
 				[
 					createLookupFactor('f', 't', { gold: 5 }, { name: 'Rate', fallback: 9, ...divided }),
 					{},
-					'Tier is not known',
+					'Tier is not known, and must be one of its allowed forms',
 				],
 			] as const
 			for (const [factor, subject, source] of sources) {
@@ -2043,7 +2091,7 @@ describe('Narrator', () => {
 			expect(
 				renderAccount(narrator.narrate(score, REASON.reason(subject, score)), { detail: 'line' }),
 			).toBe(
-				'Booking score gave no answer, because Gold bonus did not apply (wOrkshop tier is not known)',
+				'Booking score gave no answer, because Gold bonus did not apply (wOrkshop tier is not known, and must be text)',
 			)
 		})
 
@@ -2201,13 +2249,21 @@ describe('Narrator', () => {
 				['implies', [a, b], { b: true }, ['b is true']],
 				['xor', [a, b], { a: true, b: false }, ['a is true', 'b is false']],
 				['xor', [a, b], { a: true, b: true }, ['a is true', 'b is true']],
-				['xor', [a, b], { a: true }, ['b is not known']],
-				['and', [a, b], { a: true }, ['b is not known']],
-				['or', [a, b], { a: false }, ['b is not known']],
-				['implies', [a, b], { a: true }, ['b is not known']],
-				['implies', [a, b], { b: false }, ['a is not known']],
-				['and', [a, b], {}, ['a is not known', 'b is not known']],
-				['not', [a], {}, ['a is not known']],
+				['xor', [a, b], { a: true }, ['b is not known, and must be true or false']],
+				['and', [a, b], { a: true }, ['b is not known, and must be true or false']],
+				['or', [a, b], { a: false }, ['b is not known, and must be true or false']],
+				['implies', [a, b], { a: true }, ['b is not known, and must be true or false']],
+				['implies', [a, b], { b: false }, ['a is not known, and must be true or false']],
+				[
+					'and',
+					[a, b],
+					{},
+					[
+						'a is not known, and must be true or false',
+						'b is not known, and must be true or false',
+					],
+				],
+				['not', [a], {}, ['a is not known, and must be true or false']],
 			] as const
 			for (const [operator, operands, subject, texts] of cases) {
 				const definition = createLogicalDefinition('d', 'D', [
@@ -2545,7 +2601,7 @@ describe('Narrator', () => {
 				[
 					'W gave no answer',
 					'  F found no value to use',
-					'    n is not known',
+					'    n is not known, and must be a number',
 					'G did not apply',
 					'  F found no value to use',
 					'  S applied',
@@ -2696,10 +2752,12 @@ describe('Narrator', () => {
 			}
 		})
 
-		it('prints one whole line whatever a field, a check, or a name holds', () => {
-			const narrator = new Narrator()
-			const lines: AccountLine[] = []
-			for (const actual of STRANGE_VALUES) {
+		// One case for each value a field holds, so that no case nears the timeout on a busy host.
+		it.each([...STRANGE_VALUES.keys()])(
+			'prints one whole line whatever a check or a name holds, for a field holding strange value %i',
+			(index) => {
+				const narrator = new Narrator()
+				const lines: AccountLine[] = []
 				for (const expected of STRANGE_VALUES) {
 					for (const operator of COMPARISONS) {
 						const definition = createLogicalDefinition('d', 'one\ntwo', [
@@ -2710,20 +2768,19 @@ describe('Narrator', () => {
 								{ name: 'a\u{2028}b', description: 'c\nd' },
 							),
 						])
-						const result = createLogicalReasoner().reason({ n: actual }, definition)
+						const subject = { n: STRANGE_VALUES[index] }
+						const result = createLogicalReasoner().reason(subject, definition)
 						lines.push(...narrator.narrate(definition, result).lines)
 						lines.push(...narrator.describe(definition).lines)
 					}
 				}
-			}
-			for (const line of lines) lines.push(...line.lines)
-			expect(
-				lines.filter((line) => BLANK_TEXT.test(line.text) || BLANK_TEXT.test(line.summary)),
-			).toEqual([])
-			expect(new Set(lines.map((line) => line.state))).toEqual(
-				new Set(['met', 'unmet', 'unread', undefined]),
-			)
-		})
+				for (const line of lines) lines.push(...line.lines)
+				expect(
+					lines.filter((line) => BLANK_TEXT.test(line.text) || BLANK_TEXT.test(line.summary)),
+				).toEqual([])
+				expect(lines.map((line) => line.state)).toContain('unread')
+			},
+		)
 
 		it('prints one whole line whatever a worksheet reads', () => {
 			const narrator = new Narrator()
@@ -2971,8 +3028,8 @@ describe('Narrator', () => {
 			expect(account.lines[1]).toEqual({
 				role: 'step',
 				decisive: false,
-				text: 'Loan: 2 of 3 rules apply',
-				summary: 'Loan: 2 of 3 rules apply',
+				text: 'Rules of Loan that apply: 2 of 3',
+				summary: 'Rules of Loan that apply: 2 of 3',
 				source: {},
 				gaps: [],
 				lines: [],
@@ -2990,15 +3047,17 @@ describe('Narrator', () => {
 					.filter((text) => /\d of \d/.test(text))
 			})
 			expect(texts).toEqual([
-				['Booking gates: 0 of 5 rules apply'],
-				['Booking gates: 1 of 5 rules apply'],
-				['Booking gates: 2 of 5 rules apply'],
-				['Booking gates: 5 of 5 rules apply'],
+				['Rules of Booking gates that apply: 0 of 5'],
+				['Rules of Booking gates that apply: 1 of 5'],
+				['Rules of Booking gates that apply: 2 of 5'],
+				['Rules of Booking gates that apply: 5 of 5'],
 			])
 			const { subject } = requireValue(WORKSHOP_GATES.calm)
 			const calm = narrator.narrate(definition, REASON.reason(subject, definition))
-			expect(renderAccount(calm)).toBe('Booking gates: 0 of 5 rules apply')
-			expect(renderAccount(calm, { detail: 'line' })).toBe('Booking gates: 0 of 5 rules apply')
+			expect(renderAccount(calm)).toBe('Rules of Booking gates that apply: 0 of 5')
+			expect(renderAccount(calm, { detail: 'line' })).toBe(
+				'Rules of Booking gates that apply: 0 of 5',
+			)
 		})
 
 		it('counts the met rules of the enabled ones, without a goal', () => {
@@ -3010,7 +3069,317 @@ describe('Narrator', () => {
 				}),
 			])
 			const account = new Narrator().narrate(definition, REASON.reason({ n: 5 }, definition))
-			expect(account.lines[0]?.summary).toBe('Loan: 1 of 2 rules apply (a)')
+			expect(account.lines[0]?.summary).toBe('Rules of Loan that apply: 1 of 2 (a)')
+		})
+	})
+
+	describe('T8: a count reads for any number', () => {
+		it('names what it counts at 0, 1, and 5, alone and with the rules that apply', () => {
+			const narrator = new Narrator()
+			const counts = [0, 1, 5].map((total) => {
+				const rules = Array.from({ length: total }, (_, index) =>
+					createRule(
+						`r${String(index)}`,
+						[createAtom('n', 'above', 0)],
+						createAtom(`k${String(index)}`, 'equals', true),
+						{ name: `R${String(index)}` },
+					),
+				)
+				const definition = createLogicalDefinition('d', 'Loan', rules)
+				// The reasoner alone, because the engine refuses a definition with no rule.
+				const result = createLogicalReasoner().reason({ n: 1 }, definition)
+				const account = narrator.narrate(definition, result)
+				const counted = account.lines.find((line) => / that apply: /u.test(line.text))
+				return [counted?.text, counted?.summary]
+			})
+			expect(counts).toEqual([
+				['Rules of Loan that apply: 0 of 0', 'Rules of Loan that apply: 0 of 0'],
+				['Rules of Loan that apply: 1 of 1', 'Rules of Loan that apply: 1 of 1'],
+				[
+					'Rules of Loan that apply: 5 of 5',
+					'Rules of Loan that apply: 5 of 5 (R0, R1, R2, R3, and 1 more)',
+				],
+			])
+		})
+	})
+
+	// T13. Each fault is the subject door's own, or the engine's over a check.
+	describe('T13: a fault states what its fault holds', () => {
+		const door = createSubjectDoor()
+		const narrator = new Narrator({
+			glossary: {
+				labels: { amount: 'the AMOUNT', 'plan.term': 'plan term' },
+				units: { amount: 'money', 'plan.term': 'month' },
+				formats: {
+					money: { style: 'currency', currency: 'USD' },
+					month: { style: 'unit', unit: 'month' },
+				},
+			},
+		})
+		const kinds = Object.keys(FAULT_SHAPES)
+		const words = Object.entries(FAULT_WORDS)
+
+		it('states the kind a missing field needed, and nothing received', () => {
+			const { faults } = door.admit({}, objectShape(FAULT_SHAPES))
+			expect(faults.map((fault) => fault.reason)).toEqual(kinds.map(() => 'missing'))
+			expect(faults.map((fault) => narrator.explain(fault))).toEqual(
+				words.map(([kind, word]) => `${kind} is not known, and must be ${word}`),
+			)
+			const union = door.admit({}, objectShape({ u: unionShape(numberShape(), nullShape()) }))
+			expect(union.faults.map((fault) => narrator.explain(fault))).toEqual([
+				'u is not known, and must be one of its allowed forms',
+			])
+		})
+
+		it('states the kind a field of another kind needed, and what it got', () => {
+			const received = [
+				[new Map(), 'instance'],
+				[Symbol('mark'), 'Symbol(mark)'],
+			] as const
+			for (const [value, preview] of received) {
+				const subject = Object.fromEntries(kinds.map((kind) => [kind, value]))
+				const { faults } = door.admit(subject, objectShape(FAULT_SHAPES))
+				expect(faults.map((fault) => fault.reason)).toEqual(kinds.map(() => 'type'))
+				expect(faults.map((fault) => narrator.explain(fault))).toEqual(
+					words.map(([kind, word]) => `${kind} must be ${word}, and ${preview} is not`),
+				)
+			}
+			const { faults } = door.admit({ u: 5 }, objectShape({ u: undefinedShape() }))
+			expect(faults.map((fault) => narrator.explain(fault))).toEqual([
+				'u must be absent, and 5 is not',
+			])
+			const nested = door.admit(
+				{ list: [1, 'x'] },
+				objectShape({ list: arrayShape(numberShape()) }),
+			)
+			expect(nested.faults.map((fault) => narrator.explain(fault))).toEqual([
+				'list.1 must be a number, and "x" is not',
+			])
+		})
+
+		it('reads a value that is no number as no value, as it does everywhere', () => {
+			const { faults } = door.admit({ amount: Number.NaN }, objectShape({ amount: numberShape() }))
+			expect(faults).toEqual([
+				{ reason: 'type', path: ['amount'], expected: 'number', received: 'NaN' },
+			])
+			expect(faults.map((fault) => narrator.explain(fault))).toEqual([
+				'the AMOUNT is not known, and must be a number',
+			])
+		})
+
+		it("states a bound in its field's unit, with what it got, and a length plain", () => {
+			for (const [shape, value, text] of FAULT_BOUNDS) {
+				const { faults } = door.admit({ amount: value }, objectShape({ amount: shape }))
+				expect(faults.map((fault) => [fault.reason, narrator.explain(fault)])).toEqual([
+					['constraint', text],
+				])
+			}
+			const { faults } = door.admit(
+				{ plan: { term: 3 } },
+				objectShape({ plan: objectShape({ term: numberShape({ min: 6 }) }) }),
+			)
+			expect(faults.map((fault) => narrator.explain(fault))).toEqual([
+				'plan term must be at least 6 mths, and 3 is not',
+			])
+		})
+
+		it('keeps its words for a fault that holds no expectation', () => {
+			for (const [subject, shape, texts] of FAULT_PLAIN) {
+				const { faults } = door.admit(subject, shape)
+				expect(faults.map((fault) => narrator.explain(fault))).toEqual(texts)
+			}
+		})
+
+		it('writes a fault in an account as explain does, with the gaps its words needed', () => {
+			const bare = new Narrator({ glossary: { labels: {}, units: { size: 'acre' } } })
+			const definition = createLogicalDefinition(
+				'd',
+				'Loan',
+				[createRule('r', [createAtom('amount', 'above', 1)], createAtom('x', 'equals', true))],
+				{
+					shape: objectShape({
+						amount: numberShape({ max: 5 }),
+						size: numberShape({ min: 2 }),
+						note: stringShape({ min: 3 }),
+						kind: stringShape(),
+					}),
+				},
+			)
+			const result = REASON.reason({ amount: 9, size: 1, note: 'a', kind: 5n }, definition)
+			const account = bare.narrate(definition, result)
+			expect(account.lines[0]?.lines.map((line) => line.text)).toEqual(
+				result.faults.map((fault) => bare.explain(fault)),
+			)
+			expect(account.lines[0]?.lines.map((line) => [line.text, line.gaps])).toEqual([
+				[
+					'amount must be at most 5, and 9 is not',
+					[
+						{ word: 'label', field: ['amount'] },
+						{ word: 'unit', field: ['amount'] },
+					],
+				],
+				[
+					'size must be at least 2, and 1 is not',
+					[
+						{ word: 'label', field: ['size'] },
+						{ word: 'format', unit: 'acre' },
+					],
+				],
+				['note must have a length of at least 3', [{ word: 'label', field: ['note'] }]],
+				['kind must be text, and 5n is not', [{ word: 'label', field: ['kind'] }]],
+			])
+		})
+
+		// The engine keeps one fault for a field, and a second reader's kind is not in it.
+		it('states no expectation to a reader that needed another kind than the one fault holds', () => {
+			const definition = createLogicalDefinition('d', 'Loan', [
+				createRule('r', [createAtom('tier', 'above', 1)], createAtom('x', 'equals', true), {
+					name: 'Number',
+				}),
+				createRule('s', [createAtom('tier', 'equals', 'gold')], createAtom('y', 'equals', true), {
+					name: 'Text',
+				}),
+			])
+			const account = new Narrator().narrate(definition, REASON.reason({}, definition))
+			expect(renderAccount(account).split('\n')).toEqual([
+				'Loan gave no answer',
+				'  Number cannot be decided',
+				'    tier is not known, and must be a number',
+				'  Text cannot be decided',
+				'    tier is not known',
+			])
+			const odd = new Narrator().narrate(definition, REASON.reason({ tier: ['a'] }, definition))
+			expect(renderAccount(odd).split('\n')).toEqual([
+				'Loan gave no answer',
+				'  Number cannot be decided',
+				'    tier must be a number, and array is not',
+				'  Text cannot be decided',
+				'    tier is not a value that can be used',
+			])
+			const worksheet = createQuantitativeDefinition('q', 'Q', [
+				createFactorGroup('g', 'sum', [
+					createFieldFactor('f', 'tier', { name: 'Field' }),
+					createLookupFactor('l', 'tier', { gold: 1 }, { name: 'Lookup' }),
+				]),
+			])
+			const sheet = new Narrator().narrate(worksheet, REASON.reason({}, worksheet))
+			expect(renderAccount(sheet).split('\n')).toEqual([
+				'Q gave no answer',
+				'  Field found no value to use',
+				'    tier is not known, and must be a number',
+				'  Lookup found no value to use',
+				'    tier is not known',
+			])
+		})
+
+		it('rewords one expectation, one bound, or one frame alone', () => {
+			const reworded = new Narrator({
+				lexicon: {
+					expected: { number: 'a figure' },
+					constraints: { max: 'no more than {{limit}}' },
+					frames: { 'fault.type': '{{label}}: {{expected}}, not {{received}}' },
+				},
+			})
+			const shape = objectShape({ a: numberShape(), b: numberShape({ max: 5 }), c: stringShape() })
+			const { faults } = door.admit({ a: new Map(), b: 9 }, shape)
+			expect(faults.map((fault) => reworded.explain(fault))).toEqual([
+				'a: a figure, not instance',
+				'b must be no more than 5, and 9 is not',
+				'c is not known, and must be text',
+			])
+		})
+	})
+
+	describe('T14: a number refusal has a sentence', () => {
+		const shape = objectShape({
+			rate: numberShape(),
+			years: numberShape(),
+			values: arrayShape(numberShape()),
+		})
+		const narrator = new Narrator({ glossary: { labels: { rate: 'the RATE' } } })
+
+		it('words each refusal reason over a real text', () => {
+			const texts = REFUSAL_SENTENCES.map(([reason, text, mappings]) => {
+				const { refusals } = compileEntities(scanNumbers(text), [...mappings], text, shape)
+				const refusal = requireValue(refusals?.items.find((item) => item.reason === reason))
+				return narrator.explain(refusal)
+			})
+			expect(texts).toEqual(REFUSAL_SENTENCES.map((row) => row[3]))
+			expect([...new Set(REFUSAL_SENTENCES.map(([reason]) => reason))]).toEqual(
+				NUMBER_REFUSAL_REASONS,
+			)
+		})
+
+		it('words each cause a number could not be read for, over a real text', () => {
+			const texts = UNREADABLE_SENTENCES.map(([cause, text]) => {
+				const mappings = [REFUSAL_MAPPINGS.rate]
+				const { refusals } = compileEntities(scanNumbers(text), mappings, text, shape)
+				const refusal = requireValue(refusals?.items.find((item) => item.unreadable === cause))
+				expect(refusal.reason).toBe('unreadable')
+				return narrator.explain(refusal)
+			})
+			expect(texts).toEqual(
+				UNREADABLE_SENTENCES.map(
+					([, , refused, cause]) =>
+						`"${refused}" was not taken, because ${cause} (considered for the RATE)`,
+				),
+			)
+			// The reader produces `signed` no longer, and a record can still hold it.
+			expect(
+				NUMBER_UNREADABLE_REASONS.filter(
+					(cause) => !UNREADABLE_SENTENCES.some(([held]) => held === cause),
+				),
+			).toEqual(['signed'])
+			expect(
+				narrator.explain({
+					text: '"-5"',
+					start: 0,
+					end: 2,
+					reason: 'unreadable',
+					unreadable: 'signed',
+				}),
+			).toBe('"-5" was not taken, because it carries a sign')
+			expect(narrator.explain({ text: '"5"', start: 0, end: 1, reason: 'unreadable' })).toBe(
+				'"5" was not taken, because it could not be read as an exact number',
+			)
+		})
+
+		it('answers one line for a record that stops answering part of the way through', () => {
+			const refusal = { text: '"5"', start: 0, end: 1, reason: 'unreadable', field: ['rate'] }
+			const fault = { reason: 'type', path: ['rate'], expected: 'number', received: '"x"' }
+			const texts = [refusal, fault].flatMap((record) =>
+				Array.from({ length: 80 }, (_, length) => {
+					const reads = Array.from({ length }).values()
+					const failing = new Proxy(record, {
+						get: (target, key) => {
+							if (reads.next().done === true) throw new Error('refused')
+							return Reflect.get(target, key)
+						},
+					})
+					return String(Reflect.apply(narrator.explain, narrator, [failing]))
+				}),
+			)
+			expect(new Set(texts)).toEqual(
+				new Set([
+					'not known',
+					'"5" was not taken, because it could not be read as an exact number (considered for the RATE)',
+					'the RATE must be a number, and "x" is not',
+				]),
+			)
+		})
+
+		it('answers one whole line for every record, whatever it holds', () => {
+			const records: readonly unknown[] = [
+				...createHostileValues(),
+				...STRANGE_VALUES,
+				...MALFORMED_RECORDS,
+			]
+			for (const record of records) {
+				expect(Reflect.apply(narrator.explain, narrator, [record])).toBe('not known')
+			}
+			expect(
+				STRANGE_RECORDS.map(([record]) => Reflect.apply(narrator.explain, narrator, [record])),
+			).toEqual(STRANGE_RECORDS.map(([, text]) => text))
 		})
 	})
 

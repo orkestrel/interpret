@@ -42,13 +42,23 @@ import type {
 } from '@src/core'
 import {
 	arrayShape,
+	booleanShape,
+	dateShape,
+	functionShape,
+	integerShape,
 	isArray,
 	isRecord,
+	jsonShape,
+	literalShape,
+	nullShape,
 	numberShape,
 	objectShape,
+	oneOfShape,
 	optionalShape,
 	seededRandom,
+	shapeShape,
 	stringShape,
+	unionShape,
 } from '@orkestrel/contract'
 import { buildNotice, buildProgramDefinition, isProgramResult } from '@orkestrel/program'
 import {
@@ -364,6 +374,282 @@ export const REFUSAL_RECORDS = [
 		valid: false,
 	},
 ]
+
+/** Holds the mapping each refusal sentence's text is compiled against, keyed by its entity. */
+export const REFUSAL_MAPPINGS = {
+	rate: { entity: 'rate', aliases: [], field: 'rate' },
+	years: { entity: 'years', aliases: [], field: ['plan', 'years'] },
+	values: { entity: 'values', aliases: [], field: 'values' },
+} as const
+
+/** Holds, for each refusal reason, a real text, its mappings, and its sentence, with `rate` worded. */
+export const REFUSAL_SENTENCES = [
+	[
+		'preceding-word',
+		'about 5 years',
+		[REFUSAL_MAPPINGS.years],
+		'"5" was not taken, because the way it is written makes it uncertain (considered for plan.years)',
+	],
+	[
+		'preceding-word',
+		'the 5ish years',
+		[REFUSAL_MAPPINGS.years],
+		'"5ish" was not taken, because the way it is written makes it uncertain (considered for plan.years)',
+	],
+	[
+		'preceding-word',
+		'1 – 3 years',
+		[REFUSAL_MAPPINGS.years],
+		'"3" was not taken, because the way it is written makes it uncertain (considered for plan.years)',
+	],
+	[
+		'following-word',
+		'years 3 months',
+		[REFUSAL_MAPPINGS.years],
+		'"3" was not taken, because what comes after it makes it uncertain (considered for plan.years)',
+	],
+	[
+		'unreadable',
+		'rate 12 to 18',
+		[REFUSAL_MAPPINGS.rate],
+		'"12" was not taken, because it is part of a range or a choice (considered for the RATE)',
+	],
+	[
+		'anchor-tie',
+		'rate 5 rate 6',
+		[REFUSAL_MAPPINGS.rate],
+		'"5" was not taken, because it is not clear which number goes with which value (considered for the RATE)',
+	],
+	[
+		'anchor-tie',
+		'years 5 rate',
+		[REFUSAL_MAPPINGS.years, REFUSAL_MAPPINGS.rate],
+		'"5" was not taken, because it is not clear which number goes with which value',
+	],
+	[
+		'anchor-conflict',
+		'rate 5, rate 6',
+		[REFUSAL_MAPPINGS.rate],
+		'"5" was not taken, because the text gives more than one number for the same value (considered for the RATE)',
+	],
+	[
+		'correction',
+		'wait, rate 5, rate 6',
+		[REFUSAL_MAPPINGS.rate],
+		'"5" was not taken, because the text may be correcting or replacing it (considered for the RATE)',
+	],
+	[
+		'negation',
+		'I cannot pay rate 5',
+		[REFUSAL_MAPPINGS.rate],
+		'"5" was not taken, because the same part of the text holds a negation (considered for the RATE)',
+	],
+	[
+		'unanchored',
+		'7 apples',
+		[REFUSAL_MAPPINGS.rate],
+		'"7" was not taken, because it could not be tied to a value',
+	],
+	[
+		'collection',
+		'values 5 to 6',
+		[REFUSAL_MAPPINGS.values],
+		'"6" was not taken, because another number in the same list was not (considered for values)',
+	],
+] as const
+
+/** Holds, for each cause the reader produces, a real text, what it refuses there, and the words. */
+export const UNREADABLE_SENTENCES = [
+	['undeclared', 'rate 1.2m', '1.2m', 'it is not written as a plain number'],
+	['fraction', 'rate half a cup', 'half', 'it is a fraction'],
+	['foreign currency', 'rate 50 cents', '50 cents', 'it is in a currency unit other than dollars'],
+	[
+		'grouping',
+		'rate 200.000',
+		'200.000',
+		'its digits are grouped in a way that could mean two numbers',
+	],
+	['shorthand', 'rate six figures', 'six figures', 'it is written in shorthand'],
+	['spoken', 'rate twelve fifty', 'twelve fifty', 'it is written the way it is spoken'],
+	[
+		'joined',
+		'rate two thousand and five hundred',
+		'two thousand',
+		'its words can be joined in more than one way',
+	],
+	['frequency', 'rate twice a week', 'twice', 'it says how often, not how many'],
+	['loose', 'rate a couple', 'couple', 'it is not an exact amount'],
+	['range', 'rate 12 to 18', '12', 'it is part of a range or a choice'],
+	['dimensions', 'rate 20 x 30', '20', 'it is part of a set of dimensions'],
+	['overflow', 'rate 9007199254740993', '9007199254740993', 'it is too large to hold exactly'],
+	[
+		'precision',
+		'rate 1.1234567891k',
+		'1.1234567891k',
+		'it has more decimal places than can be kept',
+	],
+] as const
+
+/** Holds the records `explain` admits as neither a number refusal nor an audit fault. */
+export const MALFORMED_RECORDS: readonly unknown[] = [
+	{ reason: 'type' },
+	{ reason: 'type', path: ['a'], expected: 'number' },
+	{ reason: 'unanchored', text: '5', start: -1, end: 0 },
+	{ reason: 'other', text: '5', start: 0, end: 1 },
+	{ reason: 'toString', text: '5', start: 0, end: 1 },
+	{ reason: '__proto__', path: ['a'] },
+]
+
+/** Holds records whose own text is blank, broken over lines, or a slot, with each one's sentence. */
+export const STRANGE_RECORDS: ReadonlyArray<readonly [record: unknown, text: string]> = [
+	[
+		{ text: ' ', start: 0, end: 1, reason: 'unanchored' },
+		'" " was not taken, because it could not be tied to a value',
+	],
+	[
+		{ text: 'a\nb {{text}}', start: 0, end: 1, reason: 'unanchored', field: ['c\nd'] },
+		'a b {{text}} was not taken, because it could not be tied to a value (considered for c d)',
+	],
+	[
+		{ reason: 'type', path: ['a\nb'], expected: 'number', received: 'c\u{2028}d' },
+		'a b must be a number, and c d is not',
+	],
+	[
+		{ reason: 'type', path: [], expected: 'number', received: ' ' },
+		'"" must be a number, and " " is not',
+	],
+	[{ reason: 'extra', path: ['__proto__'] }, '__proto__ is not expected'],
+	[
+		{
+			reason: 'constraint',
+			path: ['a'],
+			expected: 'number',
+			constraint: 'min',
+			received: '5',
+		},
+		'a must be at least not known, and 5 is not',
+	],
+]
+
+/** Holds one shape of each kind a subject door's fault can expect, keyed by that kind. */
+export const FAULT_SHAPES = {
+	string: stringShape(),
+	date: dateShape(),
+	number: numberShape(),
+	integer: integerShape(),
+	boolean: booleanShape(),
+	null: nullShape(),
+	literal: literalShape(['a', 'b']),
+	array: arrayShape(numberShape()),
+	object: objectShape({}),
+	json: jsonShape(),
+	shape: shapeShape(),
+	function: functionShape(),
+}
+
+/** Holds what each kind of `FAULT_SHAPES` is called. */
+export const FAULT_WORDS: Readonly<Record<string, string>> = {
+	string: 'text',
+	date: 'a date',
+	number: 'a number',
+	integer: 'a whole number',
+	boolean: 'true or false',
+	null: 'none',
+	literal: 'one of its allowed values',
+	array: 'a list',
+	object: 'a record',
+	json: 'plain data',
+	shape: 'a shape description',
+	function: 'a function',
+}
+
+/** Holds a field's shape, a value outside it, and the sentence, with the field worded as money. */
+export const FAULT_BOUNDS: ReadonlyArray<
+	readonly [shape: ContractShape, value: unknown, text: string]
+> = [
+	[numberShape({ min: 1250 }), 5, 'the AMOUNT must be at least $1,250.00, and 5 is not'],
+	[numberShape({ over: 5 }), 5, 'the AMOUNT must be more than $5.00, and 5 is not'],
+	[numberShape({ max: 5 }), 9, 'the AMOUNT must be at most $5.00, and 9 is not'],
+	[numberShape({ under: 5 }), 5, 'the AMOUNT must be less than $5.00, and 5 is not'],
+	[integerShape(), 1.5, 'the AMOUNT must be a whole number, and 1.5 is not'],
+	[
+		stringShape({ pattern: /^a+$/ }),
+		'b',
+		'the AMOUNT must be in the expected form, and "b" is not',
+	],
+	[dateShape(), '2024-02-30', 'the AMOUNT must be a valid date, and "2024-02-30" is not'],
+	[stringShape({ min: 1200 }), 'a', 'the AMOUNT must have a length of at least 1200'],
+	[stringShape({ max: 3 }), 'abcd', 'the AMOUNT must have a length of at most 3'],
+	[arrayShape(numberShape(), { min: 2 }), [1], 'the AMOUNT must have a length of at least 2'],
+	[arrayShape(numberShape(), { max: 1 }), [1, 2], 'the AMOUNT must have a length of at most 1'],
+]
+
+/** Holds a subject whose field `f` gives a fault that expects nothing, its shape, and the sentences. */
+export const FAULT_PLAIN: ReadonlyArray<
+	readonly [subject: Subject, shape: ContractShape, texts: readonly string[]]
+> = [
+	[
+		{ f: 5 },
+		objectShape({ f: oneOfShape(numberShape({ min: 1 }), integerShape()) }),
+		['f is not in exactly one of the allowed forms'],
+	],
+	[
+		{ f: 5 },
+		objectShape({ f: unionShape(objectShape({ a: numberShape() }), nullShape()) }),
+		['f is in none of the allowed forms'],
+	],
+	[{ f: 5 }, objectShape({}), ['f is not expected']],
+	[
+		Object.defineProperty({}, 'f', { value: 1, enumerable: false }),
+		objectShape({ f: numberShape() }),
+		['f is not known, and must be a number', 'f is hidden and cannot be read'],
+	],
+]
+
+/** Holds each operation's operands, in an order that changes its value, its English, and its value. */
+export const OPERATION_READINGS = [
+	['add', 7, 2, '7 + 2', 9],
+	['subtract', 7, 2, '7 - 2', 5],
+	['multiply', 7, 2, '7 × 2', 14],
+	['divide', 7, 2, '7 ÷ 2', 3.5],
+	['percentage', 200, 10, '10% of 200', 20],
+	['minimum', 7, 2, 'the lower of 7 and 2', 2],
+	['maximum', 7, 2, 'the higher of 7 and 2', 7],
+	['average', 7, 2, 'the average of 7 and 2', 4.5],
+	['power', 7, 2, '7 to the power of 2', 49],
+	['round', 7.6, 2, '7.6 rounded to a whole number', 8],
+	['ceil', 7.2, 2, '7.2 rounded up to a whole number', 8],
+	['floor', 7.8, 2, '7.8 rounded down to a whole number', 7],
+	['abs', -7, 2, 'the absolute value of -7', 7],
+] as const
+
+/** Holds each operation as a change to a value: the value, its operand, its English, and the result. */
+export const TRANSFORM_READINGS = [
+	['add', 7, 2, 'plus 2', 9],
+	['subtract', 7, 2, 'minus 2', 5],
+	['multiply', 7, 2, 'times 2', 14],
+	['divide', 7, 2, 'divided by 2', 3.5],
+	['percentage', 200, 10, '10% of it', 20],
+	['minimum', 7, 2, 'the lower of it and 2', 2],
+	['maximum', 7, 2, 'the higher of it and 2', 7],
+	['average', 7, 2, 'averaged with 2', 4.5],
+	['power', 7, 2, 'to the power of 2', 49],
+	['round', 7.6, undefined, 'rounded to a whole number', 8],
+	['ceil', 7.2, undefined, 'rounded up to a whole number', 8],
+	['floor', 7.8, undefined, 'rounded down to a whole number', 7],
+	['abs', -7, undefined, 'without its sign', 7],
+] as const
+
+/** Holds each operation whose operand can be left out, its English then, and its result from 7. */
+export const ABSENT_OPERAND_READINGS = [
+	['add', 'plus 0', 7],
+	['multiply', 'times 1', 7],
+	['divide', 'divided by 1', 7],
+	['power', 'to the power of 1', 7],
+	['percentage', '0% of it', 0],
+	['minimum', 'the lower of it and 0', 0],
+	['average', 'averaged with 0', 3.5],
+] as const
 
 /** Holds the reviewer messages that must keep asking without an unstated value. */
 export const REVIEWER_LOAN_READINGS = [

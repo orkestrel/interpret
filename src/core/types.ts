@@ -1,4 +1,11 @@
-import type { AuditFault, ContractShape, FieldPath, JSONValue } from '@orkestrel/contract'
+import type {
+	AuditFault,
+	ContractShape,
+	FaultConstraint,
+	FaultKind,
+	FieldPath,
+	JSONValue,
+} from '@orkestrel/contract'
 import type { EmitterErrorHandler, EmitterHooks, EmitterInterface } from '@orkestrel/emitter'
 import type {
 	Aggregation,
@@ -8,6 +15,7 @@ import type {
 	Comparison,
 	Definition,
 	FactorGroup,
+	MathOperation,
 	ReasonResult,
 	Rule,
 	RuleResult,
@@ -713,15 +721,22 @@ export interface ComparisonPhrase {
  * Names every sentence frame a {@link Lexicon} holds.
  *
  * @remarks
- * `fact.*`, `value.*`, `condition.*`, `reason.*`, `rule.*`, `result.*`, `worksheet.*`,
- * `source.*`, `group.*`, and `equation.*` frame the account. `subject.*`, `prompt.*`, and
- * `ambiguity.*` frame the forward direction. `FRAME_SLOTS` lists the slots each frame offers.
+ * `fact.*`, `fault.*`, `value.*`, `condition.*`, `reason.*`, `rule.*`, `result.*`,
+ * `worksheet.*`, `source.*`, `group.*`, and `equation.*` frame the account, and `refusal.*` a
+ * number refusal. `subject.*`, `prompt.*`, and `ambiguity.*` frame the forward direction.
+ * `FRAME_SLOTS` lists the slots each frame offers.
  */
 export type FrameName =
 	| 'fact.equal'
 	| 'fact.compared'
 	| 'fact.listed'
 	| 'fact.unread'
+	| 'fault.type'
+	| 'fault.missing'
+	| 'fault.constraint'
+	| 'fault.length'
+	| 'refusal.unreadable'
+	| 'refusal.field'
 	| 'value.range'
 	| 'value.minimum'
 	| 'value.maximum'
@@ -775,16 +790,44 @@ export type FrameName =
 	| 'ambiguity.intent'
 	| 'ambiguity.confidence'
 
+/** Names an eligibility a {@link Lexicon} words, mirroring `Eligibility` of `@orkestrel/qualifier`. */
+export type EligibilityKey = 'eligible' | 'ineligible' | 'referral'
+
+/**
+ * Names an effect a {@link Lexicon} words, mirroring `QualificationEffect` of
+ * `@orkestrel/qualifier` and `ProgramEffect` of `@orkestrel/program`.
+ */
+export type EffectKey = 'restriction' | 'referral' | 'condition' | 'notice' | 'limit'
+
+/** Names a status a {@link Lexicon} words, mirroring `Status` of `@orkestrel/program`. */
+export type StatusKey =
+	| 'ineligible'
+	| 'referral'
+	| 'incomplete'
+	| 'conditional'
+	| 'unrated'
+	| 'eligible'
+
+/** Names a decision a {@link Lexicon} words, mirroring `Decision` of `@orkestrel/program`. */
+export type DecisionKey = 'approved' | 'denied' | 'submitted'
+
 /**
  * Represents the general words of one language, complete.
  *
  * @remarks
  * `checks` words a check's state, `rules` a rule's, and `verdicts` a definition's. `faults`
  * words what a field that was not read is, and `missing` is the word for a value nobody read.
- * `joins.reasons` stands between reasons and `joins.last` before the last one. `frames` are
- * `@orkestrel/template` templates whose slots `FRAME_SLOTS` lists. `limits.list` is the
- * longest list a fact prints in full, a longer one being counted, and `limits.reasons` the most
- * reasons, or rules that apply, one sentence gives. A condition prints every member of its list.
+ * `expected` words the kind of value a fault needed, `constraints` a bound on a value, and
+ * `lengths` a bound on a length. `operations` words an equation's operation over its operands,
+ * and `transforms` a factor's. `refusals` words why a number in a text was not taken, and
+ * `unreadables` why it could not be read exactly. `eligibilities`, `effects`, `statuses`, and
+ * `decisions` word what other packages decide; `phrase` reads them. `joins.reasons` stands
+ * between reasons, `joins.last` before the last one, and `joins.steps` between a factor's steps.
+ * `frames` are `@orkestrel/template` templates whose slots `FRAME_SLOTS` lists, and
+ * `WORD_SLOTS` lists those of `operations`, `transforms`, `constraints`, `lengths`, and
+ * `refusals`. `limits.list` is the longest list a fact prints in full, a longer one being
+ * counted, and `limits.reasons` the most reasons, or rules that apply, one sentence gives. A
+ * condition prints every member of its list.
  */
 export interface Lexicon {
 	readonly comparisons: Readonly<Record<Comparison, ComparisonPhrase>>
@@ -793,8 +836,19 @@ export interface Lexicon {
 	readonly verdicts: Readonly<Record<CheckState, string>>
 	readonly aggregations: Readonly<Record<Aggregation, string>>
 	readonly faults: Readonly<Record<AuditFault['reason'], string>>
+	readonly expected: Readonly<Record<FaultKind, string>>
+	readonly constraints: Readonly<Record<FaultConstraint, string>>
+	readonly lengths: { readonly min: string; readonly max: string }
+	readonly operations: Readonly<Record<MathOperation, string>>
+	readonly transforms: Readonly<Record<MathOperation, string>>
+	readonly refusals: Readonly<Record<NumberRefusalReason, string>>
+	readonly unreadables: Readonly<Record<NumberUnreadable, string>>
+	readonly eligibilities: Readonly<Record<EligibilityKey, string>>
+	readonly effects: Readonly<Record<EffectKey, string>>
+	readonly statuses: Readonly<Record<StatusKey, string>>
+	readonly decisions: Readonly<Record<DecisionKey, string>>
 	readonly values: { readonly true: string; readonly false: string; readonly null: string }
-	readonly joins: { readonly reasons: string; readonly last: string }
+	readonly joins: { readonly reasons: string; readonly last: string; readonly steps: string }
 	readonly frames: Readonly<Record<FrameName, string>>
 	readonly limits: { readonly list: number; readonly reasons: number }
 	readonly missing: string
@@ -808,6 +862,17 @@ export interface LexiconInput {
 	readonly verdicts?: Readonly<Partial<Lexicon['verdicts']>>
 	readonly aggregations?: Readonly<Partial<Lexicon['aggregations']>>
 	readonly faults?: Readonly<Partial<Lexicon['faults']>>
+	readonly expected?: Readonly<Partial<Lexicon['expected']>>
+	readonly constraints?: Readonly<Partial<Lexicon['constraints']>>
+	readonly lengths?: Readonly<Partial<Lexicon['lengths']>>
+	readonly operations?: Readonly<Partial<Lexicon['operations']>>
+	readonly transforms?: Readonly<Partial<Lexicon['transforms']>>
+	readonly refusals?: Readonly<Partial<Lexicon['refusals']>>
+	readonly unreadables?: Readonly<Partial<Lexicon['unreadables']>>
+	readonly eligibilities?: Readonly<Partial<Lexicon['eligibilities']>>
+	readonly effects?: Readonly<Partial<Lexicon['effects']>>
+	readonly statuses?: Readonly<Partial<Lexicon['statuses']>>
+	readonly decisions?: Readonly<Partial<Lexicon['decisions']>>
 	readonly values?: Readonly<Partial<Lexicon['values']>>
 	readonly joins?: Readonly<Partial<Lexicon['joins']>>
 	readonly frames?: Readonly<Partial<Lexicon['frames']>>
@@ -1343,8 +1408,8 @@ export interface GeneratorInterface {
  * domain's words, and the evidence of a reasons run.
  *
  * @remarks
- * The lookups `phrase`, `label`, `value`, and `line` answer without throwing. Each reads own keys,
- * so a key such as `toString` or `__proto__` misses, and gives a supplied text that is not blank as
+ * The lookups `phrase`, `label`, `value`, and `line` answer without throwing, and so does
+ * `explain`, whose answer is one line. Each lookup reads own keys, so a key such as `toString` or `__proto__` misses, and gives a supplied text that is not blank as
  * it is, its line breaks included. `describe`, `narrate`, and `audit` read a definition and a
  * result as the `isDefinition` and `isReasonResult` guards of `@orkestrel/reason` admit them, and
  * throw nothing of their own; an accessor that throws, throws through them. A missing domain word
@@ -1418,6 +1483,19 @@ export interface NarratorInterface {
 	 * @returns The result's account
 	 */
 	narrate(definition: Definition, result: ReasonResult): Account
+	/**
+	 * Writes why one value was not taken, as one line.
+	 *
+	 * @remarks
+	 * A fault reads as it does on an account's line. A record that is neither a fault nor a number
+	 * refusal, as `isAuditFault` and `isNumberRefusal` admit them, reads as the `missing` word.
+	 *
+	 * @param fault - The fault a subject door or a reasoner reported
+	 * @returns The sentence
+	 */
+	explain(fault: AuditFault): string
+	// A number refusal, as `Interpretation.refusals` holds one.
+	explain(refusal: NumberRefusal): string
 	/**
 	 * Lists every domain word the definitions need and the supplied words lack.
 	 *

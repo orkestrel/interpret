@@ -398,7 +398,7 @@ await new GuideCommand({
 			expect(renderAccount(account).split('\n')).toEqual(reasons)
 			expect(renderAccount(account, { detail: 'full' }).split('\n')).toEqual([
 				...reasons,
-				'Berth request: 3 of 3 rules apply',
+				'Rules of Berth request that apply: 3 of 3',
 				'Known member applies',
 				'Boat size applies',
 				'Grant applies',
@@ -410,12 +410,12 @@ await new GuideCommand({
 			)
 			expect(refused.success).toBe(false)
 			expect(renderAccount(refused, { detail: 'line' })).toBe(
-				'Berth request cannot be decided, because Boat size cannot be decided (boat length is not known)',
+				'Berth request cannot be decided, because Boat size cannot be decided (boat length is not known, and must be a number)',
 			)
 			const causes = [
 				'Berth request cannot be decided',
 				'  Boat size cannot be decided',
-				'    boat length is not known',
+				'    boat length is not known, and must be a number',
 			]
 			expect(renderAccount(refused).split('\n')).toEqual(causes)
 			expect(renderAccount(refused, { detail: 'full' }).split('\n')).toEqual([
@@ -479,7 +479,7 @@ await new GuideCommand({
 			expect(renderAccount(narrator.narrate(definition, refused)).split('\n')).toEqual([
 				'Stay price gave no answer',
 				'  Berth found no value to use',
-				'    nightly fee is not known',
+				'    nightly fee is not known, and must be a number',
 			])
 		})
 
@@ -576,7 +576,7 @@ await new GuideCommand({
 			expect(findGoalRule(gates)).toBe(undefined)
 			expect(renderAccount(narrator.narrate(gates, reasoner.reason(subject, gates)))).toBe(
 				[
-					'Gates: 2 of 2 rules apply',
+					'Rules of Gates that apply: 2 of 2',
 					'Known applies',
 					'  membership is sailor, which is one of the 5 listed',
 					'Size applies',
@@ -592,7 +592,7 @@ await new GuideCommand({
 			const refused = reasoner.reason({ membership: 'sailor' }, unread)
 			expect(refused.errors.length).toBeGreaterThan(refused.faults.length)
 			expect(renderAccount(narrator.narrate(unread, refused), { detail: 'full' })).toBe(
-				'Unread gave no answer\n  length is not known',
+				'Unread gave no answer\n  length is not known, and must be a number',
 			)
 
 			// A lookup's line names its field and not the value read, and a gate that passed prints no check.
@@ -1099,6 +1099,17 @@ await new GuideCommand({
 				'  applies when Adult applicant applies and Cost is at most $1,250.00',
 			])
 			expect(narrator.audit([definition])).toEqual([])
+			expect(
+				narrator.explain({
+					reason: 'type',
+					path: 'cost',
+					expected: 'number',
+					received: '"plenty"',
+				}),
+			).toBe('Cost must be a number, and "plenty" is not')
+			expect(narrator.explain({ text: '"40"', start: 6, end: 8, reason: 'unanchored' })).toBe(
+				'"40" was not taken, because it could not be tied to a value',
+			)
 		})
 
 		it('RecordManagerInterface: the shared engine stamps, holds, and removes one record', () => {
