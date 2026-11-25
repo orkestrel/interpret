@@ -925,6 +925,24 @@ describe('FamilyNarrator', () => {
 			}
 		})
 
+		it('prints a value with no text of its own as the lexicon’s word for its kind', () => {
+			const noted = createQualificationDefinition('q', 'Q', [gates], {
+				rulings: [
+					createRuling('loud', 'gates', 'loud', 'restriction', { message: 'Note {{note}}.' }),
+				],
+			})
+			const texts = [{ a: 1 }, [{ a: 1 }, { b: 2 }], [['a'], 'b'], []].map((note) => {
+				const held = QUALIFIER.qualify({ ...FAMILY_BASE, noise: 55, note }, noted)
+				return FAMILY.narrate(noted, held).lines[1]?.text
+			})
+			expect(texts).toEqual([
+				'Restriction: Note a record.',
+				'Restriction: Note a record and a record.',
+				'Restriction: Note a list and b.',
+				'Restriction: Note a list.',
+			])
+		})
+
 		it('carries the gap of a slot whose number has no unit, and asks nothing for a message', () => {
 			const glossary: Glossary = {
 				...GLOSSARY,

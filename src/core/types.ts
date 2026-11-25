@@ -902,7 +902,7 @@ export type DispositionKey = 'approved' | 'denied' | 'submitted'
  * @remarks
  * `checks` words a check's state, `rules` a rule's, and `verdicts` a definition's. `faults`
  * words what a field that was not read is, and `missing` is the word for a value nobody read.
- * `expected` words the kind of value a fault needed, `received` a value it got that has no text of
+ * `expected` words the kind of value a fault needed, `received` a value that has no text of
  * its own, `constraints` a bound on a value, and `lengths` a bound on a length. `operations` words
  * an equation's operation over its operands, and `transforms` a factor's. `refusals` words why a
  * number in a text was not taken, `unreadables` why it could not be read exactly, and `causes` why a
@@ -1795,7 +1795,8 @@ export interface NarratorInterface {
 	 * A formatter wins over a format, and a glossary format over a shipped one. A list joins by
 	 * the locale, each member quoted where one holds a joining text or a mark of the quote. `true`,
 	 * `false`, and `null` use the lexicon's words, and a string prints as it stands unless it is
-	 * blank. An absent value and `NaN` print the lexicon's `missing` word.
+	 * blank. A record, a list inside a list, and an empty list print the lexicon's `received` word for
+	 * their kind. An absent value and `NaN` print the lexicon's `missing` word.
 	 *
 	 * @param field - The field path the value belongs to
 	 * @param raw - The value to render

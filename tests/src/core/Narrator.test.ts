@@ -400,7 +400,54 @@ describe('Narrator', () => {
 			expect(narrator.value('x', ' gOLD  ')).toBe(' gOLD  ')
 			expect(narrator.value('cost', [1000, 2000])).toBe('1,000 and 2,000')
 			expect(narrator.value('x', ['a', 'b', 'c'])).toBe('a, b, and c')
-			expect(narrator.value('x', [['a'], 'b'])).toBe('array and b')
+			expect(narrator.value('x', [['a'], 'b'])).toBe('a list and b')
+		})
+
+		it('prints a value with no text of its own as the lexicon’s word for its kind, in a slot and in a fact', () => {
+			const narrator = new Narrator()
+			const spanish = new Narrator({
+				lexicon: {
+					received: {
+						array: 'una lista',
+						object: 'un registro',
+						instance: 'un objeto',
+						function: 'una función',
+					},
+				},
+			})
+			const values = [
+				[{ a: 1 }, 'a record', 'un registro', 'a record'],
+				[[{ a: 1 }, { b: 2 }], 'a record and a record', 'un registro and un registro', 'a list'],
+				[[['a'], 'b'], 'a list and b', 'una lista and b', 'a list'],
+				[[{ a: 1 }, []], 'a record and a list', 'un registro and una lista', 'a list'],
+				[[], 'a list', 'una lista', 'a list'],
+			] as const
+			expect(narrator.value('x', new Map())).toBe('a special object')
+			expect(spanish.value('x', String)).toBe('una función')
+			for (const [raw, text, worded, term] of values) {
+				expect(narrator.value('x', raw)).toBe(text)
+				expect(spanish.value('x', raw)).toBe(worded)
+				expect(narrator.explain({ cause: 'source', field: 'x', actual: raw })).toBe(
+					`the run has no entry for the value it read (x: ${text})`,
+				)
+				const facts = createDeductiveDefinition(
+					'f',
+					'F',
+					[createFact('a', 'holds', ['tide', raw])],
+					[
+						createDeduction(
+							'd',
+							[createFact('p', 'holds', ['?x', '?y'])],
+							createFact('c', 'keeps', ['?x', '?y']),
+						),
+					],
+				)
+				const derived = createDeductiveReasoner().reason({}, facts)
+				expect(renderAccount(narrator.narrate(facts, derived)).split('\n')).toEqual([
+					'Facts derived: 1',
+					`keeps(tide, ${term})`,
+				])
+			}
 		})
 
 		it('previews anything else, and never prints an absent value as a word of code', () => {
@@ -411,8 +458,6 @@ describe('Narrator', () => {
 			expect(narrator.value('x', Number.NEGATIVE_INFINITY)).toBe('not known')
 			expect(narrator.value('x', '')).toBe('""')
 			expect(narrator.value('x', ' ')).toBe('" "')
-			expect(narrator.value('x', [])).toBe('array')
-			expect(narrator.value('x', { a: 1 })).toBe('object')
 			expect(narrator.value('x', 12n)).toBe('12n')
 		})
 

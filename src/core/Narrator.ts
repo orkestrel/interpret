@@ -329,12 +329,9 @@ export class Narrator implements NarratorInterface {
 
 	#writeList(field: FieldPath, raw: readonly unknown[], list: Intl.ListFormat): string {
 		const read = attempt(() =>
-			Array.from(raw, (entry) => ({
-				entry,
-				text: isArray(entry) ? preview(entry) : this.#writeScalar(field, entry),
-			})),
+			Array.from(raw, (entry) => ({ entry, text: this.#writeScalar(field, entry) })),
 		)
-		if (!isSuccess(read) || read.value.length === 0) return preview(raw)
+		if (!isSuccess(read) || read.value.length === 0) return this.#writeKind(raw)
 		const texts = read.value.map(({ text }) => text)
 		return list.format(this.#writeMembers(read.value, collectListJoins(list, texts)))
 	}
@@ -366,7 +363,13 @@ export class Narrator implements NarratorInterface {
 		}
 		if (isBoolean(raw)) return raw ? this.#lexicon.values.true : this.#lexicon.values.false
 		if (isNull(raw)) return this.#lexicon.values.null
-		return isUndefined(raw) ? this.#lexicon.missing : preview(raw)
+		return isUndefined(raw) ? this.#lexicon.missing : this.#writeKind(raw)
+	}
+
+	// A value with no text of its own prints as its kind, as a value a fault received does.
+	#writeKind(raw: unknown): string {
+		const kind = preview(raw)
+		return findWord(this.#lexicon.received, kind) ?? kind
 	}
 
 	// A number that is not finite is no value, so it never prints.
@@ -532,9 +535,7 @@ export class Narrator implements NarratorInterface {
 			const actual = this.value(key, fact.terms[1])
 			return { text: this.line('fact.equal', { label: this.label(key), actual }), gaps }
 		}
-		const texts = fact.terms.map((term) =>
-			isArray(term) ? preview(term) : this.#writeScalar(undefined, term),
-		)
+		const texts = fact.terms.map((term) => this.#writeScalar(undefined, term))
 		const join = this.#lexicon.joins.terms
 		const members = texts.map((text, index) => ({ entry: fact.terms[index], text }))
 		const terms = this.#writeMembers(members, [join]).join(join)

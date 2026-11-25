@@ -494,6 +494,19 @@ await new GuideCommand({
 			expect(isAccount(received) && renderAccount(received, { detail: 'line' })).toBe(
 				'Workshop hire holds, because party size is 8, which is at most 12',
 			)
+
+			// The promises about a text are the writer's: a guard reads the structure alone.
+			const [line] = account.lines
+			for (const text of [' ', 'one\ntwo']) {
+				const stored: unknown = projectAccount({
+					...account,
+					lines: [{ ...requireValue(line), text, summary: text }],
+				})
+				expect(accountContract.is(stored)).toBe(true)
+				expect(isAccount(stored)).toBe(true)
+			}
+			expect(isAccount({ ...account, other: true })).toBe(true)
+			expect(accountContract.is({ ...account, other: true })).toBe(false)
 		})
 
 		it('Write a result for a person: the berth account at each detail, refused, and its guide', () => {

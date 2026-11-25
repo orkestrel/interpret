@@ -1317,6 +1317,7 @@ Every account keeps these promises:
 - A proof's lines are its steps, in order, each naming its deduction, the last stating the result's fact.
 - A worksheet's lookup or range names the value it read, and its fallback says that it supplied the number, wherever the result holds them.
 - The members of a list, and the terms of a fact that prints as it is stated, read back from their text, a line break as a space: where one holds a joining text or a mark of the quote, every one is quoted, with a backslash before each mark and each backslash inside.
+- A record, a list inside a list, and an empty list print the lexicon's `received` word for their kind, such as `a record`. A fact that prints as it is stated prints each list among its terms so. A condition compared with an empty list prints `[]`.
 - A fault's sentence, from `explain` or on a line, states only what the fault holds. One for a missing value states no received value.
 - `explain` never throws, and answers one line for any record.
 - One field's numbers print one way, in every fact and condition.
@@ -1335,6 +1336,11 @@ Every account keeps these promises:
 - A rating and each of its lines state an amount only where the result holds one.
 - A document of a qualification, a rating, or a program reads no text of their results but a finding's or a determination's message, which its author wrote, and a thrown error's message.
 - A guide of a qualification, a rating, or a program prints no message and no description that holds an unfilled slot. A name prints as authored.
+
+The writer keeps these promises, and `isAccount`, `accountShape`, and `accountContract` don't check
+them. They read an account's structure, and `isAccount` admits a record with other members, which
+the contract refuses. A text of an account either admits can be blank, hold a line break, or say
+anything at all, so a stored account is only as good as who stored it.
 
 An account can't say these things:
 
@@ -2733,7 +2739,12 @@ caller as follows:
 - Add every added word to a complete lexicon in another language: the `causes` table, the `cause.*` frames, `proof.step`, and `source.read`.
 - Drop `fact.some`, `fact.possible`, `fact.proved`, and `source.either` from a lexicon. No frame replaces one of them word for word.
 - Read a family number as `number | null`, because a JSON projection holds `null` where a number isn't finite. A worksheet group's `value` is absent where the group has no answer.
-- Pass `findSubjectKey` whether it reads a pattern, and pass `collectFactGaps` the key it found.
+- Read `FamilyFinding.message` as a list of texts and `FamilySlot` records, where it was one string. A slot holds a `field` and the `actual` value, and the list can be empty.
+- Give a family result you build by hand the members its guard requires: `refusals` on each result and worksheet, `refusals` and `faults` on a derivation, `checks` on a finding, and `checks` and `fallback` on a factor.
+- Pass `findSubjectKey` whether it reads a pattern, and pass `collectFactGaps` the key it found, or `undefined`, where it took a boolean.
+- Pass `matchesSubjectKeys(definition, glossary)` a `DeductiveDefinition`, where it took reason's `InferentialDefinition`.
+- Accept a run's refusal in the `explain` method of a `NarratorInterface` of your own.
+- Expect a value that is a record, a list inside a list, or an empty list to print the lexicon's `received` word, such as `a record` or `a list`, where it printed `object` or `array`.
 
 The following table lists each renamed name beside its replacement:
 
