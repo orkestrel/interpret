@@ -51,8 +51,16 @@ await new GuideCommand({
 		isExternalLink,
 		resolveLink,
 	} = await import('@orkestrel/guide')
-	const { createFactorGroup, createFieldFactor, createQuantitativeDefinition } =
-		await import('@orkestrel/reason')
+	const {
+		createAtom,
+		createFactorGroup,
+		createFieldFactor,
+		createLogicalDefinition,
+		createLogicalReasoner,
+		createQuantitativeDefinition,
+		createQuantitativeReasoner,
+		createRule,
+	} = await import('@orkestrel/reason')
 	const {
 		applyReplacements,
 		assignEntities,
@@ -85,6 +93,7 @@ await new GuideCommand({
 		DEFAULT_LEXICON,
 		digestValue,
 		extractNumbers,
+		FRAME_SLOTS,
 		InterpretError,
 		isAmbiguity,
 		isComputedField,
@@ -102,6 +111,7 @@ await new GuideCommand({
 		NUMBER_PATTERN,
 		parseRecipe,
 		RecordManager,
+		renderAccount,
 		renderSubject,
 		resolveExpression,
 		scoreRecipe,
@@ -346,9 +356,14 @@ await new GuideCommand({
 			expect(CONFIDENCE_COMPUTED).toBe(0.9)
 			expect(typeof NUMBER_PATTERN.source).toBe('string')
 			expect(DEFAULT_CONTRACTIONS["can't"]).toBe('cannot')
-			expect(DEFAULT_LEXICON.templates?.['subject.empty']).toBe('with no fields')
-			expect(DEFAULT_LEXICON.templates?.['prompt.base']).toBe('{{verb}} {{name}}')
-			expect(DEFAULT_LEXICON.templates?.['ambiguity.entity']).toBe('What is your {{entity}}?')
+			expect(DEFAULT_LEXICON.frames['subject.empty']).toBe('with no fields')
+			expect(DEFAULT_LEXICON.frames['prompt.base']).toBe('{{verb}} {{name}}')
+			expect(DEFAULT_LEXICON.frames['ambiguity.entity']).toBe('What is your {{entity}}?')
+			expect(DEFAULT_LEXICON.comparisons.from).toEqual({
+				holds: 'is at least',
+				fails: 'is less than',
+			})
+			expect(FRAME_SLOTS['rule.settled']).toEqual(['name', 'verdict'])
 		})
 
 		it('Errors: a caught InterpretError narrows to its code', () => {
@@ -686,16 +701,39 @@ await new GuideCommand({
 			expect(result.confidence).toBe(0.9)
 		})
 
-		it('NarratorInterface: each primitive returns its documented rendering', () => {
+		it('NarratorInterface: each primitive and each account returns its documented rendering', () => {
 			const narrator = createNarrator({
-				lexicon: { phrases: { comparison: { equals: 'is' } } },
-				formatters: { money: (value) => `$${String(value)}` },
+				glossary: {
+					labels: { age: 'Age', cost: 'Cost' },
+					units: { age: 'plain', cost: 'money' },
+					formats: { money: { style: 'currency', currency: 'USD' } },
+				},
 			})
 
-			expect(narrator.phrase('comparison', 'equals', 'equals')).toBe('is')
-			expect(narrator.label('age')).toBe('age')
+			expect(narrator.phrase('comparisons', 'from')).toBe('is at least')
+			expect(narrator.label('cost')).toBe('Cost')
+			expect(narrator.value('cost', 1250)).toBe('$1,250.00')
 			expect(narrator.line('subject.empty', {})).toBe('with no fields')
-			expect(narrator.value('money', 5)).toBe('$5')
+
+			const definition = createLogicalDefinition('loan', 'Loan', [
+				createRule('adult', [createAtom('age', 'from', 18)], createAtom('adult', 'equals', true), {
+					name: 'Adult applicant',
+				}),
+				createRule(
+					'approve',
+					[createAtom('adult', 'equals', true), createAtom('cost', 'to', 1250)],
+					createAtom('approved', 'equals', true),
+					{ name: 'Approval' },
+				),
+			])
+			const result = createLogicalReasoner().reason({ age: 30, cost: 900 }, definition)
+			expect(renderAccount(narrator.narrate(definition, result), { detail: 'line' })).toBe(
+				'Loan holds, because Adult applicant holds and Cost is $900.00, which is at most $1,250.00',
+			)
+			expect(renderAccount(narrator.describe(definition), { detail: 'full' })).toBe(
+				'Loan\nAdult applicant\nApproval',
+			)
+			expect(narrator.audit([definition])).toEqual([])
 		})
 
 		it('RecordManagerInterface: the shared engine stamps, holds, and removes one record', () => {
@@ -796,6 +834,11 @@ await new GuideCommand({
 			expect(result.subject).toEqual({ value: 42 })
 			expect(interpret.recipe('t1')).toEqual(ARITHMETIC)
 			expect(interpret.recipes()).toEqual([ARITHMETIC])
+			expect(interpret.describe(ARITHMETIC.definition).name).toBe('Arithmetic')
+			const answer = createQuantitativeReasoner().reason({ value: 42 }, ARITHMETIC.definition)
+			expect(renderAccount(interpret.narrate(ARITHMETIC.definition, answer))).toBe(
+				'Arithmetic is 42',
+			)
 			expect(interpret.remove('t1')).toBe(true)
 			interpret.destroy()
 		})

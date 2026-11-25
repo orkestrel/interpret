@@ -1,4 +1,5 @@
 import type {
+	FrameName,
 	InterpretErrorCode,
 	InterpretStage,
 	Lexicon,
@@ -77,36 +78,69 @@ export const DEFAULT_CONTRACTIONS: Readonly<Record<string, string>> = Object.fre
 })
 
 /**
- * Holds the neutral default `Lexicon` a `Narrator` merges caller data over.
- *
- * @remarks
- * `phrases` and `labels` are empty — there is no built-in vocabulary and no
- * label override, because wording is mechanism rather than policy.
- * `templates` carries the structural, display-neutral strings both directions
- * would otherwise hardcode. The reverse direction is keyed by
- * `{table}.{reasoning}` per reasons kind, plus `result.quantitative.failed`
- * for the quantitative-result failure suffix and `subject.fields` /
- * `subject.empty` for `renderSubject`. The forward direction is keyed by
- * `prompt.*` for the `Formatter`'s clause assembly and `ambiguity.*` for the
- * questions a `Clarifier` and the orchestrator's match gates raise. Every
- * string is a plain @orkestrel/template `fillTemplate` template —
- * `{{name}}`-style placeholders resolved against the caller-supplied `values`
- * record, so a caller reworded any line by overriding its key.
+ * Holds the general words a `Narrator` merges an override over: complete, in English, and with
+ * no domain's noun.
  */
 export const DEFAULT_LEXICON: Lexicon = Object.freeze({
-	phrases: Object.freeze({}),
-	labels: Object.freeze({}),
-	templates: Object.freeze({
-		'definition.quantitative': '{{name}}: {{count}} factor group(s)',
-		'definition.logical': '{{name}}: {{count}} rule(s), strategy {{strategy}}',
-		'definition.symbolic': '{{name}}: solve {{count}} equation(s)',
-		'definition.inferential':
-			'{{name}}: {{facts}} fact(s)/{{inferences}} inference(s), {{strategy}}',
-		'result.quantitative': 'scored {{value}} across {{count}} group(s)',
-		'result.quantitative.failed': '; failed: {{errors}}',
-		'result.logical': '{{status}}: {{count}} rule(s)',
-		'result.symbolic': 'solved {{solved}}',
-		'result.inferential': 'derived {{count}} fact(s)',
+	comparisons: Object.freeze({
+		equals: Object.freeze({ holds: 'is', fails: 'is not' }),
+		not: Object.freeze({ holds: 'is not', fails: 'is' }),
+		above: Object.freeze({ holds: 'is more than', fails: 'is not more than' }),
+		below: Object.freeze({ holds: 'is less than', fails: 'is not less than' }),
+		from: Object.freeze({ holds: 'is at least', fails: 'is less than' }),
+		to: Object.freeze({ holds: 'is at most', fails: 'is more than' }),
+		any: Object.freeze({ holds: 'is one of', fails: 'is not one of' }),
+		none: Object.freeze({ holds: 'is not one of', fails: 'is one of' }),
+		between: Object.freeze({ holds: 'is between', fails: 'is not between' }),
+		outside: Object.freeze({ holds: 'is not between', fails: 'is between' }),
+	}),
+	checks: Object.freeze({ met: 'met', unmet: 'not met', unread: 'not known' }),
+	rules: Object.freeze({ met: 'holds', unmet: 'does not hold', unread: 'cannot be read' }),
+	connectives: Object.freeze({
+		and: 'and',
+		or: 'or',
+		not: 'not',
+		implies: 'implies',
+		xor: 'or else',
+	}),
+	aggregations: Object.freeze({
+		sum: 'Total',
+		product: 'Product',
+		average: 'Average',
+		minimum: 'Lowest',
+		maximum: 'Highest',
+	}),
+	faults: Object.freeze({
+		type: 'holds a value that cannot be used',
+		missing: 'is not known',
+		constraint: 'holds a value that is not allowed',
+		variant: 'fits none of the allowed forms',
+		oneOf: 'does not fit exactly one of the allowed forms',
+		extra: 'is not expected',
+		hidden: 'is hidden and cannot be read',
+	}),
+	values: Object.freeze({ true: 'true', false: 'false', null: 'none' }),
+	frames: Object.freeze({
+		'fact.equal': '{{label}} is {{actual}}',
+		'fact.compared': '{{label}} is {{actual}}, which {{comparison}} {{expected}}',
+		'fact.listed': '{{label}} is {{actual}}, which {{comparison}} the {{count}} listed',
+		'fact.unread': '{{label}} {{missing}}',
+		'value.range': '{{minimum}} and {{maximum}}',
+		'condition.compared': '{{label}} {{comparison}} {{expected}}',
+		'condition.listed': '{{label}} {{comparison}} the {{count}} listed',
+		'rule.settled': '{{name}} {{verdict}}',
+		'rule.because': '{{name}} {{verdict}}, because {{reasons}}',
+		'rule.condition': '{{name}} holds when {{condition}}',
+		'result.refused': '{{name}} gave no answer',
+		'result.count': 'Rules that hold: {{met}} of {{total}}',
+		'result.value': '{{name}} is {{value}}',
+		'result.solution': '{{label}} is {{value}}',
+		'result.derived': 'Facts derived: {{count}}',
+		'worksheet.group': '{{name}}: {{value}}',
+		'worksheet.factor': '{{name}}: {{value}}',
+		'worksheet.blocked': '{{name}} did not apply, because {{reasons}}',
+		'worksheet.empty': '{{name}} found no value to use',
+		'worksheet.total': '{{aggregation}}: {{value}}',
 		'subject.fields': 'with {{fields}}',
 		'subject.empty': 'with no fields',
 		'prompt.base': '{{verb}} {{name}}',
@@ -117,7 +151,65 @@ export const DEFAULT_LEXICON: Lexicon = Object.freeze({
 		'ambiguity.intent': 'Which domain and action did you mean?',
 		'ambiguity.confidence': 'Which did you mean? The intent was too weak to act on.',
 	}),
+	limits: Object.freeze({ list: 4 }),
+	missing: 'is not known',
 })
+
+/** Lists the slots each frame of a `Lexicon` offers; a frame naming any other slot is refused. */
+export const FRAME_SLOTS: Readonly<Record<FrameName, readonly string[]>> = Object.freeze({
+	'fact.equal': Object.freeze(['label', 'actual']),
+	'fact.compared': Object.freeze(['label', 'actual', 'comparison', 'expected']),
+	'fact.listed': Object.freeze(['label', 'actual', 'comparison', 'count']),
+	'fact.unread': Object.freeze(['label', 'missing']),
+	'value.range': Object.freeze(['minimum', 'maximum']),
+	'condition.compared': Object.freeze(['label', 'comparison', 'expected']),
+	'condition.listed': Object.freeze(['label', 'comparison', 'count']),
+	'rule.settled': Object.freeze(['name', 'verdict']),
+	'rule.because': Object.freeze(['name', 'verdict', 'reasons']),
+	'rule.condition': Object.freeze(['name', 'condition']),
+	'result.refused': Object.freeze(['name']),
+	'result.count': Object.freeze(['met', 'total']),
+	'result.value': Object.freeze(['name', 'value']),
+	'result.solution': Object.freeze(['label', 'value']),
+	'result.derived': Object.freeze(['count']),
+	'worksheet.group': Object.freeze(['name', 'value']),
+	'worksheet.factor': Object.freeze(['name', 'value']),
+	'worksheet.blocked': Object.freeze(['name', 'reasons']),
+	'worksheet.empty': Object.freeze(['name']),
+	'worksheet.total': Object.freeze(['aggregation', 'value']),
+	'subject.fields': Object.freeze(['fields']),
+	'subject.empty': Object.freeze([]),
+	'prompt.base': Object.freeze(['verb', 'name']),
+	'prompt.entities': Object.freeze(['fields']),
+	'prompt.defaults': Object.freeze(['fields']),
+	'prompt.ambiguities': Object.freeze(['questions']),
+	'ambiguity.entity': Object.freeze(['entity']),
+	'ambiguity.intent': Object.freeze([]),
+	'ambiguity.confidence': Object.freeze([]),
+})
+
+/**
+ * Holds the number formats every `Narrator` carries: `plain` (no grouping), `count` (grouped),
+ * and `percent` (at most two decimals).
+ *
+ * @remarks
+ * `plain` and `count` keep 17 significant digits, which round-trips every finite number.
+ */
+export const DEFAULT_FORMATS: Readonly<
+	Record<'plain' | 'count' | 'percent', Readonly<Intl.NumberFormatOptions>>
+> = Object.freeze({
+	plain: Object.freeze({ useGrouping: false, maximumSignificantDigits: 17 }),
+	count: Object.freeze({ useGrouping: true, maximumSignificantDigits: 17 }),
+	percent: Object.freeze({ style: 'percent', maximumFractionDigits: 2 }),
+})
+
+/**
+ * Holds what ends a line of text: every Unicode line and paragraph break, as one run.
+ *
+ * @remarks
+ * Carries no global flag, so a `test` call keeps no position.
+ */
+export const TEXT_BREAK_PATTERN = /[\n\v\f\r\x85\p{Zl}\p{Zp}]+/u
 
 /**
  * Lists every `ProvenanceCategory` literal, frozen — the one home the result guards
@@ -162,6 +254,8 @@ export const INTERPRET_ERROR_CODES: readonly InterpretErrorCode[] = Object.freez
 	'NO_RECIPE',
 	'LOW_CONFIDENCE',
 	'DEFINITION',
+	'LEXICON',
+	'GLOSSARY',
 	'DESTROYED',
 ])
 

@@ -1,6 +1,7 @@
 import type { EmitterInterface } from '@orkestrel/emitter'
 import type { Definition, ReasonResult } from '@orkestrel/reason'
 import type {
+	Account,
 	Ambiguity,
 	ClarifierInterface,
 	ClarifyResult,
@@ -403,14 +404,14 @@ export class Interpret implements InterpretInterface {
 		return this.#recipes.recipes().map((record) => record.recipe)
 	}
 
-	describe(definition: Definition): string {
+	describe(definition: Definition): Account {
 		this.#ensureAlive()
 		return this.#narrator.describe(definition)
 	}
 
-	narrate(result: ReasonResult): string {
+	narrate(definition: Definition, result: ReasonResult): Account {
 		this.#ensureAlive()
-		return this.#narrator.narrate(result)
+		return this.#narrator.narrate(definition, result)
 	}
 
 	destroy(): void {

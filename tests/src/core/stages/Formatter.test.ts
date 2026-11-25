@@ -103,7 +103,7 @@ describe('Formatter', () => {
 			verbs: { calculate: 'Calculate' },
 			narrator: new Narrator({
 				lexicon: {
-					templates: {
+					frames: {
 						'prompt.base': '{{verb}} → {{name}}',
 						'prompt.entities': ' [{{fields}}]',
 						'prompt.defaults': ' <{{fields}}>',

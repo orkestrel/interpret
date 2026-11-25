@@ -285,22 +285,18 @@ export function createInterpretContext(
 }
 
 /**
- * Creates a lexicon-driven reverse-direction rendering engine, returning a stateless
+ * Creates a rendering engine over the general words and a domain's words, returning a stateless
  * {@link NarratorInterface}.
  *
- * @remarks
- * Stateless — `phrase` / `label` / `line` / `value` are total lookups into a
- * caller `Lexicon` merged over `DEFAULT_LEXICON`, and `describe` / `narrate`
- * compose them over a reasons `Definition` / `ReasonResult`.
- *
- * @param options - Optional `lexicon` and `formatters` map
+ * @param options - Optional `lexicon` override, `glossary`, `formatters` map, and `locale`
  * @returns A stateless {@link NarratorInterface}
+ * @throws {@link InterpretError} `'LEXICON'` or `'GLOSSARY'` when the words supplied are malformed
  *
  * @example
  * ```ts
  * import { createNarrator } from '@orkestrel/interpret'
  *
- * const narrator = createNarrator({ lexicon: { templates: { 'subject.empty': 'nothing here' } } })
+ * const narrator = createNarrator({ lexicon: { frames: { 'subject.empty': 'nothing here' } } })
  * narrator.line('subject.empty', {}) // 'nothing here'
  * ```
  */

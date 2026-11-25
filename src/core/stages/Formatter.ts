@@ -26,7 +26,7 @@ import { Narrator } from '../Narrator.js'
  * `prompt.ambiguities` clause listing every ambiguity's question. Each clause
  * is rendered through the injected {@link NarratorInterface}'s matching
  * `prompt.*` line rather than minted from a literal here, so a caller rewords
- * the assembly by overriding those keys in a `Lexicon`. `verbs` maps
+ * the assembly by overriding those frames in a `LexiconInput`. `verbs` maps
  * `intent.action` to its display verb; an action absent from the map falls
  * back to the action string itself, and an intent carrying no action at all
  * renders an empty verb. Every parameter is read — the signature carries no

@@ -4,8 +4,11 @@ import type {
 	Entity,
 	EntityMapping,
 	FieldMapping,
+	FrameName,
+	Glossary,
 	Intent,
 	Interpretation,
+	LexiconInput,
 	NumberRefusal,
 	NumberRefusals,
 	Provenance,
@@ -15,6 +18,7 @@ import type {
 } from './types.js'
 import {
 	arrayOf,
+	holds,
 	isAuditFault,
 	isBoolean,
 	isNumber,
@@ -27,6 +31,7 @@ import {
 } from '@orkestrel/contract'
 import { isContractShape, isDefinition, isFieldPath, isSymbolicExpression } from '@orkestrel/reason'
 import {
+	FRAME_SLOTS,
 	INTERPRET_ERROR_CODES,
 	INTERPRET_STAGES,
 	PROVENANCE_CATEGORIES,
@@ -34,6 +39,7 @@ import {
 	NUMBER_REFUSAL_REASONS,
 	NUMBER_UNREADABLE_REASONS,
 } from './constants.js'
+import { scanGlossary, scanLexicon } from './helpers.js'
 
 // Every guard here is a total function — adversarial input (junk, hostile
 // prototypes, cyclic/deep nesting) returns `false`, never throws.
@@ -434,4 +440,59 @@ export function isNumberRefusals(value: unknown): value is NumberRefusals {
 		items: whereOf(arrayOf(isNumberRefusal), (items) => items.length <= NUMBER_REFUSAL_LIMIT),
 		omitted: isNonNegativeInteger,
 	})(value)
+}
+
+/**
+ * Determines whether a value names a frame of a {@link Lexicon}.
+ *
+ * @param value - The value to test
+ * @returns True if `value` is a {@link FrameName}; false otherwise
+ *
+ * @example
+ * ```ts
+ * import { isFrameName } from '@orkestrel/interpret'
+ *
+ * isFrameName('rule.settled') // true
+ * isFrameName('toString') // false
+ * ```
+ */
+export function isFrameName(value: unknown): value is FrameName {
+	return isString(value) && Object.hasOwn(FRAME_SLOTS, value)
+}
+
+/**
+ * Determines whether a value is an override of the general words that {@link scanLexicon} finds
+ * nothing in.
+ *
+ * @param value - The value to test
+ * @returns True if `value` is a well-formed {@link LexiconInput}; false otherwise
+ *
+ * @example
+ * ```ts
+ * import { isLexiconInput } from '@orkestrel/interpret'
+ *
+ * isLexiconInput({ rules: { met: 'applies' } }) // true
+ * isLexiconInput({ rules: { meet: 'applies' } }) // false
+ * ```
+ */
+export function isLexiconInput(value: unknown): value is LexiconInput {
+	return holds(() => scanLexicon(value).length === 0)
+}
+
+/**
+ * Determines whether a value is a glossary that {@link scanGlossary} finds nothing in.
+ *
+ * @param value - The value to test
+ * @returns True if `value` is a well-formed {@link Glossary}; false otherwise
+ *
+ * @example
+ * ```ts
+ * import { isGlossary } from '@orkestrel/interpret'
+ *
+ * isGlossary({ labels: { cost: 'Cost' } }) // true
+ * isGlossary({ labels: { cost: '' } }) // false
+ * ```
+ */
+export function isGlossary(value: unknown): value is Glossary {
+	return holds(() => scanGlossary(value).length === 0)
 }

@@ -131,7 +131,8 @@ export interface AccountLine {
 	readonly role: AccountRole
 	readonly state?: CheckState
 	readonly decisive: boolean
-	readonly text: string
+	readonly text: string // the outcome alone
+	readonly summary: string // the outcome with its reasons; `text` when it has none
 	readonly source: AccountSource
 	readonly gaps: readonly GlossaryGap[]
 	readonly lines: readonly AccountLine[]
@@ -185,7 +186,22 @@ export interface NarratorInterface {
 
 ## Reasons
 
-A rule's reasons are the checks that fix its state. interpret pairs the rule's atoms, in `extractAtoms` order, with its result's checks, recomputes each connective with `combineStates`, and cites: every operand of a met `and`; the first unmet operand of an unmet `and`; the first met operand of a met `or`; every operand of an unmet `or`; the operand of `not`; for `implies`, the unmet first operand or the met second one when met, and both when unmet; every operand of `xor`; and, for an unread connective, the operands that made it unread. Each cited check prints as a fact: a true sentence about its field, whichever way it read. When the recomputed state differs from the engine's, the line prints without reasons.
+A rule's reasons are the checks that fix its state. interpret pairs the rule's atoms, in `extractAtoms` order, with its result's checks, recomputes each connective with `combineStates`, and cites: every operand of a met `and`; the first unmet operand of an unmet `and`; the first met operand of a met `or`; every operand of an unmet `or`; the operand of `not`; for `implies`, the unmet first operand or the met second one when met, and both when unmet; every operand of a settled `xor`; and, for an unread connective, its unread operands alone, down to the unread checks. Each cited check prints as a fact: a true sentence about its field, whichever way it read. When the recomputed state differs from the engine's, the line prints without reasons.
+
+- **A reason under a derived key** prints the concluding rule's name and state with that rule's own facts in parentheses, one level deep (`reason.rule`), and nests the rule's own line.
+- **A line has two forms.** `text` states the outcome alone, and `summary` adds its reasons: at most `limits.reasons` of them, then how many more. The `line` detail prints the verdict's `summary`; the other details print `text` and the nested lines, so no fact prints twice.
+- **Reasons join** by the lexicon's `joins.reasons` (`; `) and `joins.last` (`; and `), because a fact holds a comma. A list of values joins through `Intl.ListFormat`.
+
+## Conditions
+
+A condition is a check with no subject: `condition.equal` (`{{label}} is {{expected}}`), `condition.compared`, or `condition.listed`. Under `not`, the check takes its failing words. A conclusion key reads as its concluding rule's name with `rules.met`, or `rules.unmet` under `not`. `and` and `or` join through `Intl.ListFormat`, conjunction and disjunction; `implies` reads `condition.implies` (`if {{first}}, then {{second}}`); `xor` reads `condition.xor` (`either {{first}} or {{second}}, but not both`); and a compound inside another takes `condition.group` (`({{condition}})`). A `not` over a compound takes `condition.not` (`not ({{condition}})`).
+
+## Words ruled on 2026-11-25, from the first unit's output
+
+- **Rules and verdicts take two tables:** `rules` (`applies`, `does not apply`, `cannot be decided`) for a rule's line, and `verdicts` (`holds`, `does not hold`, `cannot be decided`) for a definition's. A logical verdict is the last enabled rule's, under the definition's name.
+- **`missing`** is `not known`, and `fact.unread` is `{{label}} is {{missing}}`.
+- **`between` and `outside`** read `is within` and `is outside`, over `value.range` (`{{minimum}} to {{maximum}}`), because the test is inclusive.
+- **`connectives`** leaves the lexicon: the condition frames and `Intl.ListFormat` carry them.
 
 ## Truth
 
@@ -195,7 +211,7 @@ Each rule is proved against the real `reason` engine, with a mutation probe on i
 | --- | --- | --- |
 | T1 | A result whose `success` is false states no value, count, or solution, and names what it couldn't read | the four refused results; the field's label is in the text and the value isn't |
 | T2 | A rule prints as holding only when its state is `met` | every rule line's words agree with its state, over every fixture result |
-| T3 | A cited set fixes the state: no change elsewhere moves it | every state assignment over generated trees to depth 3 with all five connectives |
+| T3 | A cited set fixes a settled state: no change elsewhere moves it. For an unread state, every cited check is unread, and settling all of them settles the rule | every state assignment over generated trees to depth 3 with all five connectives |
 | T4 | A missing number's cause comes from its evidence | a gated factor's line names its unmet check |
 | T5 | No blank and no guess | no text across the fixtures and a hostile-input matrix holds `undefined`, `NaN`, an empty slot, or a line break |
 | T6 | One field formats one way | one value prints identically in a fact, a condition, and a step |

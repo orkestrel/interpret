@@ -1,45 +1,86 @@
 import type { ContractShape, FieldPath, JSONValue } from '@orkestrel/contract'
-import type { Subject, SubjectAdmission, SymbolicExpression } from '@orkestrel/reason'
 import type {
+	Check,
+	CheckResult,
+	CheckState,
+	Definition,
+	Expression,
+	LogicalOperator,
+	Rule,
+	RuleResult,
+	Subject,
+	SubjectAdmission,
+	SymbolicExpression,
+} from '@orkestrel/reason'
+import type {
+	Account,
+	AccountDetail,
+	AccountLine,
+	AccountOptions,
 	AnchorCandidate,
 	AnchorRefusalHandler,
 	Entity,
 	EntityMapping,
+	ExpressionResult,
+	FrameName,
+	Glossary,
+	GlossaryGap,
 	Intent,
 	Interpretation,
+	Lexicon,
+	LexiconInput,
 	NarratorInterface,
 	Recipe,
 	ReadNumber,
+	RuleReason,
 	ShapeDefault,
 	TextSpan,
 } from './types.js'
 import {
 	attempt,
+	cloneJSONRecord,
+	cloneJSONValue,
 	createContract,
+	errorToMessage,
 	escapeRegExp,
 	isArray,
 	isError,
 	isFiniteNumber,
+	isNonNegativeInteger,
+	isNumber,
 	isRecord,
+	isString,
+	isSuccess,
+	preview,
+	renderPath,
 	resolveField,
 } from '@orkestrel/contract'
 import {
 	applyOperation,
+	collectConcluders,
+	collectVariables,
+	combineStates,
+	COMPARISONS,
+	extractAtoms,
 	findFieldShape,
 	formatField,
+	isComparison,
 	projectValue,
 	scanShape,
 	scanSymbolicExpression,
 } from '@orkestrel/reason'
-import { UNSAFE_FIELD_SEGMENTS } from '@orkestrel/template'
+import { DEFAULT_LOCALE, FILL_PATTERN, UNSAFE_FIELD_SEGMENTS } from '@orkestrel/template'
 import {
 	CLAUSE_BREAK_PATTERN,
 	CONFIDENCE_DEFAULT,
 	CONFIDENCE_EXACT,
+	DEFAULT_LEXICON,
+	FRAME_SLOTS,
 	NUMBER_PATTERN,
+	TEXT_BREAK_PATTERN,
 } from './constants.js'
 import { InterpretError } from './errors.js'
-import { isRecipe } from './validators.js'
+import { isFrameName, isGlossary, isLexiconInput, isRecipe } from './validators.js'
 
 // The interprets pure-leaf inventory — every function here is
 // a referentially-transparent computation with no instance state, exported
@@ -674,20 +715,14 @@ export function resolveExpression(
 // === Reverse direction — structure to prose
 
 /**
- * Renders a one-line, display-neutral description of a reasons `Subject`,
- * through an injected `Narrator`.
+ * Renders a one-line description of a reasons `Subject` through an injected `Narrator`.
  *
  * @remarks
- * Complements — never duplicates — the raters `describe*` family (which
- * describes raters artifacts); this describes reasons artifacts. Every field
- * renders through `narrator.label` + `narrator.value` (looked up under the
- * `'units'` phrase table, falling back to `'plain'`) — the wording is fully
- * lexicon-driven, mechanism rather than policy; `Definition` /
- * `ReasonResult` narration lives on `Narrator#describe` / `Narrator#narrate`
- * directly.
+ * Each field renders through `narrator.label` and `narrator.value`, in key order. A field
+ * holding `undefined` is absent and is omitted.
  *
  * @param subject - The subject to describe
- * @param narrator - The lexicon-driven renderer to render field labels/values/lines through
+ * @param narrator - The renderer of labels, values, and lines
  * @returns A one-line description, the lexicon's `'subject.empty'` line when empty
  *
  * @example
@@ -698,13 +733,869 @@ export function resolveExpression(
  * ```
  */
 export function renderSubject(subject: Subject, narrator: NarratorInterface): string {
-	const keys = Object.keys(subject).sort()
+	const keys = Object.keys(subject)
+		.filter((key) => subject[key] !== undefined)
+		.sort()
 	if (keys.length === 0) return narrator.line('subject.empty', {})
-	const parts = keys.map((key) => {
-		const unit = narrator.phrase('units', key, 'plain')
-		return `${narrator.label(key)}: ${narrator.value(unit, subject[key])}`
+	const parts = keys.map((key) => `${narrator.label(key)}: ${narrator.value(key, subject[key])}`)
+	return normalizeLine(narrator.line('subject.fields', { fields: parts.join(', ') }))
+}
+
+// === The words: general and domain
+
+/**
+ * Finds a word under its own key of a table.
+ *
+ * @param words - The table to read, or `undefined` for none
+ * @param key - The key to read
+ * @returns The word, or `undefined` when the table holds no such own key
+ *
+ * @example
+ * ```ts
+ * import { findWord } from '@orkestrel/interpret'
+ *
+ * findWord({ cost: 'Cost' }, 'cost') // 'Cost'
+ * findWord({ cost: 'Cost' }, 'toString') // undefined
+ * ```
+ */
+export function findWord(
+	words: Readonly<Record<string, string>> | undefined,
+	key: string,
+): string | undefined {
+	return words !== undefined && Object.hasOwn(words, key) ? words[key] : undefined
+}
+
+/**
+ * Scans one word of a lexicon or a glossary.
+ *
+ * @param path - The word's place, for the finding
+ * @param value - The word to scan
+ * @returns One finding when the word is no text, is blank, or holds a line break
+ *
+ * @example
+ * ```ts
+ * import { scanWord } from '@orkestrel/interpret'
+ *
+ * scanWord('labels.cost', 'Cost') // []
+ * scanWord('labels.cost', ' ') // ['labels.cost is empty']
+ * ```
+ */
+export function scanWord(path: string, value: unknown): readonly string[] {
+	if (!isString(value)) return [`${path} is not text`]
+	if (value.trim() === '') return [`${path} is empty`]
+	return TEXT_BREAK_PATTERN.test(value) ? [`${path} holds a line break`] : []
+}
+
+/**
+ * Scans a table of words.
+ *
+ * @param path - The table's path, for the findings
+ * @param value - The table to scan
+ * @param keys - The keys the table may hold; any key when absent
+ * @returns One finding per unknown key and per malformed word
+ *
+ * @example
+ * ```ts
+ * import { scanWords } from '@orkestrel/interpret'
+ *
+ * scanWords(['rules'], { met: 'holds' }, ['met', 'unmet', 'unread']) // []
+ * scanWords(['rules'], { meet: 'holds' }, ['met', 'unmet', 'unread'])
+ * // ['rules.meet is not one of met, unmet, unread']
+ * ```
+ */
+export function scanWords(
+	path: readonly string[],
+	value: unknown,
+	keys?: readonly string[],
+): readonly string[] {
+	if (!isRecord(value)) return [`${renderPath(path)} is not a table of words`]
+	return Object.entries(value).flatMap(([key, word]) => {
+		const place = renderPath([...path, key])
+		return keys === undefined || keys.includes(key)
+			? scanWord(place, word)
+			: [`${place} is not one of ${keys.join(', ')}`]
 	})
-	return narrator.line('subject.fields', { fields: parts.join(', ') })
+}
+
+/**
+ * Scans a frame for slots its id does not offer.
+ *
+ * @param id - The frame's id
+ * @param frame - The frame's template
+ * @returns One finding per slot `FRAME_SLOTS` does not list for the id
+ *
+ * @example
+ * ```ts
+ * import { scanFrame } from '@orkestrel/interpret'
+ *
+ * scanFrame('rule.settled', '{{name}} {{verdict}}') // []
+ * scanFrame('result.refused', '{{name}}: {{value}}')
+ * // ['frames."result.refused" names the slot "value", and it offers name']
+ * ```
+ */
+export function scanFrame(id: FrameName, frame: string): readonly string[] {
+	const slots = FRAME_SLOTS[id]
+	const path = renderPath(['frames', id])
+	const offered = slots.join(', ') || 'none'
+	return [...frame.matchAll(new RegExp(FILL_PATTERN.source, FILL_PATTERN.flags))].flatMap(
+		([, token]) => {
+			const slot = token?.trim()
+			return slot === undefined || slots.includes(slot)
+				? []
+				: [`${path} names the slot ${preview(slot)}, and it offers ${offered}`]
+		},
+	)
+}
+
+/**
+ * Scans an override of the general words.
+ *
+ * @remarks
+ * Every word stands on its own: a table, a word, or a frame the lexicon does not hold is a
+ * finding, as a blank word, a word with a line break, a frame naming a slot it does not offer,
+ * and a list limit that counts nothing are. Nothing the input holds throws.
+ *
+ * @param input - The override to scan
+ * @returns One string per finding, empty when the override stands
+ *
+ * @example
+ * ```ts
+ * import { scanLexicon } from '@orkestrel/interpret'
+ *
+ * scanLexicon({ comparisons: { from: { fails: 'is below' } } }) // []
+ * scanLexicon({ missing: '' }) // ['missing is empty']
+ * ```
+ */
+export function scanLexicon(input: unknown): readonly string[] {
+	const owned = attempt(() => cloneJSONRecord(input))
+	if (!isSuccess(owned)) return [`The lexicon is not plain data: ${errorToMessage(owned.error)}`]
+	return Object.entries(owned.value).flatMap(([table, words]) => {
+		switch (table) {
+			case 'comparisons':
+				return isRecord(words)
+					? Object.entries(words).flatMap(([comparison, phrase]) =>
+							isComparison(comparison)
+								? scanWords(['comparisons', comparison], phrase, ['holds', 'fails'])
+								: [
+										`${renderPath(['comparisons', comparison])} is not one of ${COMPARISONS.join(', ')}`,
+									],
+						)
+					: ['comparisons is not a table of words']
+			case 'checks':
+			case 'rules':
+			case 'connectives':
+			case 'aggregations':
+			case 'faults':
+			case 'values':
+				return scanWords([table], words, Object.keys(DEFAULT_LEXICON[table]))
+			case 'frames':
+				return [
+					...scanWords(['frames'], words, Object.keys(FRAME_SLOTS)),
+					...Object.entries(isRecord(words) ? words : {}).flatMap(([id, frame]) =>
+						isFrameName(id) && isString(frame) ? scanFrame(id, frame) : [],
+					),
+				]
+			case 'limits':
+				return isRecord(words)
+					? Object.entries(words).flatMap(([limit, value]) =>
+							limit !== 'list'
+								? [`${renderPath(['limits', limit])} is not one of list`]
+								: isNonNegativeInteger(value)
+									? []
+									: ['limits.list is not a whole number from 0'],
+						)
+					: ['limits is not a table of limits']
+			case 'missing':
+				return scanWord('missing', words)
+			default:
+				return [`${renderPath([table])} is not one of ${Object.keys(DEFAULT_LEXICON).join(', ')}`]
+		}
+	})
+}
+
+/**
+ * Scans a glossary of domain words.
+ *
+ * @remarks
+ * A table the glossary does not hold, a blank word, a word with a line break, a format the host
+ * refuses, and a phrase table or template under a name the lexicon owns are findings. A unit
+ * with no format is none: it is a {@link GlossaryGap}. Nothing the input holds throws.
+ *
+ * @param input - The glossary to scan
+ * @returns One string per finding, empty when the glossary stands
+ *
+ * @example
+ * ```ts
+ * import { scanGlossary } from '@orkestrel/interpret'
+ *
+ * scanGlossary({ labels: { cost: 'Cost' } }) // []
+ * scanGlossary({ labels: {}, templates: { 'rule.settled': '{{name}}' } })
+ * // ['templates."rule.settled" is a frame of the lexicon']
+ * ```
+ */
+export function scanGlossary(input: unknown): readonly string[] {
+	const owned = attempt(() => cloneJSONRecord(input))
+	if (!isSuccess(owned)) return [`The glossary is not plain data: ${errorToMessage(owned.error)}`]
+	const glossary = owned.value
+	const tables = Object.entries(glossary).flatMap(([table, words]) => {
+		switch (table) {
+			case 'labels':
+			case 'units':
+			case 'values':
+				return scanWords([table], words)
+			case 'formats':
+				return isRecord(words)
+					? Object.entries(words).flatMap(([unit, format]) => {
+							const read = attempt((): unknown =>
+								Reflect.construct(Intl.NumberFormat, [DEFAULT_LOCALE, format]),
+							)
+							return isRecord(format) && isSuccess(read)
+								? []
+								: [`${renderPath(['formats', unit])} is not a number format the host reads`]
+						})
+					: ['formats is not a table of formats']
+			case 'phrases':
+				return isRecord(words)
+					? Object.entries(words).flatMap(([name, phrases]) => [
+							...(Object.hasOwn(DEFAULT_LEXICON, name)
+								? [`${renderPath(['phrases', name])} is a table of the lexicon`]
+								: []),
+							...scanWords(['phrases', name], phrases),
+						])
+					: ['phrases is not a table of phrase tables']
+			case 'templates':
+				return [
+					...scanWords(['templates'], words),
+					...Object.keys(isRecord(words) ? words : {}).flatMap((id) =>
+						isFrameName(id) ? [`${renderPath(['templates', id])} is a frame of the lexicon`] : [],
+					),
+				]
+			default:
+				return [
+					`${renderPath([table])} is not one of labels, units, values, formats, phrases, templates`,
+				]
+		}
+	})
+	return Object.hasOwn(glossary, 'labels') ? tables : ['labels is missing', ...tables]
+}
+
+/**
+ * Merges an override over a lexicon, word by word.
+ *
+ * @param base - The lexicon that supplies every word the override leaves out
+ * @param input - The words to override, each on its own
+ * @returns A fresh, frozen, complete lexicon
+ *
+ * @example
+ * ```ts
+ * import { DEFAULT_LEXICON, mergeLexicon } from '@orkestrel/interpret'
+ *
+ * const lexicon = mergeLexicon(DEFAULT_LEXICON, { comparisons: { from: { fails: 'is below' } } })
+ * lexicon.comparisons.from // { holds: 'is at least', fails: 'is below' }
+ * ```
+ */
+export function mergeLexicon(base: Lexicon, input: LexiconInput): Lexicon {
+	const from = base.comparisons
+	const over = input.comparisons
+	return Object.freeze({
+		comparisons: Object.freeze({
+			equals: Object.freeze({ ...from.equals, ...over?.equals }),
+			not: Object.freeze({ ...from.not, ...over?.not }),
+			above: Object.freeze({ ...from.above, ...over?.above }),
+			below: Object.freeze({ ...from.below, ...over?.below }),
+			from: Object.freeze({ ...from.from, ...over?.from }),
+			to: Object.freeze({ ...from.to, ...over?.to }),
+			any: Object.freeze({ ...from.any, ...over?.any }),
+			none: Object.freeze({ ...from.none, ...over?.none }),
+			between: Object.freeze({ ...from.between, ...over?.between }),
+			outside: Object.freeze({ ...from.outside, ...over?.outside }),
+		}),
+		checks: Object.freeze({ ...base.checks, ...input.checks }),
+		rules: Object.freeze({ ...base.rules, ...input.rules }),
+		connectives: Object.freeze({ ...base.connectives, ...input.connectives }),
+		aggregations: Object.freeze({ ...base.aggregations, ...input.aggregations }),
+		faults: Object.freeze({ ...base.faults, ...input.faults }),
+		values: Object.freeze({ ...base.values, ...input.values }),
+		frames: Object.freeze({ ...base.frames, ...input.frames }),
+		limits: Object.freeze({ ...base.limits, ...input.limits }),
+		missing: input.missing ?? base.missing,
+	})
+}
+
+/**
+ * Resolves the general words from an override and the shipped words.
+ *
+ * @param input - The override; none when absent
+ * @returns The complete lexicon, which owns its words
+ * @throws {@link InterpretError} `'LEXICON'` when {@link scanLexicon} finds anything
+ *
+ * @example
+ * ```ts
+ * import { resolveLexicon } from '@orkestrel/interpret'
+ *
+ * resolveLexicon({ missing: 'is unknown' }).missing // 'is unknown'
+ * resolveLexicon({ missing: '' }) // throws InterpretError('LEXICON')
+ * ```
+ */
+export function resolveLexicon(input?: LexiconInput): Lexicon {
+	const owned = attempt(() => cloneJSONValue(input ?? {}))
+	const read: unknown = isSuccess(owned) ? owned.value : input
+	if (isSuccess(owned) && isLexiconInput(read)) return mergeLexicon(DEFAULT_LEXICON, read)
+	const findings = scanLexicon(read)
+	throw new InterpretError('LEXICON', `Lexicon is malformed: ${findings.join(', ')}`, { findings })
+}
+
+/**
+ * Resolves the domain's words from a glossary.
+ *
+ * @param input - The glossary; one with no word when absent
+ * @returns The glossary, which owns its words
+ * @throws {@link InterpretError} `'GLOSSARY'` when {@link scanGlossary} finds anything
+ *
+ * @example
+ * ```ts
+ * import { resolveGlossary } from '@orkestrel/interpret'
+ *
+ * resolveGlossary({ labels: { cost: 'Cost' } }).labels.cost // 'Cost'
+ * resolveGlossary({ labels: { cost: '' } }) // throws InterpretError('GLOSSARY')
+ * ```
+ */
+export function resolveGlossary(input?: Glossary): Glossary {
+	const owned = attempt(() => cloneJSONValue(input ?? { labels: {} }))
+	const read: unknown = isSuccess(owned) ? owned.value : input
+	if (isSuccess(owned) && isGlossary(read)) return read
+	const findings = scanGlossary(read)
+	throw new InterpretError('GLOSSARY', `Glossary is malformed: ${findings.join(', ')}`, {
+		findings,
+	})
+}
+
+/**
+ * Resolves the locale numbers and lists print in.
+ *
+ * @param locale - The language tag. Default: `'en-US'`
+ * @returns The language tag
+ * @throws {@link InterpretError} `'LEXICON'` when the host does not read the tag
+ *
+ * @example
+ * ```ts
+ * import { resolveLocale } from '@orkestrel/interpret'
+ *
+ * resolveLocale() // 'en-US'
+ * resolveLocale('not a tag') // throws InterpretError('LEXICON')
+ * ```
+ */
+export function resolveLocale(locale: string = DEFAULT_LOCALE): string {
+	const read = attempt(() => Intl.getCanonicalLocales(locale))
+	if (isSuccess(read) && read.value.length === 1) return locale
+	const finding = `The locale ${preview(locale)} is not a language tag`
+	throw new InterpretError('LEXICON', finding, { findings: [finding] })
+}
+
+// === The gaps: domain words a definition needs
+
+/**
+ * Determines whether a check compares its field as a number, so a number of that field prints.
+ *
+ * @param check - The check to read
+ * @returns True if the comparison orders numbers or an expected value is one; false otherwise
+ *
+ * @example
+ * ```ts
+ * import { matchesNumericCheck } from '@orkestrel/interpret'
+ *
+ * matchesNumericCheck({ field: 'cost', operator: 'to', value: 1250 }) // true
+ * matchesNumericCheck({ field: 'member', operator: 'equals', value: 'gold' }) // false
+ * ```
+ */
+export function matchesNumericCheck(check: Check): boolean {
+	switch (check.operator) {
+		case 'equals':
+		case 'not':
+			return isNumber(check.value)
+		case 'any':
+		case 'none':
+			return isArray(check.value) && check.value.some((entry) => isNumber(entry))
+		default:
+			return true
+	}
+}
+
+/**
+ * Collects the gaps of one field's words.
+ *
+ * @param field - The field the words are for
+ * @param numeric - If `true`, the field's numbers print and need a unit; if `false`, only a unit
+ * the glossary names needs its format
+ * @param glossary - The domain words supplied
+ * @param formats - The units that have a format
+ * @returns The field's gaps
+ *
+ * @example
+ * ```ts
+ * import { collectFieldGaps } from '@orkestrel/interpret'
+ *
+ * collectFieldGaps('cost', true, { labels: { cost: 'Cost' } }, new Set())
+ * // [{ word: 'unit', field: 'cost' }]
+ * ```
+ */
+export function collectFieldGaps(
+	field: FieldPath,
+	numeric: boolean,
+	glossary: Glossary,
+	formats: ReadonlySet<string>,
+): readonly GlossaryGap[] {
+	const key = formatField(field)
+	const unit = findWord(glossary.units, key)
+	const label: readonly GlossaryGap[] =
+		findWord(glossary.labels, key) === undefined ? [{ word: 'label', field }] : []
+	if (unit !== undefined) return [...label, ...collectUnitGaps(unit, formats)]
+	return numeric ? [...label, { word: 'unit', field }] : label
+}
+
+/**
+ * Collects the gap of one unit's format.
+ *
+ * @param unit - The unit a glossary names; none when absent
+ * @param formats - The units that have a format
+ * @returns One gap when the unit has no format
+ *
+ * @example
+ * ```ts
+ * import { collectUnitGaps } from '@orkestrel/interpret'
+ *
+ * collectUnitGaps('money', new Set()) // [{ word: 'format', unit: 'money' }]
+ * ```
+ */
+export function collectUnitGaps(
+	unit: string | undefined,
+	formats: ReadonlySet<string>,
+): readonly GlossaryGap[] {
+	return unit === undefined || formats.has(unit) ? [] : [{ word: 'format', unit }]
+}
+
+/**
+ * Collects the gap of one part's name.
+ *
+ * @param part - What the part is
+ * @param named - The part's id and name
+ * @returns One gap when the name is the id or is blank
+ *
+ * @example
+ * ```ts
+ * import { collectNameGaps } from '@orkestrel/interpret'
+ *
+ * collectNameGaps('rule', { id: 'adult', name: 'adult' })
+ * // [{ word: 'name', part: 'rule', id: 'adult' }]
+ * ```
+ */
+export function collectNameGaps(
+	part: NonNullable<GlossaryGap['part']>,
+	named: { readonly id: string; readonly name: string },
+): readonly GlossaryGap[] {
+	return named.name === named.id || named.name.trim() === ''
+		? [{ word: 'name', part, id: named.id }]
+		: []
+}
+
+/**
+ * Filters gaps to one of each, in first-seen order.
+ *
+ * @param gaps - The gaps, repeats allowed
+ * @returns Each gap once
+ *
+ * @example
+ * ```ts
+ * import { filterUniqueGaps } from '@orkestrel/interpret'
+ *
+ * filterUniqueGaps([{ word: 'unit', field: 'a' }, { word: 'unit', field: ['a'] }])
+ * // [{ word: 'unit', field: 'a' }]
+ * ```
+ */
+export function filterUniqueGaps(gaps: readonly GlossaryGap[]): readonly GlossaryGap[] {
+	const keys = gaps.map((gap) =>
+		canonicalize({ ...gap, field: gap.field === undefined ? undefined : formatField(gap.field) }),
+	)
+	const first = new Map([...keys.entries()].toReversed().map(([index, key]) => [key, index]))
+	return gaps.filter((_gap, index) => first.get(keys[index] ?? '') === index)
+}
+
+/**
+ * Collects every domain word some definitions need and the supplied words lack.
+ *
+ * @remarks
+ * A disabled part needs no word, and a key an enabled rule concludes needs no label, because
+ * the concluding rule's name prints in its place.
+ *
+ * @param definitions - The definitions to read
+ * @param glossary - The domain words supplied
+ * @param formats - The units that have a format
+ * @returns Each gap once
+ *
+ * @example
+ * ```ts
+ * import { createAtom, createLogicalDefinition, createRule } from '@orkestrel/reason'
+ * import { collectGaps } from '@orkestrel/interpret'
+ *
+ * const rule = createRule('adult', [createAtom('age', 'from', 18)], createAtom('adult', 'equals', true), {
+ * 	name: 'Adult applicant',
+ * })
+ * const definition = createLogicalDefinition('loan', 'Loan', [rule])
+ * collectGaps([definition], { labels: { age: 'Age' } }, new Set())
+ * // [{ word: 'unit', field: 'age' }]
+ * ```
+ */
+export function collectGaps(
+	definitions: readonly Definition[],
+	glossary: Glossary,
+	formats: ReadonlySet<string>,
+): readonly GlossaryGap[] {
+	return filterUniqueGaps(
+		definitions.flatMap((definition): readonly GlossaryGap[] => {
+			const name = collectNameGaps('definition', definition)
+			switch (definition.reasoning) {
+				case 'logical': {
+					const rules = definition.rules.filter((rule) => rule.enabled !== false)
+					const concluded = collectConcluders(rules)
+					return [
+						...name,
+						...rules.flatMap((rule) => collectNameGaps('rule', rule)),
+						...rules
+							.flatMap((rule) => rule.premises.flatMap((premise) => extractAtoms(premise)))
+							.filter((atom) => !concluded.has(formatField(atom.check.field)))
+							.flatMap(({ check }) =>
+								collectFieldGaps(check.field, matchesNumericCheck(check), glossary, formats),
+							),
+					]
+				}
+				case 'quantitative': {
+					const groups = definition.groups.filter((group) => group.enabled !== false)
+					const factors = groups.flatMap((group) =>
+						group.factors.filter((factor) => factor.enabled !== false),
+					)
+					return [
+						...name,
+						...groups.flatMap((group) => collectNameGaps('group', group)),
+						...factors.flatMap((factor) => collectNameGaps('factor', factor)),
+						...factors.flatMap(({ source }) =>
+							source.origin === 'static'
+								? []
+								: collectFieldGaps(source.field, false, glossary, formats),
+						),
+						...factors
+							.flatMap((factor) => factor.checks ?? [])
+							.flatMap((check) =>
+								collectFieldGaps(check.field, matchesNumericCheck(check), glossary, formats),
+							),
+						...collectUnitGaps(findWord(glossary.values, definition.id), formats),
+					]
+				}
+				case 'symbolic': {
+					const targets = definition.equations.map((equation) => equation.target)
+					const inputs = definition.equations
+						.flatMap(({ left, right }) => [...collectVariables(left), ...collectVariables(right)])
+						.filter((variable) => !Object.hasOwn(definition.variables, variable))
+					return [
+						...name,
+						...definition.equations.flatMap((equation) => collectNameGaps('equation', equation)),
+						...[...targets, ...inputs].flatMap((field) =>
+							collectFieldGaps(field, false, glossary, formats),
+						),
+					]
+				}
+				case 'inferential':
+					return [
+						...name,
+						...definition.inferences
+							.filter((inference) => inference.enabled !== false)
+							.flatMap((inference) => collectNameGaps('inference', inference)),
+					]
+			}
+		}),
+	)
+}
+
+// === The reasons: the checks that fix a rule's state
+
+/**
+ * Finds the operands whose states fix a connective's state.
+ *
+ * @remarks
+ * While the operands named keep their states, no change to any other moves the connective.
+ * The first unmet operand fixes an `and` and the first met one an `or`; without one, every
+ * operand does, because any of them could be that one. An unmet first operand or a met second
+ * one fixes an `implies`, and any unread operand an `xor`.
+ *
+ * @param operator - The connective
+ * @param states - The operands' states, in order
+ * @returns The deciding operands' positions, in order
+ *
+ * @example
+ * ```ts
+ * import { findDecidingOperands } from '@orkestrel/interpret'
+ *
+ * findDecidingOperands('and', ['met', 'unmet', 'unmet']) // [1]
+ * findDecidingOperands('or', ['unmet', 'unmet']) // [0, 1]
+ * ```
+ */
+export function findDecidingOperands(
+	operator: LogicalOperator,
+	states: readonly CheckState[],
+): readonly number[] {
+	const every = states.map((_state, index) => index)
+	const unread = every.filter((index) => states[index] === 'unread')
+	switch (operator) {
+		case 'and':
+			return states.includes('unmet') ? [states.indexOf('unmet')] : every
+		case 'or':
+			return states.includes('met') ? [states.indexOf('met')] : every
+		case 'implies':
+			if (states[0] === 'unmet') return [0]
+			return states[1] === 'met' ? [1] : every
+		case 'xor':
+			return unread.length > 0 ? unread : every
+		case 'not':
+			return every
+	}
+}
+
+/**
+ * Settles one expression against the checks its atoms read, in extraction order.
+ *
+ * @param expression - The expression to settle
+ * @param checks - Every check, in the order `extractAtoms` gives the atoms
+ * @param start - The position of the expression's first check. Default: `0`
+ * @returns The state, the checks that fix it, and the position after its last check
+ *
+ * @example
+ * ```ts
+ * import { createAtom, createCompound } from '@orkestrel/reason'
+ * import { settleExpression } from '@orkestrel/interpret'
+ *
+ * const expression = createCompound('or', [createAtom('a', 'equals', 1), createAtom('b', 'equals', 1)])
+ * const settled = settleExpression(expression, [
+ * 	{ field: 'a', state: 'unmet', actual: 2 },
+ * 	{ field: 'b', state: 'met', actual: 1 },
+ * ])
+ * settled.state // 'met'
+ * settled.reasons.map((reason) => reason.check.field) // ['b']
+ * ```
+ */
+export function settleExpression(
+	expression: Expression,
+	checks: readonly CheckResult[],
+	start = 0,
+): ExpressionResult {
+	if (expression.form === 'atom') {
+		const result = checks[start]
+		return result === undefined
+			? { state: 'unread', reasons: [], end: start + 1 }
+			: { state: result.state, reasons: [{ check: expression.check, result }], end: start + 1 }
+	}
+	const operands = settleOperands(expression.operands, checks, start)
+	const states = operands.map((operand) => operand.state)
+	return {
+		state: combineStates(expression.operator, states),
+		reasons: findDecidingOperands(expression.operator, states).flatMap(
+			(index) => operands[index]?.reasons ?? [],
+		),
+		end: operands.at(-1)?.end ?? start,
+	}
+}
+
+/**
+ * Settles expressions in order, each reading the checks after the one before it.
+ *
+ * @param operands - The expressions, in authored order
+ * @param checks - Every check, in the order `extractAtoms` gives the atoms
+ * @param start - The position of the first expression's first check. Default: `0`
+ * @returns One result per expression
+ *
+ * @example
+ * ```ts
+ * import { createAtom } from '@orkestrel/reason'
+ * import { settleOperands } from '@orkestrel/interpret'
+ *
+ * settleOperands([createAtom('a', 'equals', 1), createAtom('b', 'equals', 1)], [
+ * 	{ field: 'a', state: 'unmet', actual: 2 },
+ * 	{ field: 'b', state: 'met', actual: 1 },
+ * ]).map((operand) => operand.state) // ['unmet', 'met']
+ * ```
+ */
+export function settleOperands(
+	operands: readonly Expression[],
+	checks: readonly CheckResult[],
+	start = 0,
+): readonly ExpressionResult[] {
+	const settled: ExpressionResult[] = []
+	for (const operand of operands) {
+		settled.push(settleExpression(operand, checks, settled.at(-1)?.end ?? start))
+	}
+	return settled
+}
+
+/**
+ * Collects a rule's reasons: the checks that fix the state its result holds.
+ *
+ * @remarks
+ * The rule's atoms pair with the result's checks in extraction order, and each premise is
+ * settled again with `combineStates`. A result that does not pair, or whose states differ from
+ * the settled ones, has no reason this rule can state. A check cited twice is collected once.
+ *
+ * @param rule - The rule
+ * @param result - The rule's result
+ * @returns The reasons, in authored order; empty when the result does not answer the rule
+ *
+ * @example
+ * ```ts
+ * import { createAtom, createRule } from '@orkestrel/reason'
+ * import { collectReasons } from '@orkestrel/interpret'
+ *
+ * const rule = createRule('adult', [createAtom('age', 'from', 18)], createAtom('adult', 'equals', true))
+ * collectReasons(rule, {
+ * 	id: 'adult',
+ * 	state: 'met',
+ * 	premises: ['met'],
+ * 	checks: [{ field: 'age', state: 'met', actual: 30 }],
+ * }).length // 1
+ * ```
+ */
+export function collectReasons(rule: Rule, result: RuleResult): readonly RuleReason[] {
+	const read = attempt(() => {
+		const atoms = rule.premises.flatMap((premise) => extractAtoms(premise))
+		const fields = result.checks.map((check) => formatField(check.field))
+		const paired =
+			atoms.length === fields.length &&
+			atoms.every((atom, index) => formatField(atom.check.field) === fields[index])
+		if (!paired) return []
+		const premises = settleOperands(rule.premises, result.checks)
+		const states = premises.map((premise) => premise.state)
+		const agreed =
+			states.length === result.premises.length &&
+			states.every((state, index) => state === result.premises[index]) &&
+			combineStates('and', states) === result.state
+		if (!agreed) return []
+		const reasons = findDecidingOperands('and', states).flatMap(
+			(index) => premises[index]?.reasons ?? [],
+		)
+		const keys = reasons.map((reason) => canonicalize(reason.check))
+		return reasons.filter((_reason, index) => keys.indexOf(keys[index] ?? '') === index)
+	})
+	return isSuccess(read) ? read.value : []
+}
+
+// === The account's text
+
+/**
+ * Normalizes text to one line: each run of line breaks becomes one space.
+ *
+ * @param text - The text to normalize
+ * @returns The text on one line
+ *
+ * @example
+ * ```ts
+ * import { normalizeLine } from '@orkestrel/interpret'
+ *
+ * normalizeLine('one\r\ntwo') // 'one two'
+ * ```
+ */
+export function normalizeLine(text: string): string {
+	return text.split(TEXT_BREAK_PATTERN).join(' ')
+}
+
+/**
+ * Normalizes an account's line: its text on one line, and each of its gaps once.
+ *
+ * @param line - The line to normalize
+ * @returns A fresh line
+ *
+ * @example
+ * ```ts
+ * import { normalizeAccountLine } from '@orkestrel/interpret'
+ *
+ * normalizeAccountLine({ role: 'step', decisive: false, text: 'a\nb', source: {}, gaps: [], lines: [] }).text
+ * // 'a b'
+ * ```
+ */
+export function normalizeAccountLine(line: AccountLine): AccountLine {
+	return { ...line, text: normalizeLine(line.text), gaps: filterUniqueGaps(line.gaps) }
+}
+
+/**
+ * Renders a part's name, or its id where it has none.
+ *
+ * @param named - The part's id and name
+ * @returns The name as authored, the id where the name is blank, or the quoted id where both are
+ *
+ * @example
+ * ```ts
+ * import { renderName } from '@orkestrel/interpret'
+ *
+ * renderName({ id: 'adult', name: 'Adult applicant' }) // 'Adult applicant'
+ * renderName({ id: 'adult', name: '' }) // 'adult'
+ * ```
+ */
+export function renderName(named: { readonly id: string; readonly name: string }): string {
+	if (named.name.trim() !== '') return named.name
+	return named.id.trim() === '' ? preview(named.id) : named.id
+}
+
+/**
+ * Collects an account's lines as text at one level of detail, each indented by its depth.
+ *
+ * @param lines - The lines to render
+ * @param detail - How much to render
+ * @param depth - The lines' depth, indenting two spaces a level
+ * @returns One string per rendered line
+ *
+ * @example
+ * ```ts
+ * import { collectAccountText } from '@orkestrel/interpret'
+ *
+ * const line = { role: 'verdict', decisive: true, text: 'Loan holds', source: {}, gaps: [], lines: [] } as const
+ * collectAccountText([line], 'full', 1) // ['  Loan holds']
+ * ```
+ */
+export function collectAccountText(
+	lines: readonly AccountLine[],
+	detail: AccountDetail,
+	depth = 0,
+): readonly string[] {
+	return lines
+		.filter((line) =>
+			detail === 'line' ? line.role === 'verdict' : detail === 'full' || line.decisive,
+		)
+		.flatMap((line) => [
+			`${'  '.repeat(depth)}${line.text}`,
+			...(detail === 'line' ? [] : collectAccountText(line.lines, detail, depth + 1)),
+		])
+}
+
+/**
+ * Renders an account as text.
+ *
+ * @remarks
+ * `detail` selects how much renders: `line` the verdict alone, `reasons` the deciding lines
+ * too, and `full` every line. Default: `'reasons'`. A nested line indents two spaces a level.
+ *
+ * @param account - The account to render
+ * @param options - Optional `detail`
+ * @returns The text, one line per rendered line
+ *
+ * @example
+ * ```ts
+ * import { createFactorGroup, createQuantitativeDefinition, createQuantitativeReasoner, createStaticFactor } from '@orkestrel/reason'
+ * import { createNarrator, renderAccount } from '@orkestrel/interpret'
+ *
+ * const definition = createQuantitativeDefinition('risk', 'Risk', [
+ * 	createFactorGroup('drivers', 'sum', [createStaticFactor('floor', 10)]),
+ * ])
+ * const result = createQuantitativeReasoner().reason({}, definition)
+ * renderAccount(createNarrator().narrate(definition, result), { detail: 'line' }) // 'Risk is 10'
+ * ```
+ */
+export function renderAccount(account: Account, options?: AccountOptions): string {
+	return collectAccountText(account.lines, options?.detail ?? 'reasons').join('\n')
 }
 
 // === The recipe's shape

@@ -16,8 +16,11 @@ import {
 	isEntity,
 	isEntityMapping,
 	isFieldMapping,
+	isFrameName,
+	isGlossary,
 	isIntent,
 	isInterpretation,
+	isLexiconInput,
 	isProvenance,
 	isStageFailure,
 	isStageRecord,
@@ -25,6 +28,7 @@ import {
 	entityShape,
 	provenanceShape,
 } from '@src/core'
+import { createHostileValues } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import {
 	buildInsuranceRecipe,
@@ -45,6 +49,39 @@ describe('proposed provenance boundary', () => {
 		expect(createContract(provenanceShape).is(provenance)).toBe(accepted)
 		expect(isEntity(entity)).toBe(accepted)
 		expect(createContract(entityShape).is(entity)).toBe(accepted)
+	})
+})
+
+describe('the words boundary', () => {
+	it('isFrameName accepts a frame id and nothing inherited', () => {
+		expect(isFrameName('rule.settled')).toBe(true)
+		expect(isFrameName('result.quantitative')).toBe(false)
+		expect(isFrameName(5)).toBe(false)
+		for (const key of TRICKY_KEYS) expect(isFrameName(key)).toBe(false)
+	})
+
+	it('isLexiconInput and isGlossary accept what stands and refuse what does not', () => {
+		expect(isLexiconInput({})).toBe(true)
+		expect(isLexiconInput({ rules: { met: 'applies' } })).toBe(true)
+		expect(isLexiconInput({ rules: { meet: 'applies' } })).toBe(false)
+		expect(isGlossary({ labels: {} })).toBe(true)
+		expect(isGlossary({ labels: { cost: 'Cost' }, units: { cost: 'acre' } })).toBe(true)
+		expect(isGlossary({})).toBe(false)
+		expect(isGlossary({ labels: {}, names: {} })).toBe(false)
+	})
+
+	it('isLexiconInput and isGlossary answer any value', () => {
+		for (const value of [null, undefined, 5, 'words', [], ...createHostileValues()]) {
+			expect(isGlossary(value)).toBe(false)
+			expect(typeof isLexiconInput(value)).toBe('boolean')
+		}
+		expect(
+			isGlossary({
+				get labels(): never {
+					throw new Error('hostile labels getter')
+				},
+			}),
+		).toBe(false)
 	})
 })
 

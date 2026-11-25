@@ -487,7 +487,7 @@ describe('Clarifier', () => {
 		it('renders the question through the injected narrator, so a lexicon rewords it', () => {
 			const clarifier = new Clarifier({
 				narrator: new Narrator({
-					lexicon: { templates: { 'ambiguity.entity': 'Which {{entity}}?' } },
+					lexicon: { frames: { 'ambiguity.entity': 'Which {{entity}}?' } },
 				}),
 			})
 			const recipe = buildInterpretRecipe({

@@ -40,6 +40,7 @@ import {
 	isInterpretError,
 	isRecipe,
 	projectInterpretation,
+	renderAccount,
 } from '@src/core'
 import { captureError, createRecorders, invokeUnchecked } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
@@ -667,7 +668,7 @@ describe('Interpret', () => {
 			const interpret = new Interpret({
 				recipes: [buildInsuranceRecipe()],
 				extractor: createCorpusExtractor(),
-				narrator: { lexicon: { templates: { 'ambiguity.intent': 'Which domain?' } } },
+				narrator: { lexicon: { frames: { 'ambiguity.intent': 'Which domain?' } } },
 			})
 			const result = interpret.interpret('what is the meaning of life')
 			expect(result.ambiguities[0]?.question).toBe('Which domain?')
@@ -789,33 +790,46 @@ describe('Interpret', () => {
 		it('describe delegates to its owned narrator', () => {
 			const interpret = new Interpret()
 			const definition = buildInterpretRecipe().definition
-			expect(interpret.describe(definition)).toBe(createNarrator().describe(definition))
+			expect(interpret.describe(definition)).toEqual(createNarrator().describe(definition))
 			interpret.destroy()
 		})
 
 		it('narrate delegates to its owned narrator', () => {
 			const interpret = new Interpret()
 			const reason = createReason({ reasoners: [createSymbolicReasoner()] })
-			const result = reason.reason(
-				{},
-				createSymbolicDefinition('r', 'R', [
-					createEquation('e1', createVariable('x'), createConstant(5), 'x'),
-				]),
-			)
-			expect(interpret.narrate(result)).toBe(createNarrator().narrate(result))
+			const definition = createSymbolicDefinition('r', 'R', [
+				createEquation('e1', createVariable('x'), createConstant(5), 'x'),
+			])
+			const result = reason.reason({}, definition)
+			const account = interpret.narrate(definition, result)
+			expect(account).toEqual(createNarrator().narrate(definition, result))
+			expect(renderAccount(account)).toBe('x is 5')
 			reason.destroy()
 			interpret.destroy()
 		})
 
-		it('honors a lexicon override supplied through the narrator option group', () => {
+		it('honors the words supplied through the narrator option group', () => {
 			const interpret = new Interpret({
 				narrator: {
-					lexicon: { templates: { 'definition.quantitative': '{{name}} has {{count}} group(s)' } },
+					lexicon: { frames: { 'result.solution': '{{label}} comes to {{value}}' } },
+					glossary: { labels: { x: 'The total' } },
 				},
 			})
-			const definition = buildInterpretRecipe().definition
-			expect(interpret.describe(definition)).toBe('Arithmetic has 1 group(s)')
+			const reason = createReason({ reasoners: [createSymbolicReasoner()] })
+			const definition = createSymbolicDefinition('r', 'R', [
+				createEquation('e1', createVariable('x'), createConstant(5), 'x'),
+			])
+			const account = interpret.narrate(definition, reason.reason({}, definition))
+			expect(renderAccount(account)).toBe('The total comes to 5')
+			reason.destroy()
 			interpret.destroy()
+		})
+
+		it('refuses malformed words at construction', () => {
+			const error = captureError(
+				() => new Interpret({ narrator: { glossary: { labels: { x: '' } } } }),
+			)
+			expect(isInterpretError(error) && error.code).toBe('GLOSSARY')
 		})
 	})
 

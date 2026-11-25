@@ -13,7 +13,18 @@
 // (`.claude/rules/architecture.md` § Barrel exports).
 
 import type { ContractShape } from '@orkestrel/contract'
-import type { ReasonResult, SymbolicResult } from '@orkestrel/reason'
+import type {
+	CheckState,
+	Expression,
+	InferentialDefinition,
+	LogicalDefinition,
+	LogicalOperator,
+	QuantitativeDefinition,
+	ReasonResult,
+	Subject,
+	SymbolicDefinition,
+	SymbolicResult,
+} from '@orkestrel/reason'
 import type {
 	ExtractorInterface,
 	ExtractResult,
@@ -32,16 +43,25 @@ import {
 	stringShape,
 } from '@orkestrel/contract'
 import {
+	createAtom,
+	createCompound,
 	createConstant,
 	createEquation,
+	createFact,
 	createFactorGroup,
 	createFieldFactor,
+	createInference,
+	createInferentialDefinition,
 	createLogicalDefinition,
+	createLookupFactor,
 	createOperation,
 	createQuantitativeDefinition,
+	createRule,
 	createStaticFactor,
 	createSymbolicDefinition,
 	createVariable,
+	extractAtoms,
+	formatField,
 } from '@orkestrel/reason'
 import { Extractor, Interpret, InterpretContext, RecordManager } from '@src/core'
 import { createContract } from '@orkestrel/contract'
@@ -1091,4 +1111,608 @@ export function dropRecipeShapes(value: unknown): unknown {
 	if (!isRecord(rest.definition)) return rest
 	const { shape: _definitionShape, ...definition } = rest.definition
 	return { ...rest, definition }
+}
+
+// ── Workshop writing fixtures (environment-agnostic) ──────────────────────────
+// An invented community workshop that lends a room for an activity. The definitions, subjects,
+// and expectations here are what the writing side's suites run against the real `reason`
+// engine; each expectation is written from reason's documented semantics and proved against the
+// engine in `tests/setup.test.ts`.
+
+/** Lists the invented activities the workshop will not lend a room for. */
+export const WORKSHOP_RESTRICTED: readonly string[] = Object.freeze([
+	'kiln firing',
+	'torch welding',
+	'axe throwing',
+	'fire dancing',
+	'blade forging',
+	'glass blowing',
+	'resin casting',
+	'acid etching',
+	'lead casting',
+	'pyrotechnics',
+	'chainsaw carving',
+	'rope climbing',
+	'stilt walking',
+	'ice sculpting',
+	'solvent painting',
+	'ember smoking',
+	'anvil striking',
+	'lathe turning',
+	'saw milling',
+	'laser cutting',
+	'plasma cutting',
+	'bow shooting',
+	'sling testing',
+	'rocket building',
+	'steam pressing',
+	'boiler tending',
+	'vat dyeing',
+	'tar melting',
+	'pitch boiling',
+	'wax melting',
+	'forge welding',
+	'flint knapping',
+	'cauldron stirring',
+	'lantern burning',
+	'spark testing',
+	'powder mixing',
+	'torch juggling',
+	'cable swinging',
+	'drum roasting',
+	'crucible pouring',
+])
+
+/** Represents one booking subject with the state each workshop rule is expected to settle on. */
+export interface WorkshopCase {
+	readonly subject: Subject
+	readonly success: boolean
+	readonly states: Readonly<Record<string, CheckState>>
+	readonly faults: readonly string[]
+}
+
+/** Represents one scoring subject with the success and value the engine is expected to return. */
+export interface WorkshopScoreCase {
+	readonly subject: Subject
+	readonly success: boolean
+	readonly value: number
+}
+
+/** Represents one floor subject with the success and solutions the engine is expected to return. */
+export interface WorkshopAreaCase {
+	readonly subject: Subject
+	readonly success: boolean
+	readonly solutions: Readonly<Record<string, number>>
+}
+
+/**
+ * Builds the workshop booking rules: eight rules whose premises cover a listed comparison, a
+ * nested path, a range, an `or`, a `not`, an `implies`, an `xor`, and a rule that reads three
+ * conclusions of the others, each with an authored name and description.
+ *
+ * @returns A fresh logical definition with id `workshop`
+ */
+export function buildWorkshopRules(): LogicalDefinition {
+	return createLogicalDefinition(
+		'workshop',
+		'Workshop booking',
+		[
+			createRule(
+				'restricted',
+				[createAtom('activity', 'any', [...WORKSHOP_RESTRICTED])],
+				createAtom('restricted', 'equals', true),
+				{
+					name: 'Restricted activity',
+					description: 'The workshop never lends a room for an activity on its restricted list.',
+				},
+			),
+			createRule(
+				'overcap',
+				[createAtom(['terms', 'excess'], 'above', 0)],
+				createAtom('overcap', 'equals', true),
+				{
+					name: 'Over capacity',
+					description: 'A booking that asks for more places than the room holds is over capacity.',
+				},
+			),
+			createRule(
+				'hours',
+				[createAtom('start', 'between', [8, 18])],
+				createAtom('open', 'equals', true),
+				{
+					name: 'Opening hours',
+					description: 'A booking must start while the workshop is open.',
+				},
+			),
+			createRule(
+				'trusted',
+				[
+					createCompound('or', [
+						createAtom('member', 'equals', 'gold'),
+						createAtom('score', 'from', 700),
+					]),
+				],
+				createAtom('trusted', 'equals', true),
+				{
+					name: 'Trusted booker',
+					description: 'A gold member, or a booker with a good score, is trusted.',
+				},
+			),
+			createRule(
+				'quiet',
+				[createCompound('not', [createAtom('noise', 'above', 40)])],
+				createAtom('quiet', 'equals', true),
+				{
+					name: 'Quiet activity',
+					description: 'An activity that stays at or under the noise limit is quiet.',
+				},
+			),
+			createRule(
+				'paired',
+				[
+					createCompound('implies', [
+						createAtom('tools', 'equals', true),
+						createAtom('trained', 'equals', true),
+					]),
+				],
+				createAtom('paired', 'equals', true),
+				{
+					name: 'Tools with training',
+					description: 'A booking that brings tools needs a trained supervisor.',
+				},
+			),
+			createRule(
+				'single',
+				[
+					createCompound('xor', [
+						createAtom('morning', 'equals', true),
+						createAtom('evening', 'equals', true),
+					]),
+				],
+				createAtom('single', 'equals', true),
+				{
+					name: 'One session',
+					description: 'A booking takes the morning or the evening, never both.',
+				},
+			),
+			createRule(
+				'approve',
+				[
+					createAtom('trusted', 'equals', true),
+					createAtom('quiet', 'equals', true),
+					createCompound('not', [createAtom('restricted', 'equals', true)]),
+					createAtom('cost', 'to', 1250),
+				],
+				createAtom('approved', 'equals', true),
+				{
+					name: 'Approval',
+					description:
+						'A trusted, quiet booking of an unrestricted activity within budget is approved.',
+				},
+			),
+		],
+		{ description: 'Decides whether a community workshop lends a room for an activity.' },
+	)
+}
+
+/** Holds the booking every workshop subject varies: every rule that can hold does. */
+export const WORKSHOP_BASE: Subject = {
+	activity: 'pottery',
+	terms: { excess: 0 },
+	start: 10,
+	member: 'gold',
+	score: 750,
+	noise: 30,
+	tools: true,
+	trained: true,
+	morning: true,
+	evening: false,
+	cost: 1000,
+}
+
+/** Holds the states every rule settles on for the base booking. */
+export const WORKSHOP_HELD: Readonly<Record<string, CheckState>> = {
+	restricted: 'unmet',
+	overcap: 'unmet',
+	hours: 'met',
+	trusted: 'met',
+	quiet: 'met',
+	paired: 'met',
+	single: 'met',
+	approve: 'met',
+}
+
+/**
+ * Names the booking subjects of the workshop rules, each with the states reason's semantics give
+ * every rule. `held` is the booking whose approving rules hold and whose two flagging rules
+ * (`restricted`, `overcap`) do not, because `approve` reads `not(restricted)` and so cannot hold
+ * beside a met `restricted`.
+ */
+export const WORKSHOP_SUBJECTS: Readonly<Record<string, WorkshopCase>> = {
+	held: { subject: WORKSHOP_BASE, success: true, states: WORKSHOP_HELD, faults: [] },
+	restricted: {
+		subject: { ...WORKSHOP_BASE, activity: 'torch welding' },
+		success: true,
+		states: { ...WORKSHOP_HELD, restricted: 'met', approve: 'unmet' },
+		faults: [],
+	},
+	overcap: {
+		subject: { ...WORKSHOP_BASE, terms: { excess: 4 } },
+		success: true,
+		states: { ...WORKSHOP_HELD, overcap: 'met' },
+		faults: [],
+	},
+	late: {
+		subject: { ...WORKSHOP_BASE, start: 20 },
+		success: true,
+		states: { ...WORKSHOP_HELD, hours: 'unmet' },
+		faults: [],
+	},
+	loud: {
+		subject: { ...WORKSHOP_BASE, noise: 55 },
+		success: true,
+		states: { ...WORKSHOP_HELD, quiet: 'unmet', approve: 'unmet' },
+		faults: [],
+	},
+	second: {
+		subject: { ...WORKSHOP_BASE, member: 'silver', score: 750 },
+		success: true,
+		states: WORKSHOP_HELD,
+		faults: [],
+	},
+	neither: {
+		subject: { ...WORKSHOP_BASE, member: 'silver', score: 400 },
+		success: true,
+		states: { ...WORKSHOP_HELD, trusted: 'unmet', approve: 'unmet' },
+		faults: [],
+	},
+	vacuous: {
+		subject: { ...WORKSHOP_BASE, tools: false, trained: false },
+		success: true,
+		states: WORKSHOP_HELD,
+		faults: [],
+	},
+	unpaired: {
+		subject: { ...WORKSHOP_BASE, tools: true, trained: false },
+		success: true,
+		states: { ...WORKSHOP_HELD, paired: 'unmet' },
+		faults: [],
+	},
+	double: {
+		subject: { ...WORKSHOP_BASE, morning: true, evening: true },
+		success: true,
+		states: { ...WORKSHOP_HELD, single: 'unmet' },
+		faults: [],
+	},
+	nocost: {
+		subject: Object.fromEntries(
+			Object.entries(WORKSHOP_BASE).filter(([field]) => field !== 'cost'),
+		),
+		success: false,
+		states: { ...WORKSHOP_HELD, approve: 'unread' },
+		faults: ['cost'],
+	},
+	nonoise: {
+		subject: Object.fromEntries(
+			Object.entries(WORKSHOP_BASE).filter(([field]) => field !== 'noise'),
+		),
+		success: false,
+		states: { ...WORKSHOP_HELD, quiet: 'unread', approve: 'unread' },
+		faults: ['noise'],
+	},
+}
+
+/**
+ * Builds the booking score: a `sum` group of fees with a field factor, a static factor, and a
+ * static factor gated by a membership check, and a `maximum` group whose lookup table has no
+ * entry for the `garage` room and no fallback.
+ *
+ * @returns A fresh quantitative definition with id `score`
+ */
+export function buildWorkshopScore(): QuantitativeDefinition {
+	return createQuantitativeDefinition('score', 'Booking score', [
+		createFactorGroup(
+			'fees',
+			'sum',
+			[
+				createFieldFactor('base', 'cost', { name: 'Base fee' }),
+				createStaticFactor('service', 10, { name: 'Service charge' }),
+				createStaticFactor('discount', 25, {
+					name: 'Gold bonus',
+					checks: [{ field: 'member', operator: 'equals', value: 'gold' }],
+				}),
+			],
+			{ name: 'Fees' },
+		),
+		createFactorGroup(
+			'space',
+			'maximum',
+			[
+				createLookupFactor(
+					'room',
+					'room',
+					{ hall: 30, studio: 20, loft: 15 },
+					{ name: 'Room rate' },
+				),
+			],
+			{ name: 'Space' },
+		),
+	])
+}
+
+/**
+ * Names the scoring subjects of the booking score. A refused run still returns the `value` it
+ * computed, which is no answer: `nocost` leaves the base fee unread and `garage` leaves the
+ * `space` group with no value.
+ */
+export const WORKSHOP_SCORES: Readonly<Record<string, WorkshopScoreCase>> = {
+	gold: { subject: { cost: 100, member: 'gold', room: 'hall' }, success: true, value: 165 },
+	silver: { subject: { cost: 100, member: 'silver', room: 'studio' }, success: true, value: 130 },
+	nocost: { subject: { member: 'gold', room: 'hall' }, success: false, value: 65 },
+	garage: { subject: { cost: 100, member: 'gold', room: 'garage' }, success: false, value: 135 },
+}
+
+/**
+ * Builds the floor area: one equation that solves `area` as `width` times `depth`.
+ *
+ * @returns A fresh symbolic definition with id `area`
+ */
+export function buildWorkshopArea(): SymbolicDefinition {
+	return createSymbolicDefinition('area', 'Floor area', [
+		createEquation(
+			'area',
+			createVariable('area'),
+			createOperation('multiply', createVariable('width'), createVariable('depth')),
+			'area',
+			{ name: 'Floor area', description: 'The floor area is the width times the depth.' },
+		),
+	])
+}
+
+/** Names the floor subjects: one the equation solves and one that leaves `depth` unbound. */
+export const WORKSHOP_AREA: Readonly<Record<string, WorkshopAreaCase>> = {
+	solved: { subject: { width: 4, depth: 5 }, success: true, solutions: { area: 20 } },
+	refused: { subject: { width: 4 }, success: false, solutions: {} },
+}
+
+/**
+ * Builds the booking facts: a chain of three inferences over a depth of 1, so a forward run
+ * derives every step and still hits the cap.
+ *
+ * @returns A fresh inferential definition with id `facts`
+ */
+export function buildWorkshopFacts(): InferentialDefinition {
+	return createInferentialDefinition(
+		'facts',
+		'Booking facts',
+		[createFact('booked', 'booked', ['hall'])],
+		[
+			createInference(
+				'staffing',
+				[createFact('staffing-premise', 'booked', ['?room'])],
+				createFact('staffing-conclusion', 'staffed', ['?room']),
+				{ name: 'Staffing' },
+			),
+			createInference(
+				'cleaning',
+				[createFact('cleaning-premise', 'staffed', ['?room'])],
+				createFact('cleaning-conclusion', 'cleaned', ['?room']),
+				{ name: 'Cleaning' },
+			),
+			createInference(
+				'closing',
+				[createFact('closing-premise', 'cleaned', ['?room'])],
+				createFact('closing-conclusion', 'closed', ['?room']),
+				{ name: 'Closing' },
+			),
+		],
+		{ depth: 1 },
+	)
+}
+
+/**
+ * Holds the domain words the workshop definitions need, keyed by `formatField`, so the array path
+ * `['terms', 'excess']` is `terms.excess`. The `member` label keeps its odd casing on purpose.
+ */
+export const WORKSHOP_GLOSSARY: {
+	readonly labels: Readonly<Record<string, string>>
+	readonly units: Readonly<Record<string, string>>
+	readonly values: Readonly<Record<string, string>>
+	readonly formats: Readonly<Record<string, Intl.NumberFormatOptions>>
+} = {
+	labels: {
+		activity: 'activity',
+		'terms.excess': 'places over capacity',
+		start: 'start hour',
+		member: 'wOrkshop tier',
+		score: 'booking score',
+		noise: 'noise level',
+		tools: 'tools brought',
+		trained: 'trained supervisor',
+		morning: 'morning session',
+		evening: 'evening session',
+		cost: 'cost',
+		room: 'room',
+		width: 'width',
+		depth: 'depth',
+		area: 'floor area',
+		trusted: 'trusted booker',
+		quiet: 'quiet activity',
+		restricted: 'restricted activity',
+	},
+	units: {
+		cost: 'money',
+		'terms.excess': 'money',
+		noise: 'decibel',
+		start: 'plain',
+		score: 'count',
+	},
+	values: { score: 'count' },
+	formats: {
+		money: { style: 'currency', currency: 'USD' },
+		decibel: { maximumFractionDigits: 1 },
+	},
+}
+
+/** Represents one connective with one operand count it allows. */
+export type WorkshopShape = readonly [LogicalOperator, number]
+
+/** Lists the connectives with each operand count they allow: `not` one, the rest two, and `and`/`or` three too. */
+export const WORKSHOP_SHAPES: readonly [WorkshopShape, ...WorkshopShape[]] = [
+	['not', 1],
+	['implies', 2],
+	['xor', 2],
+	['and', 2],
+	['and', 3],
+	['or', 2],
+	['or', 3],
+]
+
+/** Names the three fields the expression trees read, each as `field equals true`. */
+export const WORKSHOP_TREE_FIELDS: readonly [string, ...string[]] = ['a', 'b', 'c']
+
+/** Holds the seed the depth-3 expression trees are drawn under. */
+export const WORKSHOP_TREE_SEED = 20260101
+
+/** Holds how many depth-3 expression trees are drawn. */
+export const WORKSHOP_TREE_DRAWS = 200
+
+/**
+ * Collects the display path of every atom an expression reads, in extraction order.
+ *
+ * @param expression - The expression to read
+ * @returns One display path per atom
+ */
+export function collectExpressionFields(expression: Expression): readonly string[] {
+	return extractAtoms(expression).map((atom) => formatField(atom.check.field))
+}
+
+/**
+ * Collects the connective of every compound in an expression, outermost first.
+ *
+ * @param expression - The expression to read
+ * @returns One connective per compound, repeats included
+ */
+export function collectConnectives(expression: Expression): readonly LogicalOperator[] {
+	return expression.form === 'atom'
+		? []
+		: [expression.operator, ...expression.operands.flatMap(collectConnectives)]
+}
+
+/**
+ * Measures how many connectives deep an expression nests.
+ *
+ * @param expression - The expression to measure
+ * @returns Zero for an atom, otherwise one more than the deepest operand
+ */
+export function measureDepth(expression: Expression): number {
+	return expression.form === 'atom' ? 0 : 1 + Math.max(...expression.operands.map(measureDepth))
+}
+
+/**
+ * Lists the ordered operand tuples of one size over a pool, none reading a field twice.
+ *
+ * @param pool - The expressions an operand is drawn from
+ * @param size - The operand count
+ * @returns Every ordered tuple of that size whose operands read disjoint fields
+ */
+export function listOperandTuples(
+	pool: readonly Expression[],
+	size: number,
+): ReadonlyArray<readonly Expression[]> {
+	if (size === 0) return [[]]
+	return listOperandTuples(pool, size - 1).flatMap((tuple) => {
+		const used = new Set(tuple.flatMap(collectExpressionFields))
+		return pool
+			.filter((operand) => !collectExpressionFields(operand).some((field) => used.has(field)))
+			.map((operand) => [...tuple, operand])
+	})
+}
+
+/**
+ * Combines a pool of expressions under every connective at every arity it allows, keeping the
+ * compounds that hold at least one operand of `deep`.
+ *
+ * @param pool - The expressions an operand is drawn from
+ * @param deep - The members of the pool a compound must hold at least one of
+ * @returns Every such compound, no field read twice in one
+ */
+export function combineExpressions(
+	pool: readonly Expression[],
+	deep: readonly Expression[],
+): readonly Expression[] {
+	return WORKSHOP_SHAPES.flatMap(([operator, size]) =>
+		listOperandTuples(pool, size)
+			.filter((tuple) => tuple.some((operand) => deep.includes(operand)))
+			.map((tuple) => createCompound(operator, tuple)),
+	)
+}
+
+/**
+ * Picks one member of a non-empty list from a random source.
+ *
+ * @param list - The members to pick from
+ * @param next - The random source, returning values in `[0, 1)`
+ * @returns The picked member
+ */
+export function pickMember<T>(list: readonly [T, ...T[]], next: () => number): T {
+	return list[Math.floor(next() * list.length)] ?? list[0]
+}
+
+/**
+ * Draws an expression of exactly the given depth over the tree fields, reading a field more than
+ * once where the depth needs it.
+ *
+ * @param next - The random source, returning values in `[0, 1)`
+ * @param depth - The number of connectives the deepest path nests
+ * @returns The drawn expression
+ */
+export function drawExpression(next: () => number, depth: number): Expression {
+	if (depth === 0) return createAtom(pickMember(WORKSHOP_TREE_FIELDS, next), 'equals', true)
+	const [operator, size] = pickMember(WORKSHOP_SHAPES, next)
+	return createCompound(
+		operator,
+		Array.from({ length: size }, (_, index) =>
+			drawExpression(next, index === 0 ? depth - 1 : Math.floor(next() * depth)),
+		),
+	)
+}
+
+/**
+ * Builds the expression trees the writing side's pairing is proved on: every tree of depth 1 and
+ * 2 that reads each of three atoms at most once, then the seeded draws of depth 3, each wrapped
+ * as a one-rule definition whose rule has an authored name.
+ *
+ * @returns The definitions, depth 1 first, then depth 2, then the draws
+ */
+export function buildExpressionTrees(): readonly LogicalDefinition[] {
+	const atoms = WORKSHOP_TREE_FIELDS.map((field) => createAtom(field, 'equals', true))
+	const first = combineExpressions(atoms, atoms)
+	const second = combineExpressions([...atoms, ...first], first)
+	const next = seededRandom(WORKSHOP_TREE_SEED)
+	const third = Array.from({ length: WORKSHOP_TREE_DRAWS }, () => drawExpression(next, 3))
+	return [...first, ...second, ...third].map((expression, index) =>
+		createLogicalDefinition(`tree${String(index)}`, `Tree ${String(index)}`, [
+			createRule('rule', [expression], createAtom('out', 'equals', true), {
+				name: `Tree rule ${String(index)}`,
+			}),
+		]),
+	)
+}
+
+/**
+ * Collects every assignment of `a`, `b`, and `c` to `true`, `false`, or absent.
+ *
+ * @returns The subjects, with an absent field left off the subject
+ */
+export function collectTreeSubjects(): readonly Subject[] {
+	const readings = [true, false, undefined]
+	return Array.from({ length: readings.length ** WORKSHOP_TREE_FIELDS.length }, (_, number) =>
+		Object.fromEntries(
+			WORKSHOP_TREE_FIELDS.flatMap((field, index) => {
+				const reading = readings[Math.floor(number / readings.length ** index) % readings.length]
+				return reading === undefined ? [] : [[field, reading]]
+			}),
+		),
+	)
 }

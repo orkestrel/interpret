@@ -16,28 +16,54 @@
 import { collectShapeDefaults, Extractor } from '@src/core'
 import { createContract as contractOf, resolveField } from '@orkestrel/contract'
 import {
-	formatField,
+	collectVariables,
+	createAtom,
+	createCompound,
+	createInferentialReasoner,
 	createLogicalDefinition,
 	createLogicalReasoner,
+	createQuantitativeReasoner,
 	createReason,
+	createRule,
 	createSymbolicReasoner,
+	extractAtoms,
+	formatField,
+	isInferentialResult,
+	isLogicalResult,
+	isQuantitativeResult,
+	isSymbolicResult,
 } from '@orkestrel/reason'
 import { describe, expect, it } from 'vitest'
 import {
-	buildInterpretSolvedDefinition,
-	collectInterpretCorpusRecipes,
 	buildEligibilityRecipe,
+	buildExpressionTrees,
 	buildInsuranceRecipe,
 	buildInterpretation,
+	buildInterpretSolvedDefinition,
 	buildLoanRecipe,
 	buildStatisticsRecipe,
+	buildWorkshopArea,
+	buildWorkshopFacts,
+	buildWorkshopRules,
+	buildWorkshopScore,
+	collectConnectives,
+	collectExpressionFields,
+	collectInterpretCorpusRecipes,
+	collectTreeSubjects,
 	createCorpusExtractor,
 	EXTREME_NUMBERS,
 	expectSymbolic,
 	INTERPRET_ACTIONS,
 	INTERPRET_DOMAINS,
+	measureDepth,
 	seedInterpretContext,
 	TRICKY_KEYS,
+	WORKSHOP_AREA,
+	WORKSHOP_GLOSSARY,
+	WORKSHOP_RESTRICTED,
+	WORKSHOP_SCORES,
+	WORKSHOP_SUBJECTS,
+	WORKSHOP_TREE_FIELDS,
 } from './setup.js'
 
 describe('expectSymbolic', () => {
@@ -288,5 +314,565 @@ describe('seedInterpretContext', () => {
 
 		expect(context.previous()).toEqual([])
 		expect(context).not.toBe(seedInterpretContext([]))
+	})
+})
+
+describe('WORKSHOP_RESTRICTED', () => {
+	it('lists forty distinct, trimmed, non-empty activity names', () => {
+		expect(WORKSHOP_RESTRICTED).toHaveLength(40)
+		expect(new Set(WORKSHOP_RESTRICTED).size).toBe(40)
+		expect(WORKSHOP_RESTRICTED.filter((name) => name.length === 0 || name !== name.trim())).toEqual(
+			[],
+		)
+	})
+})
+
+describe('buildWorkshopRules', () => {
+	it('lists the eight rules in order under the workshop id and name', () => {
+		const definition = buildWorkshopRules()
+
+		expect([definition.id, definition.name]).toEqual(['workshop', 'Workshop booking'])
+		expect(definition.rules.map((rule) => rule.id)).toEqual([
+			'restricted',
+			'overcap',
+			'hours',
+			'trusted',
+			'quiet',
+			'paired',
+			'single',
+			'approve',
+		])
+	})
+
+	it('authors a name that differs from its id and a description on every rule', () => {
+		const rules = buildWorkshopRules().rules
+
+		expect(rules.filter((rule) => rule.name === rule.id || rule.name.trim() === '')).toEqual([])
+		expect(rules.filter((rule) => (rule.description ?? '').trim() === '')).toEqual([])
+		expect(new Set(rules.map((rule) => rule.name)).size).toBe(rules.length)
+	})
+
+	it('reads the fields, comparisons, and connectives the design names, through a second mechanism', () => {
+		const rules = buildWorkshopRules().rules
+		const reads = rules.map((rule) =>
+			rule.premises.flatMap((premise) =>
+				extractAtoms(premise).map(
+					(atom) => `${formatField(atom.check.field)} ${atom.check.operator}`,
+				),
+			),
+		)
+
+		expect(reads).toEqual([
+			['activity any'],
+			['terms.excess above'],
+			['start between'],
+			['member equals', 'score from'],
+			['noise above'],
+			['tools equals', 'trained equals'],
+			['morning equals', 'evening equals'],
+			['trusted equals', 'quiet equals', 'restricted equals', 'cost to'],
+		])
+		expect(rules.map((rule) => rule.premises.flatMap(collectConnectives))).toEqual([
+			[],
+			[],
+			[],
+			['or'],
+			['not'],
+			['implies'],
+			['xor'],
+			['not'],
+		])
+		expect(rules.map((rule) => collectExpressionFields(rule.conclusion))).toEqual([
+			['restricted'],
+			['overcap'],
+			['open'],
+			['trusted'],
+			['quiet'],
+			['paired'],
+			['single'],
+			['approved'],
+		])
+	})
+
+	it('keeps the nested path an array, which formats as a dotted display key only', () => {
+		const overcap = buildWorkshopRules().rules.find((rule) => rule.id === 'overcap')
+		const atoms = (overcap?.premises ?? []).flatMap((premise) => extractAtoms(premise))
+
+		expect(atoms.map((atom) => atom.check.field)).toEqual([['terms', 'excess']])
+		expect(atoms.map((atom) => formatField(atom.check.field))).toEqual(['terms.excess'])
+	})
+
+	it('validates against the real logical reasoner', () => {
+		expect(createLogicalReasoner().validate(buildWorkshopRules())).toEqual({
+			valid: true,
+			errors: [],
+			warnings: [],
+		})
+	})
+})
+
+describe('WORKSHOP_SUBJECTS', () => {
+	it('names at least eight subjects, including every situation the design lists', () => {
+		const names = Object.keys(WORKSHOP_SUBJECTS)
+
+		expect(names.length).toBeGreaterThanOrEqual(8)
+		expect(names).toEqual(
+			expect.arrayContaining([
+				'held',
+				'restricted',
+				'overcap',
+				'loud',
+				'second',
+				'neither',
+				'vacuous',
+				'nocost',
+				'nonoise',
+			]),
+		)
+	})
+
+	it('expects each rule to settle on every state somewhere across the subjects', () => {
+		const states = Object.values(WORKSHOP_SUBJECTS).flatMap((one) => Object.entries(one.states))
+
+		expect(
+			['met', 'unmet'].flatMap((state) =>
+				buildWorkshopRules()
+					.rules.filter((rule) => !states.some(([id, value]) => id === rule.id && value === state))
+					.map((rule) => `${rule.id} ${state}`),
+			),
+		).toEqual([])
+		expect(states.filter(([, state]) => state === 'unread').map(([id]) => id)).toEqual([
+			'approve',
+			'quiet',
+			'approve',
+		])
+	})
+
+	it.each(Object.entries(WORKSHOP_SUBJECTS))(
+		'settles the %s booking on the expected states, as the real engine reads it',
+		(_name, expected) => {
+			const result = createLogicalReasoner().reason(expected.subject, buildWorkshopRules())
+			if (!isLogicalResult(result)) throw new Error('Expected a logical result')
+
+			expect(Object.fromEntries(result.rules.map((rule) => [rule.id, rule.state]))).toEqual(
+				expected.states,
+			)
+			expect(result.success).toBe(expected.success)
+			expect(result.faults.map((fault) => formatField(fault.path))).toEqual(expected.faults)
+		},
+	)
+
+	it('reads an `or` met by its second operand: the first check is unmet, the second met', () => {
+		const result = createLogicalReasoner().reason(
+			WORKSHOP_SUBJECTS.second?.subject ?? {},
+			buildWorkshopRules(),
+		)
+		if (!isLogicalResult(result)) throw new Error('Expected a logical result')
+		const trusted = result.rules.find((rule) => rule.id === 'trusted')
+
+		expect(trusted?.checks.map((check) => check.state)).toEqual(['unmet', 'met'])
+		expect(trusted?.state).toBe('met')
+	})
+
+	it('reads an `or` with both operands unmet as unmet', () => {
+		const result = createLogicalReasoner().reason(
+			WORKSHOP_SUBJECTS.neither?.subject ?? {},
+			buildWorkshopRules(),
+		)
+		if (!isLogicalResult(result)) throw new Error('Expected a logical result')
+		const trusted = result.rules.find((rule) => rule.id === 'trusted')
+
+		expect(trusted?.checks.map((check) => check.state)).toEqual(['unmet', 'unmet'])
+		expect(trusted?.state).toBe('unmet')
+	})
+
+	it('reads an `implies` met because its first operand is unmet, while its second is unmet too', () => {
+		const result = createLogicalReasoner().reason(
+			WORKSHOP_SUBJECTS.vacuous?.subject ?? {},
+			buildWorkshopRules(),
+		)
+		if (!isLogicalResult(result)) throw new Error('Expected a logical result')
+		const paired = result.rules.find((rule) => rule.id === 'paired')
+
+		expect(paired?.checks.map((check) => check.state)).toEqual(['unmet', 'unmet'])
+		expect(paired?.state).toBe('met')
+	})
+
+	it('reads a `not` that fails: its operand check is met, so the rule is unmet', () => {
+		const result = createLogicalReasoner().reason(
+			WORKSHOP_SUBJECTS.loud?.subject ?? {},
+			buildWorkshopRules(),
+		)
+		if (!isLogicalResult(result)) throw new Error('Expected a logical result')
+		const quiet = result.rules.find((rule) => rule.id === 'quiet')
+
+		expect(quiet?.checks.map((check) => check.state)).toEqual(['met'])
+		expect(quiet?.state).toBe('unmet')
+	})
+
+	it('refuses a missing `cost` and a missing `noise`, naming each field and no other', () => {
+		const reasoner = createLogicalReasoner()
+		const cost = reasoner.reason(WORKSHOP_SUBJECTS.nocost?.subject ?? {}, buildWorkshopRules())
+		const noise = reasoner.reason(WORKSHOP_SUBJECTS.nonoise?.subject ?? {}, buildWorkshopRules())
+		if (!isLogicalResult(cost) || !isLogicalResult(noise))
+			throw new Error('Expected logical results')
+
+		expect([cost.success, cost.conclusion, cost.errors]).toEqual([
+			false,
+			'unread',
+			['cost: missing; expected number'],
+		])
+		expect([noise.success, noise.conclusion, noise.errors]).toEqual([
+			false,
+			'unread',
+			['noise: missing; expected number'],
+		])
+	})
+
+	it('carries a restricted subject whose activity is on the list and a held one whose is not', () => {
+		expect(WORKSHOP_RESTRICTED).toContain(WORKSHOP_SUBJECTS.restricted?.subject.activity)
+		expect(WORKSHOP_RESTRICTED).not.toContain(WORKSHOP_SUBJECTS.held?.subject.activity)
+	})
+})
+
+describe('buildWorkshopScore', () => {
+	it('authors a name that differs from its id on the definition, every group, and every factor', () => {
+		const definition = buildWorkshopScore()
+		const parts = [
+			definition,
+			...definition.groups,
+			...definition.groups.flatMap((group) => group.factors),
+		]
+
+		expect([definition.id, definition.name]).toEqual(['score', 'Booking score'])
+		expect(parts.filter((part) => part.name === part.id || part.name.trim() === '')).toEqual([])
+		expect(definition.groups.map((group) => group.aggregation)).toEqual(['sum', 'maximum'])
+	})
+
+	it('gates one factor by a check on `member` and reads the lookup with no fallback', () => {
+		const groups = buildWorkshopScore().groups
+		const factors = groups.flatMap((group) => group.factors)
+		const gated = factors.filter((factor) => (factor.checks ?? []).length > 0)
+		const lookup = factors.find((factor) => factor.source.origin === 'lookup')
+
+		expect(gated.map((factor) => factor.id)).toEqual(['discount'])
+		expect(gated.flatMap((factor) => factor.checks ?? [])).toEqual([
+			{ field: 'member', operator: 'equals', value: 'gold' },
+		])
+		expect(lookup?.fallback).toBeUndefined()
+	})
+
+	it.each(Object.entries(WORKSHOP_SCORES))(
+		'scores the %s subject as expected, as the real engine reads it',
+		(_name, expected) => {
+			const result = createQuantitativeReasoner().reason(expected.subject, buildWorkshopScore())
+			if (!isQuantitativeResult(result)) throw new Error('Expected a quantitative result')
+
+			expect(result.success).toBe(expected.success)
+			expect(result.value).toBe(expected.value)
+		},
+	)
+
+	it('leaves the gated factor unapplied for a subject that fails its check, naming that check', () => {
+		const result = createQuantitativeReasoner().reason(
+			WORKSHOP_SCORES.silver?.subject ?? {},
+			buildWorkshopScore(),
+		)
+		if (!isQuantitativeResult(result)) throw new Error('Expected a quantitative result')
+		const discount = result.groups
+			.flatMap((group) => group.factors)
+			.find((factor) => factor.id === 'discount')
+
+		expect(discount?.applied).toBe(false)
+		expect(discount?.checks?.map((check) => [formatField(check.field), check.state])).toEqual([
+			['member', 'unmet'],
+		])
+	})
+
+	it('refuses a missing `cost` on its field and a missing table entry on its room', () => {
+		const reasoner = createQuantitativeReasoner()
+		const cost = reasoner.reason(WORKSHOP_SCORES.nocost?.subject ?? {}, buildWorkshopScore())
+		const room = reasoner.reason(WORKSHOP_SCORES.garage?.subject ?? {}, buildWorkshopScore())
+		if (!isQuantitativeResult(cost) || !isQuantitativeResult(room)) {
+			throw new Error('Expected quantitative results')
+		}
+
+		expect(cost.faults.map((fault) => formatField(fault.path))).toEqual(['cost'])
+		expect(room.faults).toEqual([])
+		expect(room.errors).toEqual(['Factor "room" has no value for "garage"'])
+	})
+})
+
+describe('buildWorkshopArea', () => {
+	it('authors a name that differs from its id on the equation', () => {
+		const definition = buildWorkshopArea()
+
+		expect([definition.id, definition.name]).toEqual(['area', 'Floor area'])
+		expect(definition.equations.map((equation) => [equation.id, equation.name])).toEqual([
+			['area', 'Floor area'],
+		])
+		expect((definition.equations[0]?.description ?? '').length).toBeGreaterThan(0)
+	})
+
+	it.each(Object.entries(WORKSHOP_AREA))(
+		'reads the %s subject as expected, as the real engine reads it',
+		(_name, expected) => {
+			const result = createSymbolicReasoner().reason(expected.subject, buildWorkshopArea())
+			if (!isSymbolicResult(result)) throw new Error('Expected a symbolic result')
+
+			expect(result.success).toBe(expected.success)
+			expect(result.solutions).toEqual(expected.solutions)
+		},
+	)
+
+	it('names the unbound variable of the refused subject', () => {
+		const result = createSymbolicReasoner().reason(
+			WORKSHOP_AREA.refused?.subject ?? {},
+			buildWorkshopArea(),
+		)
+		if (!isSymbolicResult(result)) throw new Error('Expected a symbolic result')
+
+		expect(result.faults.map((fault) => formatField(fault.path))).toEqual(['depth'])
+	})
+})
+
+describe('buildWorkshopFacts', () => {
+	it('holds a chain of three inferences over a depth of 1', () => {
+		const definition = buildWorkshopFacts()
+
+		expect(definition.depth).toBe(1)
+		expect(definition.inferences.map((inference) => inference.name)).toEqual([
+			'Staffing',
+			'Cleaning',
+			'Closing',
+		])
+	})
+
+	it('derives the whole chain and still refuses at the cap', () => {
+		const result = createInferentialReasoner().reason({}, buildWorkshopFacts())
+		if (!isInferentialResult(result)) throw new Error('Expected an inferential result')
+
+		expect(result.derived.map((fact) => fact.predicate)).toEqual(['staffed', 'cleaned', 'closed'])
+		expect(result.success).toBe(false)
+		expect(result.errors).toEqual(['Forward chaining did not settle within depth 1'])
+	})
+
+	it('settles the same chain once the depth allows it, so the cap is the only cause', () => {
+		const result = createInferentialReasoner().reason({}, { ...buildWorkshopFacts(), depth: 10 })
+		if (!isInferentialResult(result)) throw new Error('Expected an inferential result')
+
+		expect(result.derived).toHaveLength(3)
+		expect(result.success).toBe(true)
+	})
+})
+
+describe('WORKSHOP_GLOSSARY', () => {
+	const compared = ['above', 'below', 'from', 'to', 'between', 'outside']
+
+	it('labels every field path the definitions read, keyed by the display path', () => {
+		const logical = buildWorkshopRules().rules.flatMap((rule) =>
+			rule.premises.flatMap(collectExpressionFields),
+		)
+		const quantitative = buildWorkshopScore()
+			.groups.flatMap((group) => group.factors)
+			.flatMap((factor) => [
+				...(factor.source.origin === 'static' ? [] : [formatField(factor.source.field)]),
+				...(factor.checks ?? []).map((check) => formatField(check.field)),
+			])
+		const symbolic = buildWorkshopArea().equations.flatMap((equation) => [
+			...collectVariables(equation.left),
+			...collectVariables(equation.right),
+			equation.target,
+		])
+		const reads = [...logical, ...quantitative, ...symbolic]
+
+		expect(reads).toContain('terms.excess')
+		expect(reads.filter((field) => !Object.hasOwn(WORKSHOP_GLOSSARY.labels, field))).toEqual([])
+		expect(Object.values(WORKSHOP_GLOSSARY.labels).filter((label) => label.trim() === '')).toEqual(
+			[],
+		)
+	})
+
+	it('gives a unit to every field the rules compare as a number', () => {
+		const numeric = buildWorkshopRules().rules.flatMap((rule) =>
+			rule.premises
+				.flatMap((premise) => extractAtoms(premise))
+				.filter((atom) => compared.includes(atom.check.operator))
+				.map((atom) => formatField(atom.check.field)),
+		)
+
+		expect(numeric).toEqual(['terms.excess', 'start', 'score', 'noise', 'cost'])
+		expect(numeric.filter((field) => !Object.hasOwn(WORKSHOP_GLOSSARY.units, field))).toEqual([])
+		expect(WORKSHOP_GLOSSARY.units).toEqual({
+			cost: 'money',
+			'terms.excess': 'money',
+			noise: 'decibel',
+			start: 'plain',
+			score: 'count',
+		})
+		expect(WORKSHOP_GLOSSARY.values).toEqual({ score: 'count' })
+	})
+
+	it('formats each unit past the shipped plain and count with a real Intl format', () => {
+		const unshipped = Object.values(WORKSHOP_GLOSSARY.units).filter(
+			(unit) => unit !== 'plain' && unit !== 'count',
+		)
+		const money = new Intl.NumberFormat('en-US', WORKSHOP_GLOSSARY.formats.money)
+		const decibel = new Intl.NumberFormat('en-US', WORKSHOP_GLOSSARY.formats.decibel)
+
+		expect(unshipped.filter((unit) => !Object.hasOwn(WORKSHOP_GLOSSARY.formats, unit))).toEqual([])
+		expect(WORKSHOP_GLOSSARY.formats.money?.currency).toBe('USD')
+		expect(money.format(1250)).toBe('$1,250.00')
+		expect(decibel.format(40.26)).toBe('40.3')
+	})
+
+	it('keeps one label in odd casing, which no case fold reproduces', () => {
+		const odd = Object.values(WORKSHOP_GLOSSARY.labels).filter(
+			(label) => label !== label.toLowerCase() && label !== label.toUpperCase(),
+		)
+
+		expect(odd).toEqual(['wOrkshop tier'])
+	})
+})
+
+describe('buildExpressionTrees', () => {
+	const expressions = buildExpressionTrees().flatMap((definition) =>
+		definition.rules.flatMap((rule) => rule.premises),
+	)
+
+	it('holds one rule with an authored name and one premise in every definition', () => {
+		const trees = buildExpressionTrees()
+
+		expect(trees.filter((tree) => tree.rules.length !== 1)).toEqual([])
+		expect(trees.filter((tree) => tree.rules.some((rule) => rule.premises.length !== 1))).toEqual(
+			[],
+		)
+		expect(
+			trees.filter((tree) => tree.rules.some((rule) => rule.name === rule.id || rule.name === '')),
+		).toEqual([])
+		expect(new Set(trees.map((tree) => tree.id)).size).toBe(trees.length)
+	})
+
+	it('holds thirty-nine trees of depth 1, 579 of depth 2, and 200 of depth 3, counted by hand', () => {
+		const counts = [1, 2, 3].map(
+			(depth) => expressions.filter((expression) => measureDepth(expression) === depth).length,
+		)
+
+		expect(counts).toEqual([39, 579, 200])
+		expect(expressions).toHaveLength(818)
+		expect(expressions.map(measureDepth)).toEqual([
+			...Array.from({ length: 39 }, () => 1),
+			...Array.from({ length: 579 }, () => 2),
+			...Array.from({ length: 200 }, () => 3),
+		])
+	})
+
+	it('lists no tree of depth 1 or 2 twice, and reads each field at most once in one', () => {
+		const exact = expressions.slice(0, 618)
+
+		expect(new Set(exact.map((expression) => JSON.stringify(expression))).size).toBe(618)
+		expect(
+			exact.filter((expression) => {
+				const fields = collectExpressionFields(expression)
+				return new Set(fields).size !== fields.length
+			}),
+		).toEqual([])
+	})
+
+	it('reads only the three fields, and the draws read one more than once', () => {
+		const fields = expressions.flatMap(collectExpressionFields)
+
+		expect([...new Set(fields)].toSorted()).toEqual([...WORKSHOP_TREE_FIELDS])
+		expect(
+			expressions.slice(618).some((expression) => {
+				const read = collectExpressionFields(expression)
+				return new Set(read).size !== read.length
+			}),
+		).toBe(true)
+	})
+
+	it('uses all five connectives, at every arity each allows', () => {
+		const connectives = expressions.flatMap(collectConnectives)
+
+		const arities = expressions.flatMap((expression) =>
+			expression.form === 'compound'
+				? [`${expression.operator} ${String(expression.operands.length)}`]
+				: [],
+		)
+
+		expect([...new Set(connectives)].toSorted()).toEqual(['and', 'implies', 'not', 'or', 'xor'])
+		expect([...new Set(arities)].toSorted()).toEqual([
+			'and 2',
+			'and 3',
+			'implies 2',
+			'not 1',
+			'or 2',
+			'or 3',
+			'xor 2',
+		])
+	})
+
+	it('validates every tree, and refuses a `not` with two operands as a control', () => {
+		const reasoner = createLogicalReasoner()
+		const invalid = buildExpressionTrees().filter((tree) => !reasoner.validate(tree).valid)
+		const control = createLogicalDefinition('control', 'Control', [
+			createRule(
+				'rule',
+				[createCompound('not', [createAtom('a', 'equals', true), createAtom('b', 'equals', true)])],
+				createAtom('out', 'equals', true),
+				{ name: 'Control rule' },
+			),
+		])
+
+		expect(invalid).toEqual([])
+		expect(reasoner.validate(control).valid).toBe(false)
+	})
+
+	it('draws the same trees on every call, from the fixed seed', () => {
+		expect(buildExpressionTrees()).toEqual(buildExpressionTrees())
+	})
+
+	it('reads a spot-checked tree as the documented connectives give, against the real engine', () => {
+		const reasoner = createLogicalReasoner()
+		const first = buildExpressionTrees()[0]
+		const states = [{ a: true }, { a: false }, {}].map((subject) => {
+			const result = first === undefined ? undefined : reasoner.reason(subject, first)
+			return result !== undefined && isLogicalResult(result) ? result.rules[0]?.state : undefined
+		})
+
+		expect(first?.rules[0]?.premises.flatMap(collectConnectives)).toEqual(['not'])
+		expect(states).toEqual(['unmet', 'met', 'unread'])
+	})
+
+	it('evaluates every tree against every subject that reads all three fields', () => {
+		const reasoner = createLogicalReasoner()
+		const full = collectTreeSubjects().filter((subject) => Object.keys(subject).length === 3)
+		const failed = buildExpressionTrees().flatMap((tree) =>
+			full.filter((subject) => !reasoner.reason(subject, tree).success),
+		)
+
+		expect(failed).toEqual([])
+	})
+})
+
+describe('collectTreeSubjects', () => {
+	const subjects = collectTreeSubjects()
+
+	it('lists all twenty-seven assignments once each', () => {
+		expect(subjects).toHaveLength(27)
+		expect(new Set(subjects.map((subject) => JSON.stringify(subject))).size).toBe(27)
+	})
+
+	it('assigns each field true, false, or leaves it absent, and nothing else', () => {
+		const values = subjects.flatMap((subject) => Object.values(subject))
+
+		expect(values.filter((value) => value !== true && value !== false)).toEqual([])
+		expect(
+			subjects.filter((subject) =>
+				Object.keys(subject).some((key) => !WORKSHOP_TREE_FIELDS.includes(key)),
+			),
+		).toEqual([])
+		expect(subjects.filter((subject) => Object.keys(subject).length === 3)).toHaveLength(8)
+		expect(subjects.filter((subject) => Object.keys(subject).length === 0)).toEqual([{}])
 	})
 })

@@ -1,6 +1,19 @@
 import type { AuditFault, ContractShape, FieldPath, JSONValue } from '@orkestrel/contract'
 import type { EmitterErrorHandler, EmitterHooks, EmitterInterface } from '@orkestrel/emitter'
-import type { Definition, ReasonResult, Subject, SymbolicExpression } from '@orkestrel/reason'
+import type {
+	Aggregation,
+	Check,
+	CheckResult,
+	CheckState,
+	Comparison,
+	Definition,
+	LogicalOperator,
+	ReasonResult,
+	Rule,
+	RuleResult,
+	Subject,
+	SymbolicExpression,
+} from '@orkestrel/reason'
 
 // Interprets — a synchronous, deterministic bidirectional
 // bridge between natural language and the reasons engine, plus the manager
@@ -60,7 +73,9 @@ export type InterpretStage = 'normalize' | 'extract' | 'clarify' | 'format' | 'g
  * the confidence floor (or the registry is empty). `LOW_CONFIDENCE` — a
  * recipe matched but the classified {@link Intent}'s confidence fell below
  * the floor. `DEFINITION` — a {@link Recipe} is malformed, or its `shape` does not stand or
- * does not declare a field it maps or computes. `DESTROYED` — any use of a destroyed entity.
+ * does not declare a field it maps or computes. `LEXICON` — a {@link LexiconInput} is malformed,
+ * or its locale is not one the host reads. `GLOSSARY` — a {@link Glossary} is malformed.
+ * `DESTROYED` — any use of a destroyed entity.
  * `TEXT_LIMIT` — raw text exceeds {@link INTERPRET_TEXT_LIMIT} UTF-16 units.
  */
 export type InterpretErrorCode =
@@ -73,6 +88,8 @@ export type InterpretErrorCode =
 	| 'NO_RECIPE'
 	| 'LOW_CONFIDENCE'
 	| 'DEFINITION'
+	| 'LEXICON'
+	| 'GLOSSARY'
 	| 'DESTROYED'
 
 // === Recipe data model — pure JSON-serializable, versionable, diffable, hashable
@@ -684,45 +701,233 @@ export type InterpretContextEventMap = {
 	readonly destroy: readonly []
 }
 
-// === Narrator — lexicon-driven reverse rendering (mechanism, never policy)
+// === Narrator — the general words, the domain's words, and the account
+
+/** Represents the two wordings of one comparison: the words for holding and for failing. */
+export interface ComparisonPhrase {
+	readonly holds: string
+	readonly fails: string
+}
 
 /**
- * Represents a pure formatting function for one lexicon `value()` unit.
+ * Names every sentence frame a {@link Lexicon} holds.
  *
  * @remarks
- * A `Narrator` calls this from `value()` inside a `try`/`catch`, because a
- * wording engine must never crash a render — a throwing formatter is caught
- * and the raw value falls back to `String(raw)`.
+ * `fact.*`, `value.*`, `condition.*`, `rule.*`, `result.*`, and `worksheet.*` frame the
+ * account. `subject.*`, `prompt.*`, and `ambiguity.*` frame the forward direction.
+ * `FRAME_SLOTS` lists the slots each frame offers.
  */
-export type NarratorFormatter = (value: unknown) => string
+export type FrameName =
+	| 'fact.equal'
+	| 'fact.compared'
+	| 'fact.listed'
+	| 'fact.unread'
+	| 'value.range'
+	| 'condition.compared'
+	| 'condition.listed'
+	| 'rule.settled'
+	| 'rule.because'
+	| 'rule.condition'
+	| 'result.refused'
+	| 'result.count'
+	| 'result.value'
+	| 'result.solution'
+	| 'result.derived'
+	| 'worksheet.group'
+	| 'worksheet.factor'
+	| 'worksheet.blocked'
+	| 'worksheet.empty'
+	| 'worksheet.total'
+	| 'subject.fields'
+	| 'subject.empty'
+	| 'prompt.base'
+	| 'prompt.entities'
+	| 'prompt.defaults'
+	| 'prompt.ambiguities'
+	| 'ambiguity.entity'
+	| 'ambiguity.intent'
+	| 'ambiguity.confidence'
 
 /**
- * Represents caller-injected wording data for the reverse direction — mechanism, never
- * policy. Every phrase, label, and template string a `Narrator` renders is
- * data supplied here, never a core literal.
+ * Represents the general words of one language, complete.
  *
  * @remarks
- * `phrases` is a two-level lookup (`table` → `key` → phrase) for domain
- * vocabulary swaps (for example `comparison.equals` → `'is'`). `labels` maps a
- * dotted `FieldPath` string to its display label, falling back to
- * `formatField` when absent. `templates` maps a template id (for example
- * `'definition.quantitative'`, `'result.symbolic'`, `'subject.fields'`) to an
- * @orkestrel/template `fillTemplate` template string — see `DEFAULT_LEXICON`
- * for the pinned neutral key set. Token grammar (the `[^{}]` token class, the
- * `\{{` literal escape, whitespace trimming, and dotted-token path
- * resolution) is defined by @orkestrel/template — see the vendored
- * `guides/template.md` for the authoritative contract.
+ * `checks` words a check's state and `rules` a rule's. `faults` words why a field was not
+ * read, and `missing` is the word for a value nobody read. `frames` are
+ * `@orkestrel/template` templates whose slots `FRAME_SLOTS` lists. `limits.list` is the
+ * longest list printed in full; a longer one is counted.
  */
 export interface Lexicon {
+	readonly comparisons: Readonly<Record<Comparison, ComparisonPhrase>>
+	readonly checks: Readonly<Record<CheckState, string>>
+	readonly rules: Readonly<Record<CheckState, string>>
+	readonly connectives: Readonly<Record<LogicalOperator, string>>
+	readonly aggregations: Readonly<Record<Aggregation, string>>
+	readonly faults: Readonly<Record<AuditFault['reason'], string>>
+	readonly values: { readonly true: string; readonly false: string; readonly null: string }
+	readonly frames: Readonly<Record<FrameName, string>>
+	readonly limits: { readonly list: number }
+	readonly missing: string
+}
+
+/** Represents an override of any word of a {@link Lexicon}, each on its own. */
+export interface LexiconInput {
+	readonly comparisons?: Readonly<Partial<Record<Comparison, Readonly<Partial<ComparisonPhrase>>>>>
+	readonly checks?: Readonly<Partial<Lexicon['checks']>>
+	readonly rules?: Readonly<Partial<Lexicon['rules']>>
+	readonly connectives?: Readonly<Partial<Lexicon['connectives']>>
+	readonly aggregations?: Readonly<Partial<Lexicon['aggregations']>>
+	readonly faults?: Readonly<Partial<Lexicon['faults']>>
+	readonly values?: Readonly<Partial<Lexicon['values']>>
+	readonly frames?: Readonly<Partial<Lexicon['frames']>>
+	readonly limits?: Readonly<Partial<Lexicon['limits']>>
+	readonly missing?: string
+}
+
+/**
+ * Represents the domain words a consumer supplies.
+ *
+ * @remarks
+ * `labels` and `units` are keyed by `formatField` of the field's path, and `values` names a
+ * definition's value's unit by the definition's id. `formats` holds a unit's
+ * `Intl.NumberFormat` options and wins over a shipped format of the same name. `phrases` and
+ * `templates` are the consumer's own tables and lines, under names the lexicon does not own.
+ */
+export interface Glossary {
+	readonly labels: Readonly<Record<string, string>>
+	readonly units?: Readonly<Record<string, string>>
+	readonly values?: Readonly<Record<string, string>>
+	readonly formats?: Readonly<Record<string, Intl.NumberFormatOptions>>
 	readonly phrases?: Readonly<Record<string, Readonly<Record<string, string>>>>
-	readonly labels?: Readonly<Record<string, string>>
 	readonly templates?: Readonly<Record<string, string>>
 }
 
-/** Represents the options for `createNarrator` and the `Narrator` constructor. */
+/**
+ * Represents one domain word a definition needs and the supplied words lack.
+ *
+ * @remarks
+ * A `label` gap and a `unit` gap name a `field`, a `format` gap names a `unit`, and a `name`
+ * gap names the `part` and the `id` that stands in for its name.
+ */
+export interface GlossaryGap {
+	readonly word: 'label' | 'unit' | 'format' | 'name'
+	readonly field?: FieldPath
+	readonly unit?: string
+	readonly part?: 'definition' | 'rule' | 'group' | 'factor' | 'equation' | 'inference'
+	readonly id?: string
+}
+
+/** Represents one check that fixes a rule's state, beside what the engine read for it. */
+export interface RuleReason {
+	readonly check: Check
+	readonly result: CheckResult
+}
+
+/**
+ * Represents one expression settled against the checks its atoms read: its state, the checks
+ * that fix it, and the position after its last check.
+ */
+export interface ExpressionResult {
+	readonly state: CheckState
+	readonly reasons: readonly RuleReason[]
+	readonly end: number
+}
+
+/**
+ * Represents what one logical account reads: the run's enabled rules and results by id, the
+ * rules concluding each key, and the fields left unread.
+ */
+export interface AccountContext {
+	readonly rules: ReadonlyMap<string, Rule>
+	readonly results: ReadonlyMap<string, RuleResult>
+	readonly concluders: ReadonlyMap<string, readonly Rule[]>
+	readonly faults: readonly AuditFault[]
+}
+
+/** Represents a worded part of an account's line, with the domain words it needed and lacked. */
+export interface AccountText {
+	readonly text: string
+	readonly gaps: readonly GlossaryGap[]
+}
+
+/** Names what one {@link AccountLine} is in its account. */
+export type AccountRole = 'verdict' | 'reason' | 'condition' | 'step'
+
+/**
+ * Names how much of an {@link Account} renders.
+ *
+ * @remarks
+ * `line` — the verdict alone. `reasons` — the deciding lines too. `full` — every line.
+ */
+export type AccountDetail = 'line' | 'reasons' | 'full'
+
+/**
+ * Represents the data one {@link AccountLine} was written from.
+ *
+ * @remarks
+ * `rule` is present exactly when the line states a rule's state or names a rule.
+ */
+export interface AccountSource {
+	readonly rule?: string
+	readonly group?: string
+	readonly factor?: string
+	readonly check?: Check
+	readonly result?: CheckResult
+	readonly fault?: AuditFault
+}
+
+/**
+ * Represents one written line of an {@link Account}, with the evidence behind it.
+ *
+ * @remarks
+ * `decisive` is true when the line decides the line it stands under, or the account's verdict
+ * at the top level. `gaps` lists the domain words the text needed and lacked.
+ */
+export interface AccountLine {
+	readonly role: AccountRole
+	readonly state?: CheckState
+	readonly decisive: boolean
+	readonly text: string
+	readonly source: AccountSource
+	readonly gaps: readonly GlossaryGap[]
+	readonly lines: readonly AccountLine[]
+}
+
+/** Represents a worded account of a definition, or of one of its results; a guide carries no `success`. */
+export interface Account {
+	readonly id: string
+	readonly name: string
+	readonly success?: boolean
+	readonly lines: readonly AccountLine[]
+}
+
+/** Represents the options for `renderAccount`; `detail` defaults to `'reasons'`. */
+export interface AccountOptions {
+	readonly detail?: AccountDetail
+}
+
+/**
+ * Represents a pure formatting function for one unit's numbers.
+ *
+ * @remarks
+ * A `Narrator` calls this only for a number. When the function throws, or returns anything but
+ * one line of text, the unit's format applies instead, and then the plain number.
+ */
+export type NarratorFormatter = (value: number) => string
+
+/**
+ * Represents the options for `createNarrator` and the `Narrator` constructor.
+ *
+ * @remarks
+ * `lexicon` overrides the shipped general words one by one. `glossary` supplies the domain's
+ * words. `formatters` maps a unit to a function that wins over the unit's format. `locale`
+ * carries number grouping and list joining. Default: `'en-US'`.
+ */
 export interface NarratorOptions {
-	readonly lexicon?: Lexicon
+	readonly lexicon?: LexiconInput
+	readonly glossary?: Glossary
 	readonly formatters?: Readonly<Record<string, NarratorFormatter>>
+	readonly locale?: string
 }
 
 // === Options records
@@ -764,7 +969,7 @@ export interface ExtractorOptions {
  * configured value, never a hardcoded constant. `narrator` supplies the
  * wording seam: every {@link Ambiguity} question renders through
  * `narrator.line('ambiguity.entity', …)`, so a caller rewords the question by
- * overriding that key in a {@link Lexicon}. A fresh `Narrator` over
+ * overriding that frame in a {@link LexiconInput}. A fresh `Narrator` over
  * `DEFAULT_LEXICON` is constructed when omitted.
  */
 export interface ClarifierOptions {
@@ -779,7 +984,7 @@ export interface ClarifierOptions {
  * `verbs` maps an `Intent.action` to its display verb. `narrator` supplies the
  * rest of the wording seam: every prompt clause renders through
  * `narrator.line('prompt.…', …)`, so a caller rewords the clause assembly by
- * overriding those keys in a {@link Lexicon}. A fresh `Narrator` over
+ * overriding those frames in a {@link LexiconInput}. A fresh `Narrator` over
  * `DEFAULT_LEXICON` is constructed when omitted.
  */
 export interface FormatterOptions {
@@ -1077,27 +1282,21 @@ export interface GeneratorInterface {
 }
 
 /**
- * Represents the `Narrator` contract — a stateless, total, lexicon-driven rendering
- * engine for the reverse direction.
+ * Represents the `Narrator` contract — a stateless rendering engine over the general words, the
+ * domain's words, and the evidence of a reasons run.
  *
  * @remarks
- * Every method is total — never throws. A lookup miss degrades to a
- * `fallback` (when supplied), the lookup key itself, or a computed fallback
- * (`formatField` for `label`, `String(raw)` for `value`) — never a thrown
- * error, even for adversarial prototype-chain keys (`toString`,
- * `constructor`, `__proto__`), guarded with `Object.hasOwn` at every lookup.
- * `phrase` looks up a two-level `table`/`key` pair in the lexicon's
- * `phrases`. `label` renders a field's display label from `labels`, falling
- * back to `formatField`. `line` interpolates a named `templates` entry
- * against `values`, falling back to an empty string when the id is absent.
- * `value` runs a named formatter over a raw value, catching a throw and
- * falling back to `String(raw)`. `describe` / `narrate` compose these
- * primitives over a reasons `Definition` / `ReasonResult`.
+ * Every method answers without throwing, whatever the evidence holds, and every lookup reads
+ * own keys, so a key such as `toString` or `__proto__` misses. A missing domain word prints the
+ * field's path or the part's id and travels as a {@link GlossaryGap}. `describe` and `narrate`
+ * write every text on one line.
  */
 export interface NarratorInterface {
 	/**
-	 * Looks up a two-level `table` and `key` pair in the lexicon's `phrases`, falling back to
-	 * `fallback` or to `key`.
+	 * Looks up a phrase in the glossary's tables, then in the lexicon's tables by name.
+	 *
+	 * @remarks
+	 * A comparison reads its holding wording.
 	 *
 	 * @param table - The phrase table to read
 	 * @param key - The phrase key within that table
@@ -1106,44 +1305,60 @@ export interface NarratorInterface {
 	 */
 	phrase(table: string, key: string, fallback?: string): string
 	/**
-	 * Renders a field's display label from `labels`, falling back to `formatField`.
+	 * Renders a field's label from the glossary, falling back to the field's path.
 	 *
 	 * @param field - The field path to label
-	 * @returns The field's display label
+	 * @returns The field's label
 	 */
 	label(field: FieldPath): string
 	/**
-	 * Interpolates a named `templates` entry against `values`, falling back to an empty string
-	 * when the id is absent.
+	 * Renders a value of a field, a number in the field's unit.
 	 *
-	 * @param id - The template id to render
-	 * @param values - The values the template's placeholders resolve against
-	 * @returns The rendered line, or an empty string when no template carries `id`
+	 * @remarks
+	 * A formatter wins over a format, and a glossary format over a shipped one. A list joins by
+	 * the locale, `true`, `false`, and `null` use the lexicon's words, and a string prints as it
+	 * stands unless it is blank. An absent value and `NaN` print the lexicon's `missing` word.
+	 *
+	 * @param field - The field path the value belongs to
+	 * @param raw - The value to render
+	 * @returns The rendered value
+	 */
+	value(field: FieldPath, raw: unknown): string
+	/**
+	 * Fills a glossary template or a lexicon frame with values, falling back to an empty string
+	 * when neither carries the id.
+	 *
+	 * @param id - The template or frame to fill
+	 * @param values - The values the slots resolve against
+	 * @returns The filled line, or an empty string
 	 */
 	line(id: string, values: Readonly<Record<string, unknown>>): string
 	/**
-	 * Runs a named formatter over a raw value, catching a throw and falling back to
-	 * `String(raw)`.
-	 *
-	 * @param unit - The formatter name to run
-	 * @param raw - The value to format
-	 * @returns The formatted value, or `String(raw)` when no formatter returns
-	 */
-	value(unit: string, raw: unknown): string
-	/**
-	 * Renders a reasons `Definition` to a one-line, display-neutral description.
+	 * Writes a definition's name and the name of each of its enabled parts.
 	 *
 	 * @param definition - The definition to describe
-	 * @returns The one-line description
+	 * @returns The guide's account, with no `success`
 	 */
-	describe(definition: Definition): string
+	describe(definition: Definition): Account
 	/**
-	 * Renders a reasons `ReasonResult` to a one-line, display-neutral description.
+	 * Writes a result's verdict with the evidence that decided it.
 	 *
+	 * @remarks
+	 * A result whose `success` is false states no value, count, or solution: its verdict names
+	 * each field that was not read.
+	 *
+	 * @param definition - The definition the result answers
 	 * @param result - The result to narrate
-	 * @returns The one-line description
+	 * @returns The result's account
 	 */
-	narrate(result: ReasonResult): string
+	narrate(definition: Definition, result: ReasonResult): Account
+	/**
+	 * Lists every domain word the definitions need and the supplied words lack.
+	 *
+	 * @param definitions - The definitions to read
+	 * @returns Each gap once
+	 */
+	audit(definitions: readonly Definition[]): readonly GlossaryGap[]
 }
 
 /**
@@ -1411,19 +1626,20 @@ export interface InterpretInterface {
 	 */
 	recipes(): readonly Recipe[]
 	/**
-	 * Renders a reasons `Definition` to a one-line, display-neutral description.
+	 * Writes a definition's name and the name of each of its enabled parts.
 	 *
 	 * @param definition - The definition to describe
-	 * @returns The one-line description
+	 * @returns The guide's account, with no `success`
 	 */
-	describe(definition: Definition): string
+	describe(definition: Definition): Account
 	/**
-	 * Renders a reasons `ReasonResult` to a one-line, display-neutral description.
+	 * Writes a result's verdict with the evidence that decided it.
 	 *
+	 * @param definition - The definition the result answers
 	 * @param result - The result to narrate
-	 * @returns The one-line description
+	 * @returns The result's account
 	 */
-	narrate(result: ReasonResult): string
+	narrate(definition: Definition, result: ReasonResult): Account
 	/**
 	 * Tears the orchestrator down idempotently — the recipe registry, the context it
 	 * constructed itself, then the emitter last.

@@ -1,4 +1,5 @@
-import type { Entity } from '@src/core'
+import type { Expression } from '@orkestrel/reason'
+import type { Account, AccountLine, Entity } from '@src/core'
 import {
 	arrayShape,
 	nullableShape,
@@ -7,12 +8,25 @@ import {
 	optionalShape,
 } from '@orkestrel/contract'
 import {
+	combineStates,
+	createAtom,
+	createCompound,
 	createConstant,
 	createEquation,
+	createFact,
+	createFactorGroup,
+	createFieldFactor,
+	createInference,
+	createInferentialDefinition,
+	createLogicalDefinition,
 	createOperation,
+	createQuantitativeDefinition,
+	createRule,
+	createStaticFactor,
 	createSymbolicDefinition,
 	createSymbolicReasoner,
 	createVariable,
+	LOGICAL_OPERATORS,
 } from '@orkestrel/reason'
 import {
 	applyReplacements,
@@ -24,32 +38,60 @@ import {
 	canonicalizeNode,
 	classifyIntent,
 	collapseWhitespace,
+	collectAccountText,
+	collectFieldGaps,
+	collectGaps,
+	collectNameGaps,
+	collectReasons,
 	collectRequiredFields,
 	collectShapeDefaults,
+	collectUnitGaps,
 	createNarrator,
+	DEFAULT_LEXICON,
 	scanRecipeShape,
 	digestValue,
 	extractNumbers,
+	filterUniqueGaps,
+	findDecidingOperands,
 	findEntityField,
 	findAnchoredNumber,
 	findLinkedNumbers,
 	findSpanOffset,
 	findFieldDescription,
 	findUnclaimedNumbers,
+	findWord,
+	FRAME_SLOTS,
+	isFrameName,
 	matchesArrayField,
 	matchesFilledField,
+	matchesNumericCheck,
+	mergeLexicon,
 	isInterpretError,
 	matchRecipe,
+	normalizeAccountLine,
+	normalizeLine,
+	renderAccount,
+	renderName,
 	renderSubject,
 	resolveExpression,
+	resolveGlossary,
+	resolveLexicon,
+	resolveLocale,
+	scanFrame,
+	scanGlossary,
+	scanLexicon,
+	scanWord,
+	scanWords,
 	scoreRecipe,
 	setField,
 	settleEntities,
+	settleExpression,
+	settleOperands,
 	SubjectManager,
 	tokenize,
 	variablesOf,
 } from '@src/core'
-import { captureError } from '@orkestrel/test'
+import { captureError, createHostileValues } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import {
 	buildInterpretRecipe,
@@ -947,22 +989,489 @@ describe('renderSubject', () => {
 		expect(renderSubject({}, narrator)).toBe('with no fields')
 	})
 
-	it('renders through a narrator with a labels override, a phrases.units entry, and a matching formatter', () => {
+	it('renders each field by its label and in its unit', () => {
 		const narrator = createNarrator({
-			lexicon: {
-				labels: { income: 'Annual income' },
-				phrases: { units: { income: 'money' } },
-			},
+			glossary: { labels: { income: 'Annual income' }, units: { income: 'money' } },
 			formatters: { money: (value) => `$${String(value)}` },
 		})
 		expect(renderSubject({ income: 50000 }, narrator)).toBe('with Annual income: $50000')
 	})
 
-	it('renders a subject with an array-of-fields value and a non-number value through the plain path', () => {
+	it('joins a list, keeps a string, omits an absent field, and stays on one line', () => {
 		const narrator = createNarrator()
-		expect(renderSubject({ tags: ['a', 'b'], name: 'Ada' }, narrator)).toBe(
-			'with name: Ada, tags: a,b',
+		expect(
+			renderSubject({ tags: ['a', 'b'], name: 'Ada\nLovelace', gone: undefined }, narrator),
+		).toBe('with name: Ada Lovelace, tags: a and b')
+		expect(renderSubject({ gone: undefined }, narrator)).toBe('with no fields')
+	})
+})
+
+describe('the words', () => {
+	it('findWord reads an own key alone', () => {
+		expect(findWord({ cost: 'Cost' }, 'cost')).toBe('Cost')
+		expect(findWord({ cost: 'Cost' }, 'toString')).toBeUndefined()
+		expect(findWord(undefined, 'cost')).toBeUndefined()
+	})
+
+	it('scanWord finds what is no word', () => {
+		expect(scanWord('w', 'Cost')).toEqual([])
+		expect(scanWord('w', 5)).toEqual(['w is not text'])
+		expect(scanWord('w', undefined)).toEqual(['w is not text'])
+		expect(scanWord('w', ' \t')).toEqual(['w is empty'])
+		for (const text of ['a\nb', 'a\rb', 'a\vb', 'a\fb', 'a\u{85}b', 'a\u{2028}b', 'a\u{2029}b']) {
+			expect(scanWord('w', text)).toEqual(['w holds a line break'])
+		}
+	})
+
+	it('scanWords finds a table that is none, an unknown key, and a malformed word', () => {
+		expect(scanWords(['rules'], { met: 'holds' }, ['met'])).toEqual([])
+		expect(scanWords(['labels'], { anything: 'at all' })).toEqual([])
+		expect(scanWords(['phrases', 'a b'], null)).toEqual(['phrases."a b" is not a table of words'])
+		expect(scanWords(['rules'], { meet: 'holds', met: '' }, ['met', 'unmet'])).toEqual([
+			'rules.meet is not one of met, unmet',
+			'rules.met is empty',
+		])
+	})
+
+	it('scanFrame finds each slot a frame does not offer, spaced, dotted, and unsafe ones too', () => {
+		expect(scanFrame('rule.settled', '{{ name }} {{verdict}} \\{{raw}}')).toEqual([])
+		expect(scanFrame('subject.empty', 'nothing')).toEqual([])
+		expect(scanFrame('subject.empty', '{{name}}')).toEqual([
+			'frames."subject.empty" names the slot "name", and it offers none',
+		])
+		expect(scanFrame('result.refused', '{{name.first}} {{__proto__}}')).toEqual([
+			'frames."result.refused" names the slot "name.first", and it offers name',
+			'frames."result.refused" names the slot "__proto__", and it offers name',
+		])
+	})
+
+	it('scanLexicon admits any one word of any table, and the complete shipped lexicon', () => {
+		expect(scanLexicon({})).toEqual([])
+		expect(scanLexicon(DEFAULT_LEXICON)).toEqual([])
+		expect(scanLexicon({ comparisons: { from: { fails: 'is below' } } })).toEqual([])
+		expect(scanLexicon({ limits: { list: 0 } })).toEqual([])
+	})
+
+	it.each<readonly [unknown, string]>([
+		[{ comparisons: 5 }, 'comparisons is not a table of words'],
+		[
+			{ comparisons: { over: { holds: 'x' } } },
+			'comparisons.over is not one of equals, not, above, below, from, to, any, none, between, outside',
+		],
+		[{ comparisons: { from: { hold: 'x' } } }, 'comparisons.from.hold is not one of holds, fails'],
+		[{ comparisons: { from: { holds: '' } } }, 'comparisons.from.holds is empty'],
+		[{ checks: { read: 'x' } }, 'checks.read is not one of met, unmet, unread'],
+		[{ rules: { met: 5 } }, 'rules.met is not text'],
+		[{ connectives: { nor: 'nor' } }, 'connectives.nor is not one of and, or, not, implies, xor'],
+		[
+			{ aggregations: { mode: 'x' } },
+			'aggregations.mode is not one of sum, product, average, minimum, maximum',
+		],
+		[
+			{ faults: { late: 'x' } },
+			'faults.late is not one of type, missing, constraint, variant, oneOf, extra, hidden',
+		],
+		[{ values: { yes: 'x' } }, 'values.yes is not one of true, false, null'],
+		[{ frames: { 'rule.settled': '' } }, 'frames."rule.settled" is empty'],
+		[
+			{ frames: { 'rule.settled': '{{label}}' } },
+			'frames."rule.settled" names the slot "label", and it offers name, verdict',
+		],
+		[{ limits: 3 }, 'limits is not a table of limits'],
+		[{ limits: { rows: 3 } }, 'limits.rows is not one of list'],
+		[{ limits: { list: -1 } }, 'limits.list is not a whole number from 0'],
+		[{ limits: { list: 1.5 } }, 'limits.list is not a whole number from 0'],
+		[{ missing: 'a\nb' }, 'missing holds a line break'],
+		[
+			{ labels: { cost: 'Cost' } },
+			'labels is not one of comparisons, checks, rules, connectives, aggregations, faults, values, frames, limits, missing',
+		],
+	])('scanLexicon refuses %j', (input, finding) => {
+		expect(scanLexicon(input)).toEqual([finding])
+	})
+
+	it('scanLexicon and scanGlossary answer whatever the input holds', () => {
+		for (const value of [undefined, null, 5, 'words', [], ...createHostileValues()]) {
+			const read = [scanLexicon(value), scanGlossary(value)]
+			expect(read.flat().every((finding) => finding.length > 0)).toBe(true)
+			expect(read[1]).not.toEqual([])
+		}
+		expect(scanLexicon({ missing: 5n })).toHaveLength(1)
+		expect(scanGlossary({ labels: {}, units: undefined })).toHaveLength(1)
+	})
+
+	it('scanGlossary admits every table, and a unit with no format', () => {
+		expect(
+			scanGlossary({
+				labels: { cost: 'Cost' },
+				units: { cost: 'acre' },
+				values: { score: 'count' },
+				formats: { money: { style: 'currency', currency: 'USD' } },
+				phrases: { status: { active: 'under way' } },
+				templates: { greeting: 'Hello {{anyone}}' },
+			}),
+		).toEqual([])
+	})
+
+	it.each<readonly [unknown, string]>([
+		[{}, 'labels is missing'],
+		[{ labels: [] }, 'labels is not a table of words'],
+		[{ labels: { cost: ' ' } }, 'labels.cost is empty'],
+		[{ labels: {}, units: { cost: 5 } }, 'units.cost is not text'],
+		[{ labels: {}, values: { cost: '' } }, 'values.cost is empty'],
+		[{ labels: {}, formats: 5 }, 'formats is not a table of formats'],
+		[
+			{ labels: {}, formats: { money: 'USD' } },
+			'formats.money is not a number format the host reads',
+		],
+		[
+			{ labels: {}, formats: { money: { style: 'cash' } } },
+			'formats.money is not a number format the host reads',
+		],
+		[{ labels: {}, phrases: 5 }, 'phrases is not a table of phrase tables'],
+		[{ labels: {}, phrases: { status: 5 } }, 'phrases.status is not a table of words'],
+		[{ labels: {}, phrases: { rules: {} } }, 'phrases.rules is a table of the lexicon'],
+		[{ labels: {}, phrases: { missing: {} } }, 'phrases.missing is a table of the lexicon'],
+		[{ labels: {}, templates: { greeting: '' } }, 'templates.greeting is empty'],
+		[
+			{ labels: {}, templates: { 'prompt.base': 'x' } },
+			'templates."prompt.base" is a frame of the lexicon',
+		],
+		[
+			{ labels: {}, words: {} },
+			'words is not one of labels, units, values, formats, phrases, templates',
+		],
+	])('scanGlossary refuses %j', (input, finding) => {
+		expect(scanGlossary(input)).toEqual([finding])
+	})
+
+	it('mergeLexicon overrides one word and keeps every other, in a frozen copy', () => {
+		const input = {
+			comparisons: { from: { fails: 'is below' } },
+			rules: { met: 'applies' },
+			limits: { list: 2 },
+			missing: 'is unknown',
+		}
+		const merged = mergeLexicon(DEFAULT_LEXICON, input)
+		expect(merged).toEqual({
+			...DEFAULT_LEXICON,
+			comparisons: {
+				...DEFAULT_LEXICON.comparisons,
+				from: { holds: 'is at least', fails: 'is below' },
+			},
+			rules: { met: 'applies', unmet: 'does not hold', unread: 'cannot be read' },
+			limits: { list: 2 },
+			missing: 'is unknown',
+		})
+		input.rules.met = 'changed'
+		expect(merged.rules.met).toBe('applies')
+		expect(Object.isFrozen(merged) && Object.isFrozen(merged.comparisons.from)).toBe(true)
+	})
+
+	it('DEFAULT_LEXICON words every frame with only the slots it offers', () => {
+		expect(Object.keys(DEFAULT_LEXICON.frames).toSorted()).toEqual(
+			Object.keys(FRAME_SLOTS).toSorted(),
 		)
+		expect(
+			Object.entries(DEFAULT_LEXICON.frames).flatMap(([id, frame]) =>
+				isFrameName(id) ? scanFrame(id, frame) : [id],
+			),
+		).toEqual([])
+	})
+
+	it('resolveLexicon, resolveGlossary, and resolveLocale own what stands and refuse the rest', () => {
+		expect(resolveLexicon()).toEqual(DEFAULT_LEXICON)
+		expect(resolveLexicon({ missing: 'is unknown' }).missing).toBe('is unknown')
+		expect(resolveGlossary()).toEqual({ labels: {} })
+		const labels = { cost: 'Cost' }
+		const glossary = resolveGlossary({ labels })
+		labels.cost = 'changed'
+		expect(glossary.labels.cost).toBe('Cost')
+		expect(resolveLocale()).toBe('en-US')
+		expect(resolveLocale('fr-CA')).toBe('fr-CA')
+		const refused = [
+			captureError(() => resolveLexicon({ missing: '' })),
+			captureError(() => resolveGlossary({ labels: { cost: '' } })),
+			captureError(() => resolveLocale('')),
+		]
+		expect(refused.map((error) => isInterpretError(error) && error.code)).toEqual([
+			'LEXICON',
+			'GLOSSARY',
+			'LEXICON',
+		])
+	})
+})
+
+describe('the gaps', () => {
+	it('matchesNumericCheck reads which checks print a number of their field', () => {
+		for (const operator of ['above', 'below', 'from', 'to', 'between', 'outside'] as const) {
+			expect(matchesNumericCheck({ field: 'n', operator, value: 'x' })).toBe(true)
+		}
+		expect(matchesNumericCheck({ field: 'n', operator: 'equals', value: 5 })).toBe(true)
+		expect(matchesNumericCheck({ field: 'n', operator: 'not', value: 'x' })).toBe(false)
+		expect(matchesNumericCheck({ field: 'n', operator: 'any', value: ['x', 5] })).toBe(true)
+		expect(matchesNumericCheck({ field: 'n', operator: 'none', value: ['x'] })).toBe(false)
+		expect(matchesNumericCheck({ field: 'n', operator: 'any', value: 5 })).toBe(false)
+	})
+
+	it('collectFieldGaps, collectUnitGaps, and collectNameGaps name what is missing', () => {
+		const formats = new Set(['count'])
+		const glossary = { labels: { a: 'A' }, units: { a: 'count', b: 'acre', 'c.d': 'count' } }
+		expect(collectFieldGaps('a', true, glossary, formats)).toEqual([])
+		expect(collectFieldGaps('b', true, glossary, formats)).toEqual([
+			{ word: 'label', field: 'b' },
+			{ word: 'format', unit: 'acre' },
+		])
+		expect(collectFieldGaps(['c', 'd'], true, glossary, formats)).toEqual([
+			{ word: 'label', field: ['c', 'd'] },
+		])
+		expect(collectFieldGaps('e', true, glossary, formats)).toEqual([
+			{ word: 'label', field: 'e' },
+			{ word: 'unit', field: 'e' },
+		])
+		expect(collectFieldGaps('e', false, glossary, formats)).toEqual([{ word: 'label', field: 'e' }])
+		expect(collectUnitGaps(undefined, formats)).toEqual([])
+		expect(collectUnitGaps('count', formats)).toEqual([])
+		expect(collectUnitGaps('acre', formats)).toEqual([{ word: 'format', unit: 'acre' }])
+		expect(collectNameGaps('group', { id: 'g', name: 'Group' })).toEqual([])
+		expect(collectNameGaps('group', { id: 'g', name: 'g' })).toEqual([
+			{ word: 'name', part: 'group', id: 'g' },
+		])
+		expect(collectNameGaps('factor', { id: 'f', name: ' ' })).toEqual([
+			{ word: 'name', part: 'factor', id: 'f' },
+		])
+	})
+
+	it('filterUniqueGaps keeps the first of each, two spellings of one path alike', () => {
+		expect(
+			filterUniqueGaps([
+				{ word: 'label', field: ['a', 'b'] },
+				{ word: 'unit', field: 'a.b' },
+				{ word: 'label', field: 'a.b' },
+				{ word: 'label', field: 'c' },
+			]),
+		).toEqual([
+			{ word: 'label', field: ['a', 'b'] },
+			{ word: 'unit', field: 'a.b' },
+			{ word: 'label', field: 'c' },
+		])
+	})
+
+	it('collectGaps reads each reasoning, and skips a disabled part and a concluded key', () => {
+		const formats = new Set<string>()
+		const logical = createLogicalDefinition('l', 'l', [
+			createRule('r', [createAtom('a', 'above', 1)], createAtom('k', 'equals', true)),
+			createRule('s', [createAtom('k', 'equals', true)], createAtom('m', 'equals', true), {
+				name: 'Second',
+			}),
+			createRule('t', [createAtom('z', 'above', 1)], createAtom('n', 'equals', true), {
+				enabled: false,
+			}),
+		])
+		expect(collectGaps([logical, logical], { labels: {} }, formats)).toEqual([
+			{ word: 'name', part: 'definition', id: 'l' },
+			{ word: 'name', part: 'rule', id: 'r' },
+			{ word: 'label', field: 'a' },
+			{ word: 'unit', field: 'a' },
+		])
+		const quantitative = createQuantitativeDefinition('q', 'Q', [
+			createFactorGroup('g', 'sum', [
+				createFieldFactor('f', ['x', 'y'], {
+					checks: [{ field: 'c', operator: 'to', value: 5 }],
+				}),
+				createStaticFactor('off', 1, { enabled: false }),
+			]),
+		])
+		expect(collectGaps([quantitative], { labels: {}, values: { q: 'acre' } }, formats)).toEqual([
+			{ word: 'name', part: 'group', id: 'g' },
+			{ word: 'name', part: 'factor', id: 'f' },
+			{ word: 'label', field: ['x', 'y'] },
+			{ word: 'label', field: 'c' },
+			{ word: 'unit', field: 'c' },
+			{ word: 'format', unit: 'acre' },
+		])
+		const symbolic = createSymbolicDefinition(
+			's',
+			'S',
+			[
+				createEquation(
+					'e',
+					createVariable('x'),
+					createOperation('add', createVariable('seeded'), createVariable('y')),
+					'x',
+				),
+			],
+			{ variables: { seeded: 1 } },
+		)
+		expect(collectGaps([symbolic], { labels: {} }, formats)).toEqual([
+			{ word: 'name', part: 'equation', id: 'e' },
+			{ word: 'label', field: 'x' },
+			{ word: 'label', field: 'y' },
+		])
+		const inferential = createInferentialDefinition(
+			'i',
+			'I',
+			[],
+			[createInference('n', [], createFact('c', 'p', []))],
+		)
+		expect(collectGaps([inferential], { labels: {} }, formats)).toEqual([
+			{ word: 'name', part: 'inference', id: 'n' },
+		])
+	})
+})
+
+describe('the reasons', () => {
+	const a = createAtom('a', 'equals', 1)
+	const b = createAtom('b', 'equals', 1)
+	const checks = [
+		{ field: 'a', state: 'met', actual: 1 },
+		{ field: 'b', state: 'unmet', actual: 2 },
+	] as const
+
+	const held = { check: { field: 'a', operator: 'equals', value: 1 }, result: checks[0] }
+
+	it('settleOperands gives each operand the checks of its own atoms', () => {
+		const settled = settleOperands([createCompound('and', [a, b]), a], [...checks, checks[0]])
+		expect(settled.map(({ state, end }) => [state, end])).toEqual([
+			['unmet', 2],
+			['met', 3],
+		])
+		expect(settleOperands([a, b], []).map(({ state }) => state)).toEqual(['unread', 'unread'])
+		expect(settleOperands([], checks)).toEqual([])
+	})
+
+	it('settleExpression settles every connective, and reads an absent check as unread', () => {
+		const states = LOGICAL_OPERATORS.map(
+			(operator) => settleExpression(createCompound(operator, [a, b]), checks).state,
+		)
+		expect(states).toEqual(['unmet', 'met', 'unread', 'unmet', 'met'])
+		expect(settleExpression(createCompound('not', [a]), checks).state).toBe('unmet')
+		expect(settleExpression(a, [])).toEqual({ state: 'unread', reasons: [], end: 1 })
+		expect(settleExpression(createCompound('and', []), checks, 1)).toEqual({
+			state: 'unread',
+			reasons: [],
+			end: 1,
+		})
+	})
+
+	it('findDecidingOperands names operands that fix the state, over every assignment', () => {
+		const states = ['met', 'unmet', 'unread'] as const
+		const arities = { and: [1, 2, 3], or: [1, 2, 3], not: [1], implies: [2], xor: [2] } as const
+		for (const operator of LOGICAL_OPERATORS) {
+			for (const arity of arities[operator]) {
+				const assignments = Array.from({ length: 3 ** arity }, (_, number) =>
+					Array.from(
+						{ length: arity },
+						(_entry, index) => states[Math.floor(number / 3 ** index) % 3] ?? 'met',
+					),
+				)
+				const moved = assignments.flatMap((assignment) => {
+					const deciding = findDecidingOperands(operator, assignment)
+					const state = combineStates(operator, assignment)
+					return assignments
+						.filter((other) => deciding.every((index) => other[index] === assignment[index]))
+						.filter((other) => combineStates(operator, other) !== state)
+				})
+				expect(moved).toEqual([])
+			}
+		}
+		expect(findDecidingOperands('and', ['met', 'unmet', 'unmet'])).toEqual([1])
+		expect(findDecidingOperands('or', ['unmet', 'met', 'met'])).toEqual([1])
+		expect(findDecidingOperands('implies', ['unmet', 'met'])).toEqual([0])
+		expect(findDecidingOperands('implies', ['met', 'met'])).toEqual([1])
+		expect(findDecidingOperands('xor', ['unread', 'met'])).toEqual([0])
+	})
+
+	it('settleExpression walks to the deciding atoms', () => {
+		const tree = createCompound('not', [createCompound('or', [b, a])])
+		expect(settleExpression(tree, [checks[1], checks[0]]).reasons).toEqual([held])
+	})
+
+	it('collectReasons collects a check cited twice once, and nothing for a result of another rule', () => {
+		const rule = createRule('r', [createCompound('or', [a, b]), a], createAtom('x', 'equals', true))
+		const result = {
+			id: 'r',
+			state: 'met',
+			premises: ['met', 'met'],
+			checks: [...checks, checks[0]],
+		} as const
+		expect(collectReasons(rule, result)).toEqual([held])
+		expect(collectReasons(rule, { ...result, checks: [...checks] })).toEqual([])
+		expect(collectReasons(rule, { ...result, checks: [checks[1], checks[0], checks[0]] })).toEqual(
+			[],
+		)
+		expect(collectReasons(rule, { ...result, state: 'unmet' })).toEqual([])
+		expect(collectReasons(rule, { ...result, premises: ['met', 'unmet'] })).toEqual([])
+		expect(collectReasons(rule, { ...result, premises: ['met'] })).toEqual([])
+	})
+
+	it('collectReasons gives nothing for a tree too deep to walk', () => {
+		const deep = Array.from({ length: 20000 }).reduce<Expression>(
+			(inner) => createCompound('not', [inner]),
+			a,
+		)
+		const rule = createRule('r', [deep], createAtom('x', 'equals', true))
+		expect(
+			collectReasons(rule, { id: 'r', state: 'met', premises: ['met'], checks: [checks[0]] }),
+		).toEqual([])
+	})
+})
+
+describe("the account's text", () => {
+	const verdict: AccountLine = {
+		role: 'verdict',
+		decisive: true,
+		text: 'verdict',
+		source: {},
+		gaps: [],
+		lines: [
+			{ role: 'reason', decisive: true, text: 'why', source: {}, gaps: [], lines: [] },
+			{ role: 'step', decisive: false, text: 'aside', source: {}, gaps: [], lines: [] },
+		],
+	}
+	const step: AccountLine = {
+		role: 'step',
+		decisive: false,
+		text: 'step',
+		source: {},
+		gaps: [],
+		lines: [{ role: 'reason', decisive: true, text: 'under', source: {}, gaps: [], lines: [] }],
+	}
+
+	it('normalizeLine makes one space of each run of line breaks', () => {
+		expect(normalizeLine('one\r\n\u{2028}two\vthree')).toBe('one two three')
+		expect(normalizeLine('one  two')).toBe('one  two')
+	})
+
+	it('normalizeAccountLine keeps each gap once', () => {
+		expect(
+			normalizeAccountLine({
+				...step,
+				text: 'a\nb',
+				gaps: [
+					{ word: 'unit', field: 'a' },
+					{ word: 'unit', field: 'a' },
+				],
+			}),
+		).toEqual({ ...step, text: 'a b', gaps: [{ word: 'unit', field: 'a' }] })
+	})
+
+	it('renderName prints the name, then the id, then the quoted id', () => {
+		expect(renderName({ id: 'r', name: 'Rule' })).toBe('Rule')
+		expect(renderName({ id: 'r', name: ' ' })).toBe('r')
+		expect(renderName({ id: '', name: '' })).toBe('""')
+	})
+
+	it('renderAccount prints the verdict, the deciding lines, or every line', () => {
+		const account: Account = { id: 'd', name: 'D', lines: [verdict, step] }
+		expect(renderAccount(account, { detail: 'line' })).toBe('verdict')
+		expect(renderAccount(account, { detail: 'reasons' })).toBe('verdict\n  why')
+		expect(renderAccount(account)).toBe('verdict\n  why')
+		expect(renderAccount(account, { detail: 'full' })).toBe(
+			'verdict\n  why\n  aside\nstep\n  under',
+		)
+		expect(renderAccount({ ...account, lines: [] })).toBe('')
+		expect(collectAccountText([step], 'full', 2)).toEqual(['    step', '      under'])
 	})
 })
 
