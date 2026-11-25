@@ -57,9 +57,11 @@ await new GuideCommand({
 		createFieldFactor,
 		createLogicalDefinition,
 		createLogicalReasoner,
+		createLookupFactor,
 		createQuantitativeDefinition,
 		createQuantitativeReasoner,
 		createRule,
+		createStaticFactor,
 	} = await import('@orkestrel/reason')
 	const {
 		applyReplacements,
@@ -93,6 +95,7 @@ await new GuideCommand({
 		DEFAULT_LEXICON,
 		digestValue,
 		extractNumbers,
+		findGoalRule,
 		FRAME_SLOTS,
 		InterpretError,
 		isAmbiguity,
@@ -342,6 +345,364 @@ await new GuideCommand({
 			expect(result.ambiguities).toEqual([])
 			expect(result.failures).toEqual([])
 			interpret.destroy()
+		})
+
+		it('Write a result for a person: the berth account at each detail, refused, and its guide', () => {
+			const narrator = createNarrator({
+				glossary: {
+					labels: { membership: 'membership', length: 'boat length', fee: 'nightly fee' },
+					units: { length: 'meter', fee: 'money' },
+					formats: {
+						meter: { style: 'unit', unit: 'meter' },
+						money: { style: 'currency', currency: 'USD' },
+					},
+				},
+			})
+			const definition = createLogicalDefinition('berth', 'Berth request', [
+				createRule(
+					'known',
+					[createAtom('membership', 'any', ['sailor', 'captain'])],
+					createAtom('known', 'equals', true),
+					{ name: 'Known member' },
+				),
+				createRule('size', [createAtom('length', 'to', 12)], createAtom('fits', 'equals', true), {
+					name: 'Boat size',
+				}),
+				createRule(
+					'grant',
+					[
+						createAtom('known', 'equals', true),
+						createAtom('fits', 'equals', true),
+						createAtom('fee', 'to', 40),
+					],
+					createAtom('granted', 'equals', true),
+					{ name: 'Grant' },
+				),
+			])
+			expect(narrator.audit([definition])).toEqual([])
+
+			const reasoner = createLogicalReasoner()
+			const granted = reasoner.reason({ membership: 'sailor', length: 9, fee: 35 }, definition)
+			const account = narrator.narrate(definition, granted)
+			expect(renderAccount(account, { detail: 'line' })).toBe(
+				'Berth request holds, because Known member applies (membership is sailor, which is one of sailor and captain); Boat size applies (boat length is 9 m, which is at most 12 m); and nightly fee is $35.00, which is at most $40.00',
+			)
+			const reasons = [
+				'Berth request holds',
+				'  Known member applies',
+				'    membership is sailor, which is one of sailor and captain',
+				'  Boat size applies',
+				'    boat length is 9 m, which is at most 12 m',
+				'  nightly fee is $35.00, which is at most $40.00',
+			]
+			expect(renderAccount(account).split('\n')).toEqual(reasons)
+			expect(renderAccount(account, { detail: 'full' }).split('\n')).toEqual([
+				...reasons,
+				'Berth request: 3 of 3 rules apply',
+				'Known member applies',
+				'Boat size applies',
+				'Grant applies',
+			])
+
+			const refused = narrator.narrate(
+				definition,
+				reasoner.reason({ membership: 'sailor', fee: 35 }, definition),
+			)
+			expect(refused.success).toBe(false)
+			expect(renderAccount(refused, { detail: 'line' })).toBe(
+				'Berth request cannot be decided, because Boat size cannot be decided (boat length is not known)',
+			)
+			const causes = [
+				'Berth request cannot be decided',
+				'  Boat size cannot be decided',
+				'    boat length is not known',
+			]
+			expect(renderAccount(refused).split('\n')).toEqual(causes)
+			expect(renderAccount(refused, { detail: 'full' }).split('\n')).toEqual([
+				...causes,
+				'Known member applies',
+				'  membership is sailor, which is one of sailor and captain',
+				'Boat size cannot be decided',
+				'Grant cannot be decided',
+			])
+
+			expect(renderAccount(narrator.describe(definition)).split('\n')).toEqual([
+				'Berth request',
+				'Known member',
+				'  applies when membership is one of sailor and captain',
+				'Boat size',
+				'  applies when boat length is at most 12 m',
+				'Grant',
+				'  applies when Known member applies, Boat size applies, and nightly fee is at most $40.00',
+			])
+		})
+
+		it('Write a result for a person: the stay worksheet, priced and refused', () => {
+			const narrator = createNarrator({
+				glossary: {
+					labels: { fee: 'nightly fee', power: 'shore power' },
+					units: { fee: 'money' },
+					values: { stay: 'money' },
+					formats: { money: { style: 'currency', currency: 'USD' } },
+				},
+			})
+			const definition = createQuantitativeDefinition('stay', 'Stay price', [
+				createFactorGroup(
+					'nights',
+					'sum',
+					[
+						createFieldFactor('fee', 'fee', { name: 'Berth' }),
+						createStaticFactor('power', 5, {
+							name: 'Shore power',
+							checks: [{ field: 'power', operator: 'equals', value: true }],
+						}),
+					],
+					{ name: 'Per night' },
+				),
+			])
+			expect(narrator.audit([definition])).toEqual([])
+
+			const reasoner = createQuantitativeReasoner()
+			const priced = reasoner.reason({ fee: 35, power: false }, definition)
+			expect(
+				renderAccount(narrator.narrate(definition, priced), { detail: 'full' }).split('\n'),
+			).toEqual([
+				'Stay price: $35.00',
+				'Per night: $35.00',
+				'  Berth: $35.00',
+				'    nightly fee is $35.00',
+				'  Shore power did not apply',
+				'    shore power is false',
+				'Total: $35.00',
+			])
+			const refused = reasoner.reason({ power: true }, definition)
+			expect(renderAccount(narrator.narrate(definition, refused)).split('\n')).toEqual([
+				'Stay price gave no answer',
+				'  Berth found no value to use',
+				'    nightly fee is not known',
+			])
+		})
+
+		it('Write a result for a person: the glossary keys and the shipped formats it names', () => {
+			const narrator = createNarrator({
+				glossary: {
+					labels: { 'mooring.depth': 'mooring depth' },
+					units: { year: 'plain', boats: 'count', share: 'percent' },
+				},
+			})
+			expect(narrator.label(['mooring', 'depth'])).toBe('mooring depth')
+			expect(narrator.value('year', 2026)).toBe('2026')
+			expect(narrator.value('boats', 1250)).toBe('1,250')
+			expect(narrator.value('share', 0.5)).toBe('50%')
+			const unnamed = createLogicalDefinition('berth', 'berth', [
+				createRule('size', [createAtom('length', 'to', 12)], createAtom('fits', 'equals', true)),
+			])
+			expect(narrator.audit([unnamed])).toEqual([
+				{ word: 'name', part: 'definition', id: 'berth' },
+				{ word: 'name', part: 'rule', id: 'size' },
+				{ word: 'label', field: 'length' },
+				{ word: 'unit', field: 'length' },
+			])
+		})
+
+		it('Reword it: one wording, one frame, a locale, and a word in the wrong place', () => {
+			const glossary = { labels: { length: 'boat length' }, units: { length: 'plain' } }
+			const definition = createLogicalDefinition('berth', 'Berth request', [
+				createRule('size', [createAtom('length', 'to', 12)], createAtom('fits', 'equals', true), {
+					name: 'Boat size',
+				}),
+			])
+			const result = createLogicalReasoner().reason({ length: 15 }, definition)
+
+			const shipped = createNarrator({ glossary })
+			expect(renderAccount(shipped.narrate(definition, result), { detail: 'line' })).toBe(
+				'Berth request does not hold, because boat length is 15, which is more than 12',
+			)
+			const compared = createNarrator({
+				glossary,
+				lexicon: { comparisons: { to: { fails: 'is over' } } },
+			})
+			expect(renderAccount(compared.narrate(definition, result), { detail: 'line' })).toBe(
+				'Berth request does not hold, because boat length is 15, which is over 12',
+			)
+			expect(compared.phrase('comparisons', 'to')).toBe('is at most')
+			const framed = createNarrator({
+				glossary,
+				lexicon: { frames: { 'rule.because': '{{name}} {{verdict}}: {{reasons}}' } },
+			})
+			expect(renderAccount(framed.narrate(definition, result), { detail: 'line' })).toBe(
+				'Berth request does not hold: boat length is 15, which is more than 12',
+			)
+			const german = createNarrator({ glossary, locale: 'de-DE' })
+			expect(german.value('crew', ['Ada', 'Grace'])).toBe('Ada und Grace')
+
+			const misplaced = captureError(() =>
+				createNarrator({ glossary: { labels: {}, phrases: { comparisons: { to: 'fits' } } } }),
+			)
+			expect(isInterpretError(misplaced) && [misplaced.code, misplaced.context]).toEqual([
+				'GLOSSARY',
+				{ findings: ['phrases.comparisons is a table of the lexicon'] },
+			])
+			// A complete override is a lexicon of its own, and every word of it prints.
+			const worded = createNarrator({ lexicon: DEFAULT_LEXICON, locale: 'de-DE' })
+			expect(worded.phrase('verdicts', 'met')).toBe('holds')
+		})
+
+		it('What an account promises: the refusals, the goal, and the limits it names', () => {
+			const narrator = createNarrator()
+			const known = createRule(
+				'known',
+				[createAtom('membership', 'any', ['a', 'b', 'c', 'd', 'sailor'])],
+				createAtom('tier', 'equals', 'gold'),
+				{ name: 'Known' },
+			)
+			const size = createRule(
+				'size',
+				[createAtom('length', 'to', 12)],
+				createAtom('fits', 'equals', true),
+				{ name: 'Size' },
+			)
+			const read = createRule(
+				'read',
+				[createAtom('tier', 'above', 5)],
+				createAtom('high', 'equals', true),
+				{ name: 'Read' },
+			)
+			const reasoner = createLogicalReasoner()
+			const subject = { membership: 'sailor', length: 9 }
+
+			// Without a goal, the rules are counted, and only a fact counts a list.
+			const gates = createLogicalDefinition('gates', 'Gates', [known, size])
+			expect(findGoalRule(gates)).toBe(undefined)
+			expect(renderAccount(narrator.narrate(gates, reasoner.reason(subject, gates)))).toBe(
+				[
+					'Gates: 2 of 2 rules apply',
+					'Known applies',
+					'  membership is sailor, which is one of the 5 listed',
+					'Size applies',
+					'  length is 9, which is at most 12',
+				].join('\n'),
+			)
+			expect(narrator.describe(gates).lines[1]?.summary).toBe(
+				'Known applies when membership is one of a, b, c, d, and sailor',
+			)
+
+			// A cause only `errors` words is no text of the account, and its faults still are.
+			const unread = createLogicalDefinition('unread', 'Unread', [known, read, size])
+			const refused = reasoner.reason({ membership: 'sailor' }, unread)
+			expect(refused.errors.length).toBeGreaterThan(refused.faults.length)
+			expect(renderAccount(narrator.narrate(unread, refused), { detail: 'full' })).toBe(
+				'Unread gave no answer\n  length is not known',
+			)
+
+			// A lookup's line names its field and not the value read, and a gate that passed prints no check.
+			const priced = createQuantitativeDefinition('rate', 'Rate', [
+				createFactorGroup('rates', 'sum', [
+					createLookupFactor(
+						'tier',
+						'membership',
+						{ sailor: 3 },
+						{ checks: [{ field: 'length', operator: 'to', value: 12 }] },
+					),
+				]),
+			])
+			const worksheet = narrator.narrate(
+				priced,
+				createQuantitativeReasoner().reason(subject, priced),
+			)
+			expect(renderAccount(worksheet, { detail: 'full' })).toBe(
+				'Rate: 3\nrates: 3\n  tier: 3\n    looked up by membership\nTotal: 3',
+			)
+		})
+
+		it('What an account promises: one line, verbatim text, plain data, and ownership', () => {
+			const narrator = createNarrator({ glossary: { labels: { length: 'Boat LENGTH' } } })
+			const list = ['sailor', 'captain']
+			const definition = createLogicalDefinition('berth', 'Berth\nREQUEST', [
+				createRule('size', [createAtom('kind', 'any', list)], createAtom('fits', 'equals', true), {
+					name: 'Boat\nsize',
+				}),
+			])
+			const result = createLogicalReasoner().reason({ kind: 'sailor' }, definition)
+			const account = narrator.narrate(definition, result)
+			expect(account.name).toBe('Berth\nREQUEST')
+			expect(account.lines[0]?.text).toBe('Berth REQUEST holds')
+			expect(account.lines[0]?.gaps).toEqual([{ word: 'label', field: 'kind' }])
+			expect(account.lines[0]?.lines[0]?.gaps).toEqual([{ word: 'label', field: 'kind' }])
+			expect(narrator.audit([definition])).toEqual([{ word: 'label', field: 'kind' }])
+			expect(narrator.label('length')).toBe('Boat LENGTH')
+			expect(narrator.label('a\nb')).toBe('a\nb')
+			expect(narrator.value('kind', 'a\nb')).toBe('a\nb')
+			expect(narrator.value('kind', ' ')).toBe('" "')
+			expect(narrator.phrase('table', 'key', 'a\nb')).toBe('a\nb')
+			expect(narrator.line('rule.settled', { name: 'a\nb', verdict: 'holds' })).toBe('a\nb holds')
+
+			list.push('later')
+			expect(account.lines[0]?.lines[0]?.source.check?.value).toEqual(['sailor', 'captain'])
+			const thrower = createLogicalDefinition('berth', 'Berth', [])
+			Object.defineProperty(thrower, 'rules', {
+				get: () => {
+					throw new Error('unreadable')
+				},
+			})
+			const thrown = captureError(() => narrator.narrate(thrower, result))
+			expect(thrown instanceof Error && thrown.message).toBe('unreadable')
+		})
+
+		it('Migration: the reverse direction writes accounts', () => {
+			const narrator = createNarrator({
+				lexicon: { frames: { 'subject.empty': 'nothing given' } },
+				glossary: {
+					labels: { fee: 'nightly fee' },
+					units: { fee: 'money' },
+					templates: { greeting: 'Welcome, {{name}}' },
+				},
+				formatters: { money: (value) => `$${value.toFixed(2)}` },
+			})
+			expect(narrator.value('fee', 35)).toBe('$35.00')
+			expect(narrator.line('greeting', { name: 'Ada' })).toBe('Welcome, Ada')
+			expect(renderSubject({}, narrator)).toBe('nothing given')
+			expect(
+				renderSubject(
+					{ berth: null, crew: ['Ada', 'Grace'], fee: 35, note: ' ', tide: undefined },
+					narrator,
+				),
+			).toBe('with berth: none, crew: Ada and Grace, nightly fee: $35.00, note: " "')
+
+			for (const key of ['labels', 'phrases', 'templates']) {
+				const lexicon = Object.fromEntries([[key, {}]])
+				const refused = captureError(() => createNarrator({ lexicon }))
+				expect(isInterpretError(refused) && refused.code).toBe('LEXICON')
+			}
+			for (const id of ['subject.fields', 'prompt.base', 'ambiguity.entity']) {
+				expect(Object.hasOwn(FRAME_SLOTS, id)).toBe(true)
+			}
+			for (const id of [
+				'definition.quantitative',
+				'definition.logical',
+				'definition.symbolic',
+				'definition.inferential',
+				'result.quantitative',
+				'result.quantitative.failed',
+				'result.logical',
+				'result.symbolic',
+				'result.inferential',
+			]) {
+				expect(Object.hasOwn(FRAME_SLOTS, id)).toBe(false)
+			}
+			const asked: unknown[] = []
+			const counted = createNarrator({
+				glossary: { labels: {}, units: { fee: 'money', berth: 'money' } },
+				formatters: {
+					money: (value) => {
+						asked.push(value)
+						return 'two\nlines'
+					},
+				},
+			})
+			expect(counted.value('fee', 35)).toBe('35')
+			expect(counted.value('berth', 'A4')).toBe('A4')
+			expect(asked).toEqual([35])
 		})
 
 		it('Constants: every pinned default and lexicon line', () => {

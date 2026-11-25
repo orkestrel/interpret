@@ -4,8 +4,9 @@
 > `@orkestrel/reason` engine: a forward pipeline that normalizes raw text, classifies its
 > intent, matches an added `Recipe`, clarifies the fields extraction left open, and
 > generates a `Subject` and `Definition` pair ready for `Reason.reason`, plus a reverse
-> direction that renders a `Definition`, a `Subject`, or a `ReasonResult` to
-> display-neutral prose through a lexicon-driven `Narrator`.
+> direction that writes a `Definition` or a `ReasonResult` as a worded `Account`, and a
+> `Subject` as one line, through a `Narrator` over its own general words and your domain's
+> `Glossary`.
 
 Install the package, wire an orchestrator with the action and domain vocabularies your
 domain speaks, add the recipes it answers, and call `interpret()` on each turn of raw
@@ -45,6 +46,7 @@ npm install @orkestrel/interpret
 ## Usage
 
 ```ts
+import { numberShape, objectShape } from '@orkestrel/contract'
 import { createExtractor, createInterpret } from '@orkestrel/interpret'
 import {
 	createFactorGroup,
@@ -64,7 +66,7 @@ const interpret = createInterpret({
 			domain: 'arithmetic',
 			intents: ['calculate'],
 			mappings: [{ entity: 'value', aliases: [], field: 'value' }],
-			defaults: [],
+			shape: objectShape({ value: numberShape() }),
 			computations: [],
 			definition: createQuantitativeDefinition('t1', 'Arithmetic', [
 				createFactorGroup('total', 'sum', [createFieldFactor('value', 'value')]),
@@ -73,7 +75,7 @@ const interpret = createInterpret({
 	],
 })
 
-const result = interpret.interpret('calculate arithmetic 42')
+const result = interpret.interpret('calculate arithmetic value 42')
 result.subject // { value: 42 }
 
 interpret.destroy()

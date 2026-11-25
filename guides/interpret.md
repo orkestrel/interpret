@@ -4,8 +4,9 @@
 > `@orkestrel/reason` engine: a forward pipeline that normalizes raw text, classifies its
 > intent, matches an added `Recipe`, clarifies the fields extraction left open, and
 > generates a `Subject` and `Definition` pair ready for `Reason.reason`, plus a reverse
-> direction that renders a `Definition`, a `Subject`, or a `ReasonResult` to
-> display-neutral prose through a lexicon-driven `Narrator`.
+> direction that writes a `Definition` or a `ReasonResult` as a worded `Account`, and a
+> `Subject` as one line, through a `Narrator` over its own general words and your domain's
+> `Glossary`.
 
 Nothing here is an LLM, a provider, or an agent: the `prompt` a result carries is written for
 an external model and is never consumed internally, and the reverse direction complements the
@@ -356,6 +357,260 @@ refused.entities // []
 refused.refusals?.items[1]?.reason // 'preceding-word'
 refused.refusals?.items[1]?.word // '"–"'
 ```
+
+### Write a result for a person
+
+A `Narrator` writes three documents, each an `Account`. `describe` writes the guide to a
+definition. `narrate` writes a logical result as a verdict with its reasons, and a quantitative
+result as a worksheet. `renderAccount` renders an account as text: the `line` detail is the verdict
+in one sentence, `reasons`, the default, adds the lines that decided it, and `full` adds every
+other line.
+
+Supply the domain's words as a `Glossary`:
+
+- `labels` names each field, keyed by its path as reason's `formatField` writes it, so
+  `['mooring', 'depth']` is `mooring.depth`.
+- `units` names the unit of each field that holds a number.
+- `formats` gives each unit its `Intl.NumberFormat` options. The units `plain`, `count`, and
+  `percent` have a format of their own.
+- `values` names the unit of a quantitative definition's value, keyed by the definition's id.
+
+Author a `name` on every definition, rule, group, and factor, because the name is what prints.
+Then assert that `audit` finds no word missing:
+
+```ts
+import { createNarrator, renderAccount } from '@orkestrel/interpret'
+import {
+	createAtom,
+	createLogicalDefinition,
+	createLogicalReasoner,
+	createRule,
+} from '@orkestrel/reason'
+
+const narrator = createNarrator({
+	glossary: {
+		labels: { membership: 'membership', length: 'boat length', fee: 'nightly fee' },
+		units: { length: 'meter', fee: 'money' },
+		formats: {
+			meter: { style: 'unit', unit: 'meter' },
+			money: { style: 'currency', currency: 'USD' },
+		},
+	},
+})
+const definition = createLogicalDefinition('berth', 'Berth request', [
+	createRule(
+		'known',
+		[createAtom('membership', 'any', ['sailor', 'captain'])],
+		createAtom('known', 'equals', true),
+		{ name: 'Known member' },
+	),
+	createRule('size', [createAtom('length', 'to', 12)], createAtom('fits', 'equals', true), {
+		name: 'Boat size',
+	}),
+	createRule(
+		'grant',
+		[
+			createAtom('known', 'equals', true),
+			createAtom('fits', 'equals', true),
+			createAtom('fee', 'to', 40),
+		],
+		createAtom('granted', 'equals', true),
+		{ name: 'Grant' },
+	),
+])
+narrator.audit([definition]) // []
+
+const reasoner = createLogicalReasoner()
+const granted = reasoner.reason({ membership: 'sailor', length: 9, fee: 35 }, definition)
+const account = narrator.narrate(definition, granted)
+renderAccount(account, { detail: 'line' })
+// 'Berth request holds, because Known member applies (membership is sailor, which is one of sailor and captain); Boat size applies (boat length is 9 m, which is at most 12 m); and nightly fee is $35.00, which is at most $40.00'
+renderAccount(account)
+// Berth request holds
+//   Known member applies
+//     membership is sailor, which is one of sailor and captain
+//   Boat size applies
+//     boat length is 9 m, which is at most 12 m
+//   nightly fee is $35.00, which is at most $40.00
+renderAccount(account, { detail: 'full' })
+// Berth request holds
+//   Known member applies
+//     membership is sailor, which is one of sailor and captain
+//   Boat size applies
+//     boat length is 9 m, which is at most 12 m
+//   nightly fee is $35.00, which is at most $40.00
+// Berth request: 3 of 3 rules apply
+// Known member applies
+// Boat size applies
+// Grant applies
+
+// A refused run: the subject holds no boat length.
+const refused = narrator.narrate(
+	definition,
+	reasoner.reason({ membership: 'sailor', fee: 35 }, definition),
+)
+refused.success // false
+renderAccount(refused, { detail: 'line' })
+// 'Berth request cannot be decided, because Boat size cannot be decided (boat length is not known)'
+renderAccount(refused)
+// Berth request cannot be decided
+//   Boat size cannot be decided
+//     boat length is not known
+renderAccount(refused, { detail: 'full' })
+// Berth request cannot be decided
+//   Boat size cannot be decided
+//     boat length is not known
+// Known member applies
+//   membership is sailor, which is one of sailor and captain
+// Boat size cannot be decided
+// Grant cannot be decided
+
+renderAccount(narrator.describe(definition))
+// Berth request
+// Known member
+//   applies when membership is one of sailor and captain
+// Boat size
+//   applies when boat length is at most 12 m
+// Grant
+//   applies when Known member applies, Boat size applies, and nightly fee is at most $40.00
+```
+
+A worksheet states each step's number with where it came from, and a refused one states no step's
+number:
+
+```ts
+import { createNarrator, renderAccount } from '@orkestrel/interpret'
+import {
+	createFactorGroup,
+	createFieldFactor,
+	createQuantitativeDefinition,
+	createQuantitativeReasoner,
+	createStaticFactor,
+} from '@orkestrel/reason'
+
+const narrator = createNarrator({
+	glossary: {
+		labels: { fee: 'nightly fee', power: 'shore power' },
+		units: { fee: 'money' },
+		values: { stay: 'money' },
+		formats: { money: { style: 'currency', currency: 'USD' } },
+	},
+})
+const definition = createQuantitativeDefinition('stay', 'Stay price', [
+	createFactorGroup(
+		'nights',
+		'sum',
+		[
+			createFieldFactor('fee', 'fee', { name: 'Berth' }),
+			createStaticFactor('power', 5, {
+				name: 'Shore power',
+				checks: [{ field: 'power', operator: 'equals', value: true }],
+			}),
+		],
+		{ name: 'Per night' },
+	),
+])
+narrator.audit([definition]) // []
+
+const reasoner = createQuantitativeReasoner()
+const priced = reasoner.reason({ fee: 35, power: false }, definition)
+renderAccount(narrator.narrate(definition, priced), { detail: 'full' })
+// Stay price: $35.00
+// Per night: $35.00
+//   Berth: $35.00
+//     nightly fee is $35.00
+//   Shore power did not apply
+//     shore power is false
+// Total: $35.00
+const refused = reasoner.reason({ power: true }, definition)
+renderAccount(narrator.narrate(definition, refused))
+// Stay price gave no answer
+//   Berth found no value to use
+//     nightly fee is not known
+```
+
+### Reword it
+
+Override a word of the engine in the lexicon, and supply a word of the domain in the glossary. How
+a comparison reads, what a state is called, and each sentence frame are words of the engine:
+`DEFAULT_LEXICON` holds them, and `FRAME_SLOTS` lists the slots each frame offers. Labels, units,
+formats, and the tables and templates your application adds are words of the domain.
+
+A `LexiconInput` overrides each word alone, a comparison's holding and failing words included, and
+every word it leaves out stays as shipped. Construction refuses a word in the wrong place, with
+code `LEXICON` for the lexicon and `GLOSSARY` for the glossary:
+
+```ts
+import { createNarrator, renderAccount } from '@orkestrel/interpret'
+import {
+	createAtom,
+	createLogicalDefinition,
+	createLogicalReasoner,
+	createRule,
+} from '@orkestrel/reason'
+
+const glossary = { labels: { length: 'boat length' }, units: { length: 'plain' } }
+const definition = createLogicalDefinition('berth', 'Berth request', [
+	createRule('size', [createAtom('length', 'to', 12)], createAtom('fits', 'equals', true), {
+		name: 'Boat size',
+	}),
+])
+const result = createLogicalReasoner().reason({ length: 15 }, definition)
+
+const shipped = createNarrator({ glossary })
+renderAccount(shipped.narrate(definition, result), { detail: 'line' })
+// 'Berth request does not hold, because boat length is 15, which is more than 12'
+
+const compared = createNarrator({
+	glossary,
+	lexicon: { comparisons: { to: { fails: 'is over' } } },
+})
+renderAccount(compared.narrate(definition, result), { detail: 'line' })
+// 'Berth request does not hold, because boat length is 15, which is over 12'
+
+const framed = createNarrator({
+	glossary,
+	lexicon: { frames: { 'rule.because': '{{name}} {{verdict}}: {{reasons}}' } },
+})
+renderAccount(framed.narrate(definition, result), { detail: 'line' })
+// 'Berth request does not hold: boat length is 15, which is more than 12'
+
+const german = createNarrator({ glossary, locale: 'de-DE' })
+german.value('crew', ['Ada', 'Grace']) // 'Ada und Grace'
+
+createNarrator({ glossary: { labels: {}, phrases: { comparisons: { to: 'fits' } } } })
+// throws InterpretError('GLOSSARY'): phrases.comparisons is a table of the lexicon
+```
+
+To write another language, supply a `LexiconInput` that holds every word `DEFAULT_LEXICON` holds,
+and set `locale`, which carries number grouping and list joining.
+
+### What an account promises
+
+Every account keeps these promises:
+
+- A result whose `success` is `false` states no value, count, or solution, and its account names each faulted field.
+- A refused logical result whose `errors` outnumber its `faults` states its faults alone, and no rule.
+- A result's account words a rule as applying only when the rule's state is `met`.
+- A verdict reads `holds` or `does not hold` only where `findGoalRule` finds a goal; without one, it counts the rules that apply.
+- The checks cited for a settled rule fix its state: no other value of the subject moves it.
+- The checks cited for a rule left unread are all unread, and settling them settles the rule.
+- A guide's condition is the whole rule; only a fact counts a list longer than `limits.list`.
+- A worksheet prints the engine's numbers, and no number for a step that didn't apply.
+- One field's numbers print one way, in every fact and condition.
+- A label, a name, and a description keep the case you wrote them in.
+- A line's `text` and `summary` are one line each, with no empty slot, `undefined`, or `NaN`.
+- One word overridden changes only the sentences that print it.
+- A missing domain word prints the field's path or the part's id, and the line and `audit` both report it.
+- A lookup, and an account's `id` and `name`, give a supplied text that isn't blank as it is, its line breaks included.
+- A document reads plain data, as reason's guards admit it; an accessor that throws, throws through it.
+- An account owns what it holds: no write to it reaches a definition, a result, or another account.
+
+An account can't say these things:
+
+- The cause of a refusal that only `errors` words, such as a conflict, a depth cap, or a supplied conclusion.
+- The value a lookup or a range read: its line names the field.
+- A gate that passed: the line of a factor that applied states no check.
 
 ### Types
 
@@ -1111,11 +1366,12 @@ The general words come from the `Lexicon` this package ships, and an override me
 word by word. The domain's words come from the `Glossary` the caller supplies. Construction
 throws `InterpretError` with code `LEXICON` or `GLOSSARY` for malformed words, and for options it
 cannot read. The lookups `phrase`, `label`, `value`, and `line` never throw, and give a supplied
-text as it is, its line breaks included. `describe`, `narrate`, and `audit` read a definition and
-a result as reason's `isDefinition` and `isReasonResult` guards admit them, and throw nothing of
-their own; a hostile accessor can throw what it throws. A missing domain word prints the field's
-path or the part's id and travels as a `GlossaryGap`. An account owns what it holds, its `id` and
-`name` are as authored, and each line's `text` and `summary` are one line.
+text that isn't blank as it is, its line breaks included. `describe`, `narrate`, and `audit` read
+a definition and a result as reason's `isDefinition` and `isReasonResult` guards admit them, and
+throw nothing of their own; an accessor that throws, throws through them. A missing domain word
+prints the field's path or the part's id and travels as a `GlossaryGap`. An account owns what it
+holds, its `id` and `name` are as authored, the id standing for a blank name, and each line's
+`text` and `summary` are one line.
 
 | Method     | Returns                  | Summary                                                                                                                |
 | ---------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
@@ -1451,6 +1707,45 @@ set `history` on that context instead. Any positive cap enables history;
 there is no minimum of three. With the default, `previous()` and `entities()`
 are empty even after a result is added. Subject and definition registries
 remain separate and are still populated for generated results.
+
+## Migration: the reverse direction writes accounts
+
+The release after 0.0.26 changes the reverse direction, and leaves the forward direction's shipped
+text as it was. Change each caller as follows:
+
+- Pass `narrate` the definition before its result, on a `Narrator` and on an `Interpret`.
+- Render the `Account` that `describe` and `narrate` return through `renderAccount`. Neither returns a string.
+- Declare an override as a `LexiconInput`. A `Lexicon` is complete, and holds every general word.
+- Move `labels`, your own phrase tables, and your own templates from the lexicon to the `glossary` option.
+- Move a template under an id that `FRAME_SLOTS` lists, such as `prompt.base`, from `templates` to the lexicon's `frames`.
+- Drop each `definition.*` template, and `result.quantitative`, `result.quantitative.failed`, `result.logical`, `result.symbolic`, and `result.inferential`; no frame replaces one.
+- Pass `value` a field in place of a unit, and name the field's unit in the glossary's `units`.
+- Take a number in a `NarratorFormatter`. The narrator calls one for nothing else, and one that throws or returns no line of text gives way to the unit's format.
+- Expect `renderSubject` to read `null` as `none`, join a list by the locale, quote a blank string, and leave out a field holding `undefined`.
+
+A `lexicon` that still holds `labels`, `phrases`, or `templates` is refused with code `LEXICON`:
+
+```ts
+import { createNarrator, renderSubject } from '@orkestrel/interpret'
+
+const narrator = createNarrator({
+	lexicon: { frames: { 'subject.empty': 'nothing given' } },
+	glossary: {
+		labels: { fee: 'nightly fee' },
+		units: { fee: 'money' },
+		templates: { greeting: 'Welcome, {{name}}' },
+	},
+	formatters: { money: (value) => `$${value.toFixed(2)}` },
+})
+narrator.value('fee', 35) // '$35.00'
+narrator.line('greeting', { name: 'Ada' }) // 'Welcome, Ada'
+renderSubject({}, narrator) // 'nothing given'
+renderSubject(
+	{ berth: null, crew: ['Ada', 'Grace'], fee: 35, note: ' ', tide: undefined },
+	narrator,
+)
+// 'with berth: none, crew: Ada and Grace, nightly fee: $35.00, note: " "'
+```
 
 ## Tests
 
