@@ -95,6 +95,7 @@ await new GuideCommand({
 		DEFAULT_LEXICON,
 		digestValue,
 		extractNumbers,
+		FamilyNarrator,
 		findGoalRule,
 		FRAME_SLOTS,
 		InterpretError,
@@ -102,6 +103,9 @@ await new GuideCommand({
 		isComputedField,
 		isEntity,
 		isEntityMapping,
+		isFamilyNotice,
+		isFamilyQualification,
+		isFamilyRatingResult,
 		isFieldMapping,
 		isIntent,
 		isInterpretation,
@@ -734,6 +738,121 @@ await new GuideCommand({
 
 			expect(isInterpretError(caught)).toBe(true)
 			expect(isInterpretError(caught) ? caught.code : undefined).toBe('DESTROYED')
+		})
+
+		it('Write a qualification: the account and the guide read as the fence prints them', () => {
+			const narrator = createNarrator({
+				glossary: {
+					labels: { noise: 'noise level' },
+					units: { noise: 'plain' },
+					scopes: { hall: 'Main hall' },
+				},
+			})
+			const qualification = {
+				id: 'booking',
+				name: 'Booking',
+				passes: [
+					createLogicalDefinition('gates', 'Gates', [
+						createRule(
+							'loud',
+							[createAtom('noise', 'above', 40)],
+							createAtom('loud', 'equals', true),
+							{ name: 'Loud activity' },
+						),
+					]),
+				],
+				rulings: [{ id: 'loud', pass: 'gates', rule: 'loud', effect: 'referral', scope: 'hall' }],
+			}
+			const result = {
+				id: 'booking',
+				name: 'Booking',
+				eligibility: 'eligible',
+				scopes: { hall: 'referral' },
+				findings: [
+					{
+						id: 'loud',
+						pass: 'gates',
+						rule: 'loud',
+						effect: 'referral',
+						scope: 'hall',
+						state: 'met' as const,
+						message: 'A person reviews a loud booking.',
+						premises: [{ field: 'noise', actual: 55, state: 'met' as const }],
+					},
+				],
+				derivations: [],
+				success: true,
+				errors: [],
+				faults: [],
+			}
+			expect(renderAccount(narrator.narrate(qualification, result)).split('\n')).toEqual([
+				'Booking: eligible',
+				'Main hall: referred for review',
+				'  Referral: A person reviews a loud booking.',
+				'    noise level is 55, which is more than 40',
+			])
+			expect(renderAccount(narrator.describe(qualification)).split('\n')).toEqual([
+				'Booking',
+				'Main hall: Referral: Loud activity',
+				'  applies when noise level is more than 40',
+			])
+			expect(narrator.audit([qualification])).toEqual([])
+		})
+
+		it('FamilyNarratorInterface: the audit, the guide, and the refusal read as the fence prints them', () => {
+			const glossary = {
+				labels: { fee: 'nightly fee' },
+				values: { stay: 'money', berth: 'money' },
+				formats: { money: { style: 'currency', currency: 'USD' } },
+			} as const
+			const family = new FamilyNarrator(createNarrator({ glossary }), {
+				glossary,
+				units: new Set(['money']),
+			})
+			const rating = {
+				id: 'stay',
+				name: 'Stay price',
+				lines: [
+					{
+						id: 'mooring',
+						name: 'Mooring',
+						rate: createQuantitativeDefinition('berth', 'Berth rate', [
+							createFactorGroup(
+								'fees',
+								'sum',
+								[createStaticFactor('fee', 35, { name: 'Night fee' })],
+								{ name: 'Fees' },
+							),
+						]),
+					},
+				],
+			}
+			expect(family.audit([rating])).toEqual([])
+			expect(renderAccount(family.describe(rating)).split('\n')).toEqual([
+				'Stay price',
+				'Mooring',
+				'  Total of the values that apply',
+				'  Fees',
+				'    Total of the values that apply',
+				'    Night fee',
+				'      fixed at $35.00',
+			])
+			const refused = {
+				lines: [],
+				success: false,
+				faults: [{ reason: 'missing', path: 'fee', expected: 'number' }] as const,
+			}
+			expect(renderAccount(family.narrate(rating, refused), { detail: 'line' })).toBe(
+				'Stay price gave no answer, because nightly fee is not known, and must be a number',
+			)
+		})
+
+		it('Validators: the family guards answer as the fence says', () => {
+			expect(
+				isFamilyNotice({ id: 'close', message: 'The workshop closes at 18:00.', metadata: 1 }),
+			).toBe(true)
+			expect(isFamilyQualification({ id: 'booking', name: 'Booking', passes: [] })).toBe(true)
+			expect(isFamilyRatingResult({ lines: [], success: true })).toBe(false)
 		})
 
 		it('Validators: every guard accepts the record the fence hands it', () => {

@@ -3,6 +3,22 @@ import type {
 	ComputedField,
 	Entity,
 	EntityMapping,
+	FamilyDerivation,
+	FamilyFinding,
+	FamilyLine,
+	FamilyLineResult,
+	FamilyNotice,
+	FamilyPremise,
+	FamilyProgram,
+	FamilyProgramResult,
+	FamilyQualification,
+	FamilyQualificationResult,
+	FamilyRating,
+	FamilyRatingResult,
+	FamilyRuling,
+	FamilyWorksheet,
+	FamilyWorksheetFactor,
+	FamilyWorksheetGroup,
 	FieldMapping,
 	FrameName,
 	Glossary,
@@ -28,8 +44,17 @@ import {
 	literalOf,
 	objectOf,
 	recordOf,
+	unionOf,
 } from '@orkestrel/contract'
-import { isContractShape, isDefinition, isFieldPath, isSymbolicExpression } from '@orkestrel/reason'
+import {
+	isCheckState,
+	isContractShape,
+	isDefinition,
+	isFieldPath,
+	isLogicalDefinition,
+	isQuantitativeDefinition,
+	isSymbolicExpression,
+} from '@orkestrel/reason'
 import {
 	FRAME_SLOTS,
 	INTERPRET_ERROR_CODES,
@@ -495,4 +520,439 @@ export function isLexiconInput(value: unknown): value is LexiconInput {
  */
 export function isGlossary(value: unknown): value is Glossary {
 	return holds(() => scanGlossary(value).length === 0)
+}
+
+// The family guards check the members an account reads and admit every other member. A pass, a
+// rate, and an authority are definitions of `@orkestrel/reason`, so its guards admit them.
+
+/**
+ * Determines whether a value is a {@link FamilyPremise}, whatever other members it holds.
+ *
+ * @param value - The value to test
+ * @returns True if every member an account reads conforms; false otherwise
+ *
+ * @example
+ * ```ts
+ * import { isFamilyPremise } from '@orkestrel/interpret'
+ *
+ * isFamilyPremise({ field: 'guests', actual: 8, state: 'met', comparison: 'to' }) // true
+ * isFamilyPremise({ field: 'guests', state: 'open' }) // false
+ * ```
+ */
+export function isFamilyPremise(value: unknown): value is FamilyPremise {
+	return objectOf({ field: isFieldPath, state: isCheckState }, ['field', 'state'])(value)
+}
+
+/**
+ * Determines whether a value is a {@link FamilyFinding}, whatever other members it holds.
+ *
+ * @param value - The value to test
+ * @returns True if every member an account reads conforms; false otherwise
+ *
+ * @example
+ * ```ts
+ * import { isFamilyFinding } from '@orkestrel/interpret'
+ *
+ * isFamilyFinding({ id: 'noisy', effect: 'condition', state: 'met', premises: [] }) // true
+ * isFamilyFinding({ id: 'noisy', effect: 'condition', state: 'met' }) // false
+ * ```
+ */
+export function isFamilyFinding(value: unknown): value is FamilyFinding {
+	return objectOf(
+		{
+			id: isString,
+			effect: isString,
+			state: isCheckState,
+			pass: isString,
+			rule: isString,
+			scope: isString,
+			message: isString,
+			premises: arrayOf(isFamilyPremise),
+		},
+		['pass', 'rule', 'scope', 'message'],
+	)(value)
+}
+
+/**
+ * Determines whether a value is a {@link FamilyRuling}, whatever other members it holds.
+ *
+ * @param value - The value to test
+ * @returns True if every member an account reads conforms; false otherwise
+ *
+ * @example
+ * ```ts
+ * import { isFamilyRuling } from '@orkestrel/interpret'
+ *
+ * isFamilyRuling({ id: 'noisy', pass: 'gates', rule: 'noisy', effect: 'condition' }) // true
+ * isFamilyRuling({ id: 'noisy', pass: 'gates', rule: 'noisy' }) // false
+ * ```
+ */
+export function isFamilyRuling(value: unknown): value is FamilyRuling {
+	return objectOf(
+		{
+			id: isString,
+			pass: isString,
+			rule: isString,
+			effect: isString,
+			scope: isString,
+			message: isString,
+		},
+		['scope', 'message'],
+	)(value)
+}
+
+/**
+ * Determines whether a value is a {@link FamilyQualification}, whatever other members it holds.
+ *
+ * @remarks
+ * Each pass is checked with `isQuantitativeDefinition` or `isLogicalDefinition`, which admit no
+ * undeclared member.
+ *
+ * @param value - The value to test
+ * @returns True if every member an account reads conforms; false otherwise
+ *
+ * @example
+ * ```ts
+ * import { isFamilyQualification } from '@orkestrel/interpret'
+ *
+ * isFamilyQualification({ id: 'q', name: 'Booking', passes: [], metadata: {} }) // true
+ * isFamilyQualification({ id: 'q', name: 'Booking' }) // false
+ * ```
+ */
+export function isFamilyQualification(value: unknown): value is FamilyQualification {
+	return objectOf(
+		{
+			id: isString,
+			name: isString,
+			description: isString,
+			passes: arrayOf(unionOf(isQuantitativeDefinition, isLogicalDefinition)),
+			rulings: arrayOf(isFamilyRuling),
+		},
+		['description', 'rulings'],
+	)(value)
+}
+
+/**
+ * Determines whether a value is a {@link FamilyDerivation}, whatever other members it holds.
+ *
+ * @param value - The value to test
+ * @returns True if every member an account reads conforms; false otherwise
+ *
+ * @example
+ * ```ts
+ * import { isFamilyDerivation } from '@orkestrel/interpret'
+ *
+ * isFamilyDerivation({ id: 'load', value: 4, success: true }) // true
+ * isFamilyDerivation({ id: 'load', success: true }) // false
+ * ```
+ */
+export function isFamilyDerivation(value: unknown): value is FamilyDerivation {
+	return objectOf({ id: isString, value: isNumber, success: isBoolean })(value)
+}
+
+/**
+ * Determines whether a value is a {@link FamilyQualificationResult}, whatever other members it
+ * holds.
+ *
+ * @param value - The value to test
+ * @returns True if every member an account reads conforms; false otherwise
+ *
+ * @example
+ * ```ts
+ * import { isFamilyQualificationResult } from '@orkestrel/interpret'
+ *
+ * isFamilyQualificationResult({
+ * 	id: 'q',
+ * 	name: 'Booking',
+ * 	eligibility: 'eligible',
+ * 	scopes: {},
+ * 	findings: [],
+ * 	derivations: [],
+ * 	success: true,
+ * 	errors: [],
+ * 	faults: [],
+ * }) // true
+ * isFamilyQualificationResult({ id: 'q' }) // false
+ * ```
+ */
+export function isFamilyQualificationResult(value: unknown): value is FamilyQualificationResult {
+	return objectOf({
+		id: isString,
+		name: isString,
+		eligibility: isString,
+		scopes: whereOf(objectOf({}), (scopes): scopes is Readonly<Record<string, string>> =>
+			Object.getOwnPropertyNames(scopes).every((scope) => isString(Reflect.get(scopes, scope))),
+		),
+		findings: arrayOf(isFamilyFinding),
+		derivations: arrayOf(isFamilyDerivation),
+		success: isBoolean,
+		errors: arrayOf(isString),
+		faults: arrayOf(isAuditFault),
+	})(value)
+}
+
+/**
+ * Determines whether a value is a {@link FamilyLine}, whatever other members it holds.
+ *
+ * @remarks
+ * The rate is checked with `isQuantitativeDefinition`, which admits no undeclared member.
+ *
+ * @param value - The value to test
+ * @returns True if every member an account reads conforms; false otherwise
+ *
+ * @example
+ * ```ts
+ * import { createQuantitativeDefinition } from '@orkestrel/reason'
+ * import { isFamilyLine } from '@orkestrel/interpret'
+ *
+ * isFamilyLine({ id: 'rent', name: 'Rent', rate: createQuantitativeDefinition('r', 'R', []) }) // true
+ * isFamilyLine({ id: 'rent', name: 'Rent' }) // false
+ * ```
+ */
+export function isFamilyLine(value: unknown): value is FamilyLine {
+	return objectOf(
+		{ id: isString, name: isString, description: isString, rate: isQuantitativeDefinition },
+		['description'],
+	)(value)
+}
+
+/**
+ * Determines whether a value is a {@link FamilyRating}, whatever other members it holds.
+ *
+ * @param value - The value to test
+ * @returns True if every member an account reads conforms; false otherwise
+ *
+ * @example
+ * ```ts
+ * import { isFamilyRating } from '@orkestrel/interpret'
+ *
+ * isFamilyRating({ id: 'r', name: 'Prices', lines: [], metadata: null }) // true
+ * isFamilyRating({ id: 'r', name: 'Prices' }) // false
+ * ```
+ */
+export function isFamilyRating(value: unknown): value is FamilyRating {
+	return objectOf(
+		{ id: isString, name: isString, description: isString, lines: arrayOf(isFamilyLine) },
+		['description'],
+	)(value)
+}
+
+/**
+ * Determines whether a value is a {@link FamilyWorksheetFactor}, whatever other members it holds.
+ *
+ * @param value - The value to test
+ * @returns True if every member an account reads conforms; false otherwise
+ *
+ * @example
+ * ```ts
+ * import { isFamilyWorksheetFactor } from '@orkestrel/interpret'
+ *
+ * isFamilyWorksheetFactor({ id: 'room', applied: true, value: 80, evidence: [] }) // true
+ * isFamilyWorksheetFactor({ id: 'room', applied: true }) // false
+ * ```
+ */
+export function isFamilyWorksheetFactor(value: unknown): value is FamilyWorksheetFactor {
+	return objectOf(
+		{ id: isString, applied: isBoolean, value: isNumber, evidence: arrayOf(isFamilyPremise) },
+		['value'],
+	)(value)
+}
+
+/**
+ * Determines whether a value is a {@link FamilyWorksheetGroup}, whatever other members it holds.
+ *
+ * @param value - The value to test
+ * @returns True if every member an account reads conforms; false otherwise
+ *
+ * @example
+ * ```ts
+ * import { isFamilyWorksheetGroup } from '@orkestrel/interpret'
+ *
+ * isFamilyWorksheetGroup({ id: 'hire', applied: true, value: 80, factors: [] }) // true
+ * isFamilyWorksheetGroup({ id: 'hire', applied: true, value: 80 }) // false
+ * ```
+ */
+export function isFamilyWorksheetGroup(value: unknown): value is FamilyWorksheetGroup {
+	return objectOf({
+		id: isString,
+		applied: isBoolean,
+		value: isNumber,
+		factors: arrayOf(isFamilyWorksheetFactor),
+	})(value)
+}
+
+/**
+ * Determines whether a value is a {@link FamilyWorksheet}, whatever other members it holds.
+ *
+ * @param value - The value to test
+ * @returns True if every member an account reads conforms; false otherwise
+ *
+ * @example
+ * ```ts
+ * import { isFamilyWorksheet } from '@orkestrel/interpret'
+ *
+ * isFamilyWorksheet({ value: 80, groups: [], success: true, errors: [], faults: [] }) // true
+ * isFamilyWorksheet({ value: 80, groups: [], success: true }) // false
+ * ```
+ */
+export function isFamilyWorksheet(value: unknown): value is FamilyWorksheet {
+	return objectOf({
+		value: isNumber,
+		groups: arrayOf(isFamilyWorksheetGroup),
+		success: isBoolean,
+		errors: arrayOf(isString),
+		faults: arrayOf(isAuditFault),
+	})(value)
+}
+
+/**
+ * Determines whether a value is a {@link FamilyLineResult}, whatever other members it holds.
+ *
+ * @param value - The value to test
+ * @returns True if every member an account reads conforms; false otherwise
+ *
+ * @example
+ * ```ts
+ * import { isFamilyLineResult } from '@orkestrel/interpret'
+ *
+ * const worksheet = { value: 80, groups: [], success: true, errors: [], faults: [] }
+ * isFamilyLineResult({ id: 'rent', name: 'Rent', amount: 80, worksheet }) // true
+ * isFamilyLineResult({ id: 'rent', name: 'Rent', amount: '80', worksheet }) // false
+ * ```
+ */
+export function isFamilyLineResult(value: unknown): value is FamilyLineResult {
+	return objectOf(
+		{ id: isString, name: isString, amount: isNumber, worksheet: isFamilyWorksheet },
+		['amount'],
+	)(value)
+}
+
+/**
+ * Determines whether a value is a {@link FamilyRatingResult}, whatever other members it holds.
+ *
+ * @param value - The value to test
+ * @returns True if every member an account reads conforms; false otherwise
+ *
+ * @example
+ * ```ts
+ * import { isFamilyRatingResult } from '@orkestrel/interpret'
+ *
+ * isFamilyRatingResult({ lines: [], success: true, faults: [], errors: [] }) // true
+ * isFamilyRatingResult({ lines: [], success: true }) // false
+ * ```
+ */
+export function isFamilyRatingResult(value: unknown): value is FamilyRatingResult {
+	return objectOf(
+		{
+			lines: arrayOf(isFamilyLineResult),
+			total: isNumber,
+			success: isBoolean,
+			faults: arrayOf(isAuditFault),
+		},
+		['total'],
+	)(value)
+}
+
+/**
+ * Determines whether a value is a {@link FamilyNotice}, whatever other members it holds.
+ *
+ * @param value - The value to test
+ * @returns True if every member an account reads conforms; false otherwise
+ *
+ * @example
+ * ```ts
+ * import { isFamilyNotice } from '@orkestrel/interpret'
+ *
+ * isFamilyNotice({ id: 'close', message: 'The workshop closes at 18:00.' }) // true
+ * isFamilyNotice({ id: 'close' }) // false
+ * ```
+ */
+export function isFamilyNotice(value: unknown): value is FamilyNotice {
+	return objectOf({ id: isString, message: isString, scope: isString }, ['scope'])(value)
+}
+
+/**
+ * Determines whether a value is a {@link FamilyProgram}, whatever other members it holds.
+ *
+ * @remarks
+ * The authority is checked with `isLogicalDefinition`, which admits no undeclared member.
+ *
+ * @param value - The value to test
+ * @returns True if every member an account reads conforms; false otherwise
+ *
+ * @example
+ * ```ts
+ * import { isFamilyProgram } from '@orkestrel/interpret'
+ *
+ * const qualification = { id: 'q', name: 'Booking', passes: [] }
+ * isFamilyProgram({ id: 'p', name: 'Program', qualification }) // true
+ * isFamilyProgram({ id: 'p', name: 'Program' }) // false
+ * ```
+ */
+export function isFamilyProgram(value: unknown): value is FamilyProgram {
+	return objectOf(
+		{
+			id: isString,
+			name: isString,
+			description: isString,
+			qualification: isFamilyQualification,
+			rating: isFamilyRating,
+			notices: arrayOf(isFamilyNotice),
+			authority: isLogicalDefinition,
+		},
+		['description', 'rating', 'notices', 'authority'],
+	)(value)
+}
+
+/**
+ * Determines whether a value is a {@link FamilyProgramResult}, whatever other members it holds.
+ *
+ * @param value - The value to test
+ * @returns True if every member an account reads conforms; false otherwise
+ *
+ * @example
+ * ```ts
+ * import { isFamilyProgramResult } from '@orkestrel/interpret'
+ *
+ * isFamilyProgramResult({
+ * 	id: 'p',
+ * 	name: 'Program',
+ * 	eligibility: 'eligible',
+ * 	status: 'eligible',
+ * 	qualification: {
+ * 		id: 'q',
+ * 		name: 'Booking',
+ * 		eligibility: 'eligible',
+ * 		scopes: {},
+ * 		findings: [],
+ * 		derivations: [],
+ * 		success: true,
+ * 		errors: [],
+ * 		faults: [],
+ * 	},
+ * 	determinations: [],
+ * 	success: true,
+ * 	errors: [],
+ * 	faults: [],
+ * }) // true
+ * isFamilyProgramResult({ id: 'p' }) // false
+ * ```
+ */
+export function isFamilyProgramResult(value: unknown): value is FamilyProgramResult {
+	return objectOf(
+		{
+			id: isString,
+			name: isString,
+			eligibility: isString,
+			status: isString,
+			decision: isString,
+			qualification: isFamilyQualificationResult,
+			rating: isFamilyRatingResult,
+			determinations: arrayOf(isFamilyFinding),
+			success: isBoolean,
+			errors: arrayOf(isString),
+			faults: arrayOf(isAuditFault),
+		},
+		['decision', 'rating'],
+	)(value)
 }

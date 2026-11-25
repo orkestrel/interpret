@@ -360,7 +360,7 @@ refused.refusals?.items[1]?.word // '"–"'
 
 ### Write a result for a person
 
-A `Narrator` writes three documents, each an `Account`. `describe` writes the guide to a
+A `Narrator` writes documents, each an `Account`. `describe` writes the guide to a
 definition. `narrate` writes a logical result as a verdict with its reasons, and a quantitative
 result as a worksheet. `renderAccount` renders an account as text: the `line` detail is the verdict
 in one sentence, `reasons`, the default, adds the lines that decided it, and `full` adds every
@@ -529,6 +529,71 @@ renderAccount(narrator.narrate(definition, refused))
 //     nightly fee is not known, and must be a number
 ```
 
+### Write a qualification, a rating, or a program
+
+The same methods take a definition of `@orkestrel/qualifier`, `@orkestrel/rater`, or
+`@orkestrel/program` with its result. Interpret reads them by structure and depends on none of the
+three. A finding prints its message only where the finding is met, beneath it the checks that fixed
+it. A scope prints the name of the rating line of its id, else the glossary's `scopes` entry. A
+guide leaves out a message or a description that holds an unfilled `{{slot}}`.
+
+```ts
+import { createNarrator, renderAccount } from '@orkestrel/interpret'
+import { createAtom, createLogicalDefinition, createRule } from '@orkestrel/reason'
+
+const narrator = createNarrator({
+	glossary: {
+		labels: { noise: 'noise level' },
+		units: { noise: 'plain' },
+		scopes: { hall: 'Main hall' },
+	},
+})
+const qualification = {
+	id: 'booking',
+	name: 'Booking',
+	passes: [
+		createLogicalDefinition('gates', 'Gates', [
+			createRule('loud', [createAtom('noise', 'above', 40)], createAtom('loud', 'equals', true), {
+				name: 'Loud activity',
+			}),
+		]),
+	],
+	rulings: [{ id: 'loud', pass: 'gates', rule: 'loud', effect: 'referral', scope: 'hall' }],
+}
+const result = {
+	id: 'booking',
+	name: 'Booking',
+	eligibility: 'eligible',
+	scopes: { hall: 'referral' },
+	findings: [
+		{
+			id: 'loud',
+			pass: 'gates',
+			rule: 'loud',
+			effect: 'referral',
+			scope: 'hall',
+			state: 'met' as const,
+			message: 'A person reviews a loud booking.',
+			premises: [{ field: 'noise', actual: 55, state: 'met' as const }],
+		},
+	],
+	derivations: [],
+	success: true,
+	errors: [],
+	faults: [],
+}
+renderAccount(narrator.narrate(qualification, result))
+// Booking: eligible
+// Main hall: referred for review
+//   Referral: A person reviews a loud booking.
+//     noise level is 55, which is more than 40
+renderAccount(narrator.describe(qualification))
+// Booking
+// Main hall: Referral: Loud activity
+//   applies when noise level is more than 40
+narrator.audit([qualification]) // []
+```
+
 ### Reword it
 
 Override a word of the engine in the lexicon, and supply a word of the domain in the glossary. How
@@ -605,9 +670,13 @@ Every account keeps these promises:
 - A lookup, and an account's `id` and `name`, give a supplied text that isn't blank as it is, its line breaks included.
 - A document reads plain data, as reason's guards admit it; an accessor that throws, throws through it.
 - An account owns what it holds: no write to it reaches a definition, a result, or another account.
+- A finding's message prints only where the finding is met, and its reasons are the checks that fix its state.
+- A qualification, a rating, and a program print their result's own word, or say they gave no answer.
 
 An account can't say these things:
 
+- Whether an entry or the fallback gave a rating's changed value, because its worksheet drops the raw one.
+- A limit of a program whose `errors` outnumber its `faults`, because the authority may be what failed.
 - The cause of a refusal that only `errors` words, such as a conflict, a depth cap, or a supplied conclusion.
 - The value a lookup or a range read: its line names the field.
 - A gate that passed: the line of a factor that applied states no check.
@@ -896,6 +965,37 @@ isStageFailure({ stage: 'format', code: 'FORMAT_FAILED', message: 'failed' }) //
 const guardEngine = createInterpret()
 isInterpretation(guardEngine.interpret('unmatched text')) // true
 guardEngine.destroy()
+```
+
+The family guards check the members an account reads and admit every other member, over values
+another package publishes. A pass, a rate, and an authority are definitions of `@orkestrel/reason`,
+whose own guards admit no undeclared member.
+
+| Name                          | Kind     | Signature                                                | Summary                                                                                       |
+| ----------------------------- | -------- | -------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `isFamilyPremise`             | function | `(value: unknown) => value is FamilyPremise`             | Determines whether a value is a `FamilyPremise`, whatever other members it holds.             |
+| `isFamilyFinding`             | function | `(value: unknown) => value is FamilyFinding`             | Determines whether a value is a `FamilyFinding`, whatever other members it holds.             |
+| `isFamilyRuling`              | function | `(value: unknown) => value is FamilyRuling`              | Determines whether a value is a `FamilyRuling`, whatever other members it holds.              |
+| `isFamilyQualification`       | function | `(value: unknown) => value is FamilyQualification`       | Determines whether a value is a `FamilyQualification`, whatever other members it holds.       |
+| `isFamilyDerivation`          | function | `(value: unknown) => value is FamilyDerivation`          | Determines whether a value is a `FamilyDerivation`, whatever other members it holds.          |
+| `isFamilyQualificationResult` | function | `(value: unknown) => value is FamilyQualificationResult` | Determines whether a value is a `FamilyQualificationResult`, whatever other members it holds. |
+| `isFamilyLine`                | function | `(value: unknown) => value is FamilyLine`                | Determines whether a value is a `FamilyLine`, whatever other members it holds.                |
+| `isFamilyRating`              | function | `(value: unknown) => value is FamilyRating`              | Determines whether a value is a `FamilyRating`, whatever other members it holds.              |
+| `isFamilyWorksheetFactor`     | function | `(value: unknown) => value is FamilyWorksheetFactor`     | Determines whether a value is a `FamilyWorksheetFactor`, whatever other members it holds.     |
+| `isFamilyWorksheetGroup`      | function | `(value: unknown) => value is FamilyWorksheetGroup`      | Determines whether a value is a `FamilyWorksheetGroup`, whatever other members it holds.      |
+| `isFamilyWorksheet`           | function | `(value: unknown) => value is FamilyWorksheet`           | Determines whether a value is a `FamilyWorksheet`, whatever other members it holds.           |
+| `isFamilyLineResult`          | function | `(value: unknown) => value is FamilyLineResult`          | Determines whether a value is a `FamilyLineResult`, whatever other members it holds.          |
+| `isFamilyRatingResult`        | function | `(value: unknown) => value is FamilyRatingResult`        | Determines whether a value is a `FamilyRatingResult`, whatever other members it holds.        |
+| `isFamilyNotice`              | function | `(value: unknown) => value is FamilyNotice`              | Determines whether a value is a `FamilyNotice`, whatever other members it holds.              |
+| `isFamilyProgram`             | function | `(value: unknown) => value is FamilyProgram`             | Determines whether a value is a `FamilyProgram`, whatever other members it holds.             |
+| `isFamilyProgramResult`       | function | `(value: unknown) => value is FamilyProgramResult`       | Determines whether a value is a `FamilyProgramResult`, whatever other members it holds.       |
+
+```ts
+import { isFamilyNotice, isFamilyQualification, isFamilyRatingResult } from '@orkestrel/interpret'
+
+isFamilyNotice({ id: 'close', message: 'The workshop closes at 18:00.', metadata: 1 }) // true — open
+isFamilyQualification({ id: 'booking', name: 'Booking', passes: [] }) // true
+isFamilyRatingResult({ lines: [], success: true }) // false — faults missing
 ```
 
 ### Helpers
@@ -1192,6 +1292,7 @@ The compiled contract of what is flat enough to compile at import.
 | ------------------- | ----- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `Interpret`         | class | `new (options?: InterpretOptions) => InterpretInterface`                                                              | Implements the interpretation orchestrator — the sole public entry point of the `interprets` module, mirroring the reasons `Reason` orchestrator shape: it runs the `[normalize, extract, clarify, format, generate]` pipeline, owns the recipe registry and the context, and exposes the reverse direction. |
 | `Narrator`          | class | `new (options?: NarratorOptions) => NarratorInterface`                                                                | Implements a stateless rendering engine that writes a reasons run as a worded account, over the general words it ships and the domain's words it is given.                                                                                                                                                   |
+| `FamilyNarrator`    | class | `new (narrator: NarratorInterface, options?: FamilyNarratorOptions) => FamilyNarratorInterface`                       | Implements the guide, the result, and the audit of a qualification, a rating, and a program, written through a narrator.                                                                                                                                                                                     |
 | `Normalizer`        | class | `new (options?: NormalizerOptions) => NormalizerInterface`                                                            | Implements the normalize stage: applies contraction, abbreviation, and correction substitutions in order, then collapses whitespace.                                                                                                                                                                         |
 | `Extractor`         | class | `new (options?: ExtractorOptions) => ExtractorInterface`                                                              | Implements the extract stage: recipe-agnostic intent classification plus exact reader values.                                                                                                                                                                                                                |
 | `Clarifier`         | class | `new (options?: ClarifierOptions) => ClarifierInterface`                                                              | Implements the clarify stage: resolves same-domain carry-over and declaratively computed fields against an already-assigned entity set, admits the subject they build through the recipe's shape, and surfaces an `Ambiguity` for everything the door refused.                                               |
@@ -1406,7 +1507,8 @@ cannot read. The lookups `phrase`, `label`, `value`, and `line` never throw, and
 text that isn't blank as it is, its line breaks included. `explain` never throws, and answers one
 line. `describe`, `narrate`, and `audit` read
 a definition and a result as reason's `isDefinition` and `isReasonResult` guards admit them, and
-throw nothing of their own; an accessor that throws, throws through them. A missing domain word
+throw nothing of their own; an accessor that throws, throws through them. They read a family
+definition and its result as the `isFamily*` guards admit them. A missing domain word
 prints the field's path or the part's id and travels as a `GlossaryGap`. An account owns what it
 holds, its `id` and `name` are as authored, the id standing for a blank name, and each line's
 `text` and `summary` are one line.
@@ -1468,6 +1570,69 @@ narrator.explain({ reason: 'type', path: 'cost', expected: 'number', received: '
 // 'Cost must be a number, and "plenty" is not'
 narrator.explain({ text: '"40"', start: 6, end: 8, reason: 'unanchored' })
 // '"40" was not taken, because it could not be tied to a value'
+```
+
+#### `FamilyNarratorInterface`
+
+A `Narrator` hands a family definition to a `FamilyNarrator` it builds over its own words, so you
+build one yourself only over a `NarratorInterface` of your own. The options name the words that
+narrator was built over, so that a gap is judged by the words that print. A result of another kind
+of definition reads as no answer.
+
+| Method     | Returns                  | Summary                                                                   |
+| ---------- | ------------------------ | ------------------------------------------------------------------------- |
+| `describe` | `Account`                | Writes the guide to a family definition.                                  |
+| `narrate`  | `Account`                | Writes a family result's verdict with the evidence that decided it.       |
+| `audit`    | `readonly GlossaryGap[]` | Lists every domain word the definitions need and the supplied words lack. |
+
+```ts
+import { createNarrator, FamilyNarrator, renderAccount } from '@orkestrel/interpret'
+import {
+	createFactorGroup,
+	createQuantitativeDefinition,
+	createStaticFactor,
+} from '@orkestrel/reason'
+
+const glossary = {
+	labels: { fee: 'nightly fee' },
+	values: { stay: 'money', berth: 'money' },
+	formats: { money: { style: 'currency', currency: 'USD' } },
+} as const
+const family = new FamilyNarrator(createNarrator({ glossary }), {
+	glossary,
+	units: new Set(['money']),
+})
+const rating = {
+	id: 'stay',
+	name: 'Stay price',
+	lines: [
+		{
+			id: 'mooring',
+			name: 'Mooring',
+			rate: createQuantitativeDefinition('berth', 'Berth rate', [
+				createFactorGroup('fees', 'sum', [createStaticFactor('fee', 35, { name: 'Night fee' })], {
+					name: 'Fees',
+				}),
+			]),
+		},
+	],
+}
+family.audit([rating]) // []
+renderAccount(family.describe(rating))
+// Stay price
+// Mooring
+//   Total of the values that apply
+//   Fees
+//     Total of the values that apply
+//     Night fee
+//       fixed at $35.00
+const refused = {
+	lines: [],
+	success: false,
+	faults: [{ reason: 'missing', path: 'fee', expected: 'number' }] as const,
+}
+renderAccount(family.narrate(rating, refused), { detail: 'line' })
+// 'Stay price gave no answer, because nightly fee is not known, and must be a number'
 ```
 
 #### `RecordManagerInterface`
@@ -1795,6 +1960,7 @@ renderSubject(
 - [`tests/guides.test.ts`](../tests/guides.test.ts) — the `## Surface` ↔ `src/core` bijection (value and type exports), each behavioral interface ↔ its implementing class method bijection, and the equality gate: every `Summary` cell against its declaration's description paragraph, the titled `Interpret text against an added recipe` fence against the `@example` block of that title (pinned so the titled pair cannot be retired silently), and the README pitch against this guide's tagline. It also runs the flagship fences and asserts the values their comments claim.
 - [`tests/src/core/Interpret.test.ts`](../tests/src/core/Interpret.test.ts) — the orchestrator: the fixed pipeline and its per-stage records, the `NO_RECIPE` and `LOW_CONFIDENCE` incomplete results, a thrown stage marked on its record and on `failures`, the replay digest, the emitter surface, and teardown.
 - [`tests/src/core/InterpretContext.test.ts`](../tests/src/core/InterpretContext.test.ts) — the capped ring buffer, the flattened entity read carry-over consults, `clear` against `destroy`, and the emitted events.
+- [`tests/src/core/FamilyNarrator.test.ts`](../tests/src/core/FamilyNarrator.test.ts) — the guide, the result, and the audit of a qualification, a rating, and a program, over the results `@orkestrel/qualifier`, `@orkestrel/rater`, and `@orkestrel/program` give.
 - [`tests/src/core/Narrator.test.ts`](../tests/src/core/Narrator.test.ts) — every lookup total against an adversarial key, the documented fallback of each primitive, the composed `describe` and `narrate` renderings, and the ownership of an account.
 - [`tests/src/core/factories.test.ts`](../tests/src/core/factories.test.ts) — each factory returns a working entity, and honors the options it declares.
 - [`tests/src/core/helpers.test.ts`](../tests/src/core/helpers.test.ts) — the pure leaves: escaping, copy-on-write field writes and their prototype-pollution refusal, replacement and whitespace collapse, tokenizing, numeric mining, entity assignment, intent classification, canonicalization and digesting, recipe scoring and matching, expression variables and resolution, and subject rendering.

@@ -1,4 +1,6 @@
 import { createContract, isRecord } from '@orkestrel/contract'
+import { createProgram } from '@orkestrel/program'
+import { createRater } from '@orkestrel/rater'
 import {
 	createConstant,
 	createFactorGroup,
@@ -15,6 +17,22 @@ import {
 	isComputedField,
 	isEntity,
 	isEntityMapping,
+	isFamilyDerivation,
+	isFamilyFinding,
+	isFamilyLine,
+	isFamilyLineResult,
+	isFamilyNotice,
+	isFamilyPremise,
+	isFamilyProgram,
+	isFamilyProgramResult,
+	isFamilyQualification,
+	isFamilyQualificationResult,
+	isFamilyRating,
+	isFamilyRatingResult,
+	isFamilyRuling,
+	isFamilyWorksheet,
+	isFamilyWorksheetFactor,
+	isFamilyWorksheetGroup,
 	isFieldMapping,
 	isFrameName,
 	isGlossary,
@@ -28,12 +46,14 @@ import {
 	entityShape,
 	provenanceShape,
 } from '@src/core'
-import { createHostileValues } from '@orkestrel/test'
+import { createHostileValues, requireValue } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import {
+	buildFamilyProgram,
 	buildInsuranceRecipe,
 	buildInterpretRecipe,
 	createCorpusExtractor,
+	FAMILY_BASE,
 	TRICKY_KEYS,
 	REFUSAL_RECORDS,
 } from '../../setup.js'
@@ -82,6 +102,264 @@ describe('the words boundary', () => {
 				},
 			}),
 		).toBe(false)
+	})
+})
+
+// The family guards check what an account reads and admit the rest, over the real parts of the
+// invented workshop's program and of its result.
+describe('the family boundary', () => {
+	const definition = buildFamilyProgram()
+	const rating = requireValue(definition.rating)
+	const result = createProgram(definition).execute({
+		...FAMILY_BASE,
+		room: 'hall',
+		guests: 50,
+		staff: 22,
+	})
+	const costly = createRater().rate(rating, { ...FAMILY_BASE, cost: 2000 })
+	const line = requireValue(costly.lines[2])
+	const group = requireValue(line.worksheet.groups[0])
+	const factor = requireValue(group.factors[0])
+	const finding = requireValue(result.qualification.findings[0])
+
+	// Each guard, a real value it admits, and for each member it reads a value it refuses there.
+	const boundary: ReadonlyArray<{
+		readonly name: string
+		readonly guard: (value: unknown) => boolean
+		readonly value: object
+		readonly required: readonly string[]
+		readonly refused: Readonly<Record<string, unknown>>
+	}> = [
+		{
+			name: 'isFamilyPremise',
+			guard: isFamilyPremise,
+			value: requireValue(finding.premises[0]),
+			required: [],
+			refused: { field: 5, state: 'open' },
+		},
+		{
+			name: 'isFamilyFinding',
+			guard: isFamilyFinding,
+			value: finding,
+			required: ['id', 'effect', 'state', 'premises'],
+			refused: {
+				id: 5,
+				effect: 5,
+				state: 'open',
+				pass: 5,
+				rule: 5,
+				scope: 5,
+				message: 5,
+				premises: [{ state: 'open' }],
+			},
+		},
+		{
+			name: 'isFamilyRuling',
+			guard: isFamilyRuling,
+			value: requireValue(definition.qualification.rulings?.[2]),
+			required: ['id', 'pass', 'rule', 'effect'],
+			refused: { id: 5, pass: 5, rule: 5, effect: 5, scope: 5, message: 5 },
+		},
+		{
+			name: 'isFamilyQualification',
+			guard: isFamilyQualification,
+			value: definition.qualification,
+			required: ['id', 'name', 'passes'],
+			refused: {
+				id: 5,
+				name: 5,
+				description: 5,
+				passes: [{ reasoning: 'symbolic' }],
+				rulings: [{ id: 'r' }],
+			},
+		},
+		{
+			name: 'isFamilyDerivation',
+			guard: isFamilyDerivation,
+			value: requireValue(result.qualification.derivations[0]),
+			required: ['id', 'value', 'success'],
+			refused: { id: 5, value: '5', success: 'yes' },
+		},
+		{
+			name: 'isFamilyQualificationResult',
+			guard: isFamilyQualificationResult,
+			value: result.qualification,
+			required: [
+				'id',
+				'name',
+				'eligibility',
+				'scopes',
+				'findings',
+				'derivations',
+				'success',
+				'errors',
+				'faults',
+			],
+			refused: {
+				id: 5,
+				name: 5,
+				eligibility: 5,
+				scopes: { rent: 5 },
+				findings: [{ id: 'f' }],
+				derivations: [{ id: 'd' }],
+				success: 'yes',
+				errors: [5],
+				faults: [{ reason: 'other' }],
+			},
+		},
+		{
+			name: 'isFamilyLine',
+			guard: isFamilyLine,
+			value: requireValue(rating.lines[0]),
+			required: ['id', 'name', 'rate'],
+			refused: { id: 5, name: 5, description: 5, rate: { reasoning: 'logical' } },
+		},
+		{
+			name: 'isFamilyRating',
+			guard: isFamilyRating,
+			value: rating,
+			required: ['id', 'name', 'lines'],
+			refused: { id: 5, name: 5, description: 5, lines: [{ id: 'l' }] },
+		},
+		{
+			name: 'isFamilyWorksheetFactor',
+			guard: isFamilyWorksheetFactor,
+			value: factor,
+			required: ['id', 'applied', 'evidence'],
+			refused: { id: 5, applied: 'yes', value: '5', evidence: [{ field: 5 }] },
+		},
+		{
+			name: 'isFamilyWorksheetGroup',
+			guard: isFamilyWorksheetGroup,
+			value: group,
+			required: ['id', 'applied', 'value', 'factors'],
+			refused: { id: 5, applied: 'yes', value: '5', factors: [{ id: 'f' }] },
+		},
+		{
+			name: 'isFamilyWorksheet',
+			guard: isFamilyWorksheet,
+			value: line.worksheet,
+			required: ['value', 'groups', 'success', 'errors', 'faults'],
+			refused: {
+				value: '5',
+				groups: [{ id: 'g' }],
+				success: 'yes',
+				errors: [5],
+				faults: [{ reason: 'other' }],
+			},
+		},
+		{
+			name: 'isFamilyLineResult',
+			guard: isFamilyLineResult,
+			value: line,
+			required: ['id', 'name', 'worksheet'],
+			refused: { id: 5, name: 5, amount: '5', worksheet: {} },
+		},
+		{
+			name: 'isFamilyRatingResult',
+			guard: isFamilyRatingResult,
+			value: costly,
+			required: ['lines', 'success', 'faults'],
+			refused: { lines: [{ id: 'l' }], total: '5', success: 'yes', faults: [{ reason: 'other' }] },
+		},
+		{
+			name: 'isFamilyNotice',
+			guard: isFamilyNotice,
+			value: requireValue(definition.notices?.[1]),
+			required: ['id', 'message'],
+			refused: { id: 5, message: 5, scope: 5 },
+		},
+		{
+			name: 'isFamilyProgram',
+			guard: isFamilyProgram,
+			value: definition,
+			required: ['id', 'name', 'qualification'],
+			refused: {
+				id: 5,
+				name: 5,
+				description: 5,
+				qualification: {},
+				rating: {},
+				notices: [{ id: 'n' }],
+				authority: { reasoning: 'quantitative' },
+			},
+		},
+		{
+			name: 'isFamilyProgramResult',
+			guard: isFamilyProgramResult,
+			value: result,
+			required: [
+				'id',
+				'name',
+				'eligibility',
+				'status',
+				'qualification',
+				'determinations',
+				'success',
+				'errors',
+				'faults',
+			],
+			refused: {
+				id: 5,
+				name: 5,
+				eligibility: 5,
+				status: 5,
+				decision: 5,
+				qualification: {},
+				rating: {},
+				determinations: [{ id: 'd' }],
+				success: 'yes',
+				errors: [5],
+				faults: [{ reason: 'other' }],
+			},
+		},
+	]
+
+	it.each(boundary)('$name admits the real part, whatever else it holds', ({ guard, value }) => {
+		expect(guard(value)).toBe(true)
+		expect(guard({ ...value, extra: () => 'anything' })).toBe(true)
+		expect(guard(Object.create(value))).toBe(true)
+	})
+
+	it.each(boundary)('$name refuses each member it reads', ({ guard, value, required, refused }) => {
+		for (const [member, bad] of Object.entries(refused)) {
+			expect([member, guard({ ...value, [member]: bad })]).toEqual([member, false])
+		}
+		for (const member of required) {
+			const rest = Object.fromEntries(Object.entries(value).filter(([key]) => key !== member))
+			expect([member, guard(rest)]).toEqual([member, false])
+		}
+		const optional = Object.keys(refused).filter((member) => !required.includes(member))
+		const bare = Object.fromEntries(
+			Object.entries(value).filter(([key]) => !optional.includes(key)),
+		)
+		expect(guard(bare)).toBe(true)
+	})
+
+	it.each(boundary)('$name answers any value', ({ guard, value, refused }) => {
+		for (const junk of [null, undefined, 5, 'words', [], ...createHostileValues()]) {
+			expect(typeof guard(junk)).toBe('boolean')
+		}
+		for (const junk of [null, undefined, 5, 'words', []]) expect(guard(junk)).toBe(false)
+		for (const member of Object.keys(refused)) {
+			const hostile = Object.defineProperty({ ...value }, member, {
+				enumerable: true,
+				get: (): never => {
+					throw new Error('hostile getter')
+				},
+			})
+			expect(guard(hostile)).toBe(false)
+		}
+	})
+
+	it('leaves a scope record’s prototype and every key it names alone', () => {
+		const { qualification } = result
+		const scopes = Object.create(null, {
+			['__proto__']: { value: 'eligible', enumerable: true },
+			constructor: { value: 'referral', enumerable: true },
+		})
+		expect(isFamilyQualificationResult({ ...qualification, scopes })).toBe(true)
+		expect(isFamilyQualificationResult({ ...qualification, scopes: [] })).toBe(false)
 	})
 })
 

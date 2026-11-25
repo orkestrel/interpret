@@ -31,10 +31,19 @@ import type {
 import type {
 	Account,
 	AccountContext,
+	AccountDefinition,
 	AccountLine,
 	AccountRole,
 	AccountSource,
 	AccountText,
+	FamilyNarratorInterface,
+	FamilyProgram,
+	FamilyProgramResult,
+	FamilyQualification,
+	FamilyQualificationResult,
+	FamilyRating,
+	FamilyRatingResult,
+	FamilyResult,
 	FrameName,
 	Glossary,
 	GlossaryGap,
@@ -72,6 +81,7 @@ import {
 } from '@orkestrel/reason'
 import { fillTemplate } from '@orkestrel/template'
 import { DEFAULT_FORMATS, TEXT_BREAK_PATTERN } from './constants.js'
+import { FamilyNarrator } from './FamilyNarrator.js'
 import {
 	buildAccountLine,
 	collectFactGaps,
@@ -83,6 +93,7 @@ import {
 	collectReasons,
 	collectSlots,
 	collectUnitGaps,
+	filterUniqueGaps,
 	findConditionRules,
 	findDecidingOperands,
 	findFactSentence,
@@ -143,6 +154,7 @@ export class Narrator implements NarratorInterface {
 	readonly #every: Intl.ListFormat
 	readonly #either: Intl.ListFormat
 	readonly #units: ReadonlySet<string>
+	readonly #family: FamilyNarratorInterface
 
 	constructor(options?: NarratorOptions) {
 		this.#lexicon = resolveLexicon(readNarratorOption(options, 'lexicon'))
@@ -160,6 +172,12 @@ export class Narrator implements NarratorInterface {
 		this.#every = new Intl.ListFormat(this.#locale, { type: 'conjunction' })
 		this.#either = new Intl.ListFormat(this.#locale, { type: 'disjunction' })
 		this.#units = new Set([...this.#formats.keys(), ...this.#formatters.keys()])
+		this.#family = new FamilyNarrator(this, {
+			lexicon: this.#lexicon,
+			glossary: this.#glossary,
+			locale: this.#locale,
+			units: this.#units,
+		})
 	}
 
 	phrase(table: string, key: string, fallback?: string): string {
@@ -184,7 +202,8 @@ export class Narrator implements NarratorInterface {
 		return this.#fill(template ?? '', values)
 	}
 
-	describe(definition: Definition): Account {
+	describe(definition: AccountDefinition): Account {
+		if (!('reasoning' in definition)) return this.#family.describe(definition)
 		const named = this.#writeName('definition', definition)
 		const title = buildAccountLine({
 			role: 'verdict',
@@ -202,12 +221,23 @@ export class Narrator implements NarratorInterface {
 		}
 	}
 
-	narrate(definition: Definition, result: ReasonResult): Account {
+	narrate(definition: Definition, result: ReasonResult): Account
+	narrate(definition: FamilyQualification, result: FamilyQualificationResult): Account
+	narrate(definition: FamilyRating, result: FamilyRatingResult): Account
+	narrate(definition: FamilyProgram, result: FamilyProgramResult): Account
+	// A result of another kind of definition reads as no answer.
+	narrate(definition: AccountDefinition, result: ReasonResult | FamilyResult): Account {
+		if (!('reasoning' in definition) && !('reasoning' in result)) {
+			return this.#family.narrate(definition, result)
+		}
 		return {
 			id: definition.id,
 			name: renderName(definition),
 			success: result.success,
-			lines: this.#resultLines(definition, result),
+			lines:
+				'reasoning' in definition && 'reasoning' in result
+					? this.#resultLines(definition, result)
+					: [this.#refusedLine(definition, [], [])],
 		}
 	}
 
@@ -223,8 +253,14 @@ export class Narrator implements NarratorInterface {
 		return text.trim() === '' ? this.#lexicon.missing : text
 	}
 
-	audit(definitions: readonly Definition[]): readonly GlossaryGap[] {
-		return collectGaps(definitions, this.#glossary, this.#units)
+	audit(definitions: readonly AccountDefinition[]): readonly GlossaryGap[] {
+		return filterUniqueGaps(
+			definitions.flatMap((definition) =>
+				'reasoning' in definition
+					? collectGaps([definition], this.#glossary, this.#units)
+					: this.#family.audit([definition]),
+			),
+		)
 	}
 
 	#fill(template: string, values: Readonly<Record<string, unknown>>): string {
@@ -506,7 +542,7 @@ export class Narrator implements NarratorInterface {
 
 	// A refused run states no value, count, or solution: only the causes its evidence holds.
 	#refusedLine(
-		definition: Definition,
+		definition: AccountDefinition,
 		reasons: readonly AccountText[],
 		lines: readonly AccountLine[],
 		state?: CheckState,

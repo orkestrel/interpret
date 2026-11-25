@@ -2,12 +2,20 @@ import type { EmitterInterface } from '@orkestrel/emitter'
 import type { Definition, ReasonResult } from '@orkestrel/reason'
 import type {
 	Account,
+	AccountDefinition,
 	Ambiguity,
 	ClarifierInterface,
 	ClarifyResult,
 	Entity,
 	ExtractorInterface,
 	ExtractResult,
+	FamilyProgram,
+	FamilyProgramResult,
+	FamilyQualification,
+	FamilyQualificationResult,
+	FamilyRating,
+	FamilyRatingResult,
+	FamilyResult,
 	FormatResult,
 	FormatterInterface,
 	GenerateResult,
@@ -33,7 +41,14 @@ import { Emitter } from '@orkestrel/emitter'
 import { compileEntities, scanNumbers } from './compilers.js'
 import { DEFAULT_INTERPRET_FLOOR } from './constants.js'
 import { InterpretError, isInterpretError } from './errors.js'
-import { assertRecipe, digestValue, findUnclaimedNumbers, matchRecipe } from './helpers.js'
+import {
+	assertRecipe,
+	buildAccountLine,
+	digestValue,
+	findUnclaimedNumbers,
+	matchRecipe,
+	renderName,
+} from './helpers.js'
 import { InterpretContext } from './InterpretContext.js'
 import { RecipeManager } from './managers/RecipeManager.js'
 import { Narrator } from './Narrator.js'
@@ -404,14 +419,38 @@ export class Interpret implements InterpretInterface {
 		return this.#recipes.recipes().map((record) => record.recipe)
 	}
 
-	describe(definition: Definition): Account {
+	describe(definition: AccountDefinition): Account {
 		this.#ensureAlive()
 		return this.#narrator.describe(definition)
 	}
 
-	narrate(definition: Definition, result: ReasonResult): Account {
+	narrate(definition: Definition, result: ReasonResult): Account
+	narrate(definition: FamilyQualification, result: FamilyQualificationResult): Account
+	narrate(definition: FamilyRating, result: FamilyRatingResult): Account
+	narrate(definition: FamilyProgram, result: FamilyProgramResult): Account
+	// A result of another kind of definition reads as no answer, as the narrator writes it.
+	narrate(definition: AccountDefinition, result: ReasonResult | FamilyResult): Account {
 		this.#ensureAlive()
-		return this.#narrator.narrate(definition, result)
+		if ('reasoning' in definition && 'reasoning' in result) {
+			return this.#narrator.narrate(definition, result)
+		}
+		if ('passes' in definition && 'scopes' in result) {
+			return this.#narrator.narrate(definition, result)
+		}
+		if ('lines' in definition && 'lines' in result) {
+			return this.#narrator.narrate(definition, result)
+		}
+		if ('qualification' in definition && 'determinations' in result) {
+			return this.#narrator.narrate(definition, result)
+		}
+		const name = renderName(definition)
+		const text = this.#narrator.line('result.refused', { name })
+		return {
+			id: definition.id,
+			name,
+			success: result.success,
+			lines: [buildAccountLine({ role: 'verdict', decisive: true, text })],
+		}
 	}
 
 	destroy(): void {

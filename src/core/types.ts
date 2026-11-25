@@ -1654,7 +1654,8 @@ export interface GeneratorInterface {
  * `explain`, whose answer is one line. Each lookup reads own keys, so a key such as `toString` or `__proto__` misses, and gives a supplied text that is not blank as
  * it is, its line breaks included. `describe`, `narrate`, and `audit` read a definition and a
  * result as the `isDefinition` and `isReasonResult` guards of `@orkestrel/reason` admit them, and
- * throw nothing of their own; an accessor that throws, throws through them. A missing domain word
+ * throw nothing of their own; an accessor that throws, throws through them. They read a family
+ * definition and its result as the `isFamily*` guards admit them. A missing domain word
  * prints the field's path or the part's id and travels as a {@link GlossaryGap}. An account owns
  * what it holds, its `id` and `name` are as authored, the id standing for a blank name, and each
  * line's `text` and `summary` are one line.
@@ -1713,7 +1714,7 @@ export interface NarratorInterface {
 	 * @param definition - The definition to describe
 	 * @returns The guide's account, with no `success`
 	 */
-	describe(definition: Definition): Account
+	describe(definition: AccountDefinition): Account
 	/**
 	 * Writes a result's verdict with the evidence that decided it.
 	 *
@@ -1727,11 +1728,22 @@ export interface NarratorInterface {
 	 * was not read and each factor that found no value. A refused logical result whose `errors`
 	 * outnumber its `faults` states its faults alone, and no rule.
 	 *
+	 * A qualification's verdict is its eligibility, a rating's its total, and a program's its status.
+	 * A qualification whose `errors` outnumber its `faults` states its faults alone, and a program
+	 * over such a qualification states no status. A finding's message prints only where the finding
+	 * is met.
+	 *
 	 * @param definition - The definition the result answers
 	 * @param result - The result to narrate
 	 * @returns The result's account
 	 */
 	narrate(definition: Definition, result: ReasonResult): Account
+	// A qualification and its result, as `@orkestrel/qualifier` gives them.
+	narrate(definition: FamilyQualification, result: FamilyQualificationResult): Account
+	// A rating and its result, as `@orkestrel/rater` gives them.
+	narrate(definition: FamilyRating, result: FamilyRatingResult): Account
+	// A program and its result, as `@orkestrel/program` gives them.
+	narrate(definition: FamilyProgram, result: FamilyProgramResult): Account
 	/**
 	 * Writes why one value was not taken, as one line.
 	 *
@@ -1751,7 +1763,7 @@ export interface NarratorInterface {
 	 * @param definitions - The definitions to read
 	 * @returns Each gap once
 	 */
-	audit(definitions: readonly Definition[]): readonly GlossaryGap[]
+	audit(definitions: readonly AccountDefinition[]): readonly GlossaryGap[]
 }
 
 /**
@@ -2059,7 +2071,7 @@ export interface InterpretInterface {
 	 * @param definition - The definition to describe
 	 * @returns The guide's account, with no `success`
 	 */
-	describe(definition: Definition): Account
+	describe(definition: AccountDefinition): Account
 	/**
 	 * Writes a result's verdict with the evidence that decided it.
 	 *
@@ -2068,6 +2080,12 @@ export interface InterpretInterface {
 	 * @returns The result's account
 	 */
 	narrate(definition: Definition, result: ReasonResult): Account
+	// A qualification and its result, as `@orkestrel/qualifier` gives them.
+	narrate(definition: FamilyQualification, result: FamilyQualificationResult): Account
+	// A rating and its result, as `@orkestrel/rater` gives them.
+	narrate(definition: FamilyRating, result: FamilyRatingResult): Account
+	// A program and its result, as `@orkestrel/program` gives them.
+	narrate(definition: FamilyProgram, result: FamilyProgramResult): Account
 	/**
 	 * Tears the orchestrator down idempotently — the recipe registry, the context it
 	 * constructed itself, then the emitter last.
