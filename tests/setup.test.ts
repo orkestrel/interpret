@@ -15,6 +15,9 @@
 
 import { collectShapeDefaults, Extractor } from '@src/core'
 import { createContract as contractOf, resolveField } from '@orkestrel/contract'
+import { createProgram, STATUSES } from '@orkestrel/program'
+import { createQualifier, findMessageTokens, findRule } from '@orkestrel/qualifier'
+import { createRater } from '@orkestrel/rater'
 import {
 	collectVariables,
 	createAtom,
@@ -37,6 +40,9 @@ import { describe, expect, it } from 'vitest'
 import {
 	buildEligibilityRecipe,
 	buildExpressionTrees,
+	buildFamilyProgram,
+	buildFamilyQualification,
+	buildFamilyRating,
 	buildInsuranceRecipe,
 	buildInterpretation,
 	buildInterpretSolvedDefinition,
@@ -50,11 +56,23 @@ import {
 	buildWorkshopScore,
 	collectConnectives,
 	collectExpressionFields,
+	collectFamilyConnectives,
+	collectFamilyEffects,
+	collectFamilyFindings,
+	collectFamilyLeaves,
+	collectFamilySources,
+	collectFamilyUnique,
 	collectInterpretCorpusRecipes,
 	collectTreeSubjects,
 	createCorpusExtractor,
 	EXTREME_NUMBERS,
 	expectSymbolic,
+	FAMILY_GLOSSARY,
+	FAMILY_PROGRAMS,
+	FAMILY_RATINGS,
+	FAMILY_SUBJECTS,
+	FAMILY_WORDED,
+	FAMILY_WORDED_PATH,
 	INTERPRET_ACTIONS,
 	INTERPRET_DOMAINS,
 	measureDepth,
@@ -1010,5 +1028,463 @@ describe('collectTreeSubjects', () => {
 		).toEqual([])
 		expect(subjects.filter((subject) => Object.keys(subject).length === 3)).toHaveLength(8)
 		expect(subjects.filter((subject) => Object.keys(subject).length === 0)).toEqual([{}])
+	})
+})
+
+// ── Family fixtures ──────────────────────────────────────────────────────────
+// Each expectation in `FAMILY_*` is asserted against the engine that owns it: the real
+// qualifier, rater, and program. The trees' findings are compared with the logical engine's own
+// rule states, a second mechanism the qualifier's finding does not share.
+
+describe('buildFamilyQualification', () => {
+	const definition = buildFamilyQualification()
+	const gates = definition.passes.flatMap((pass) => (pass.reasoning === 'logical' ? [pass] : []))
+	const rules = gates.flatMap((pass) => pass.rules)
+	const rulings = definition.rulings ?? []
+
+	it('runs a quantitative pass before a logical one, and the rules read the number it derives', () => {
+		expect(definition.passes.map((pass) => pass.reasoning)).toEqual(['quantitative', 'logical'])
+		expect(definition.passes.map((pass) => pass.id)).toEqual(['load', 'gates'])
+		expect(rules.flatMap((rule) => rule.premises.flatMap(collectExpressionFields))).toContain(
+			'qualification.load',
+		)
+	})
+
+	it('names at least eight rules, each with an authored name and a ruling', () => {
+		expect(rules.length).toBeGreaterThanOrEqual(8)
+		expect(rules.filter((rule) => rule.name === rule.id || rule.name === '')).toEqual([])
+		expect(rulings.map((ruling) => ruling.rule).toSorted()).toEqual(
+			rules.map((rule) => rule.id).toSorted(),
+		)
+		expect(
+			rulings.filter((ruling) => !gates.some((pass) => findRule(pass, ruling.rule) !== undefined)),
+		).toEqual([])
+	})
+
+	it('validates against the real qualifier', () => {
+		const qualifier = createQualifier()
+		const validation = qualifier.validate(definition)
+		qualifier.destroy()
+
+		expect(validation.errors).toEqual([])
+		expect(validation.valid).toBe(true)
+	})
+
+	it('covers each effect with and without a scope, in two scopes, with and without a message', () => {
+		expect(collectFamilyEffects(rulings, false)).toEqual([
+			'condition',
+			'condition',
+			'referral',
+			'restriction',
+		])
+		expect(collectFamilyEffects(rulings, true)).toEqual([
+			'condition',
+			'referral',
+			'restriction',
+			'restriction',
+		])
+		expect(collectFamilyUnique(rulings.flatMap((ruling) => ruling.scope ?? []))).toEqual([
+			'deposit',
+			'rent',
+		])
+		expect(
+			rulings.filter((ruling) => ruling.message === undefined).map((ruling) => ruling.id),
+		).toEqual(['crowded', 'visitor', 'unstaffed'])
+		expect(rulings.filter((ruling) => ruling.message !== undefined)).toHaveLength(5)
+	})
+
+	it('holds one slot in a message and one in a rule description, each a token the qualifier fills', () => {
+		const messages = rulings.filter((ruling) => findMessageTokens(ruling.message ?? '').length > 0)
+		const described = rules.filter((rule) => findMessageTokens(rule.description ?? '').length > 0)
+
+		expect(messages.map((ruling) => [ruling.id, findMessageTokens(ruling.message ?? '')])).toEqual([
+			['restricted', ['activity']],
+		])
+		expect(described.map((rule) => [rule.id, findMessageTokens(rule.description ?? '')])).toEqual([
+			['crowded', ['guests']],
+		])
+	})
+
+	it('points rulings at a `not` over a compound, an `or`, an `implies`, and an `xor`', () => {
+		expect(collectFamilyConnectives(gates, 'untrained')).toEqual(['not', 'or'])
+		expect(collectFamilyConnectives(gates, 'visitor')).toEqual(['or'])
+		expect(collectFamilyConnectives(gates, 'unstaffed')).toEqual(['implies'])
+		expect(collectFamilyConnectives(gates, 'perk')).toEqual(['xor'])
+		expect(
+			rulings
+				.filter((ruling) => !['untrained', 'visitor', 'unstaffed', 'perk'].includes(ruling.id))
+				.flatMap((ruling) => collectFamilyConnectives(gates, ruling.rule)),
+		).toEqual([])
+	})
+})
+
+describe('FAMILY_SUBJECTS', () => {
+	const qualifier = createQualifier()
+	const definition = buildFamilyQualification()
+	const results = Object.entries(FAMILY_SUBJECTS).map(
+		([name, expected]) =>
+			[name, expected, qualifier.qualify(expected.subject, definition)] as const,
+	)
+
+	it.each(results)('%s settles as the qualifier documents', (_name, expected, result) => {
+		expect(result.eligibility).toBe(expected.eligibility)
+		expect(result.scopes).toEqual(expected.scopes)
+		expect(
+			Object.fromEntries(result.findings.map((finding) => [finding.id, finding.state])),
+		).toEqual(expected.states)
+		expect(
+			Object.fromEntries(
+				result.findings.flatMap((finding) =>
+					finding.state === 'met' && finding.message !== undefined
+						? [[finding.id, finding.message]]
+						: [],
+				),
+			),
+		).toEqual(expected.messages)
+		expect(result.success).toBe(expected.success)
+		expect(result.errors.length === 0).toBe(expected.success)
+		expect(result.faults.map((fault) => formatField(fault.path))).toEqual(expected.faults)
+		expect(
+			result.derivations.flatMap((entry) =>
+				entry.id === 'load' && entry.success ? [entry.value] : [],
+			),
+		).toEqual(expected.load === undefined ? [] : [expected.load])
+	})
+
+	it('reaches every eligibility, effect, scope outcome, and finding state the definition names', () => {
+		const findings = results.flatMap(([, , result]) => result.findings)
+		expect(collectFamilyUnique(results.map(([, , result]) => result.eligibility))).toEqual([
+			'eligible',
+			'ineligible',
+			'referral',
+		])
+		expect(
+			collectFamilyUnique(
+				findings.flatMap((finding) => (finding.state === 'met' ? [finding.effect] : [])),
+			),
+		).toEqual(['condition', 'referral', 'restriction'])
+		expect(
+			collectFamilyUnique(results.flatMap(([, , result]) => Object.values(result.scopes))),
+		).toEqual(['eligible', 'ineligible', 'referral'])
+		expect(
+			collectFamilyUnique(
+				findings.flatMap((finding) =>
+					finding.state === 'met' && finding.scope !== undefined ? [finding.scope] : [],
+				),
+			),
+		).toEqual(['deposit', 'rent'])
+		expect(collectFamilyUnique(findings.map((finding) => finding.state))).toEqual([
+			'met',
+			'unmet',
+			'unread',
+		])
+		for (const ruling of definition.rulings ?? []) {
+			const own = findings.filter((finding) => finding.id === ruling.id)
+			expect(own.some((finding) => finding.state === 'met')).toBe(true)
+			expect(own.some((finding) => finding.state === 'unmet')).toBe(true)
+		}
+	})
+
+	it('fills each slot a met message holds', () => {
+		const messages = results.flatMap(([, , result]) =>
+			result.findings.flatMap((finding) => finding.message ?? []),
+		)
+
+		expect(messages.filter((message) => message.includes('{{'))).toEqual([])
+		expect(messages).toContain('The workshop does not lend a room for torch welding.')
+	})
+
+	it('refuses two runs and refers one finding to a person, and a clean run refuses none', () => {
+		const refused = results.filter(([, , result]) => !result.success).map(([name]) => name)
+
+		expect(refused).toEqual(['unread', 'refused'])
+		expect(
+			results.find(([name]) => name === 'refused')?.[2].derivations.map((entry) => entry.success),
+		).toEqual([false])
+		qualifier.destroy()
+	})
+})
+
+describe('buildFamilyRating', () => {
+	const definition = buildFamilyRating()
+	const factors = definition.lines.map((line) => line.rate.groups.flatMap((group) => group.factors))
+
+	it('has a lookup line whose fallback equals one of its entries', () => {
+		const lookup = factors[0]?.[0]
+
+		expect(definition.lines.map((line) => line.id)).toEqual(['rent', 'fee', 'deposit'])
+		expect(lookup?.source.origin).toBe('lookup')
+		expect(lookup?.source.origin === 'lookup' ? Object.values(lookup.source.table) : []).toContain(
+			lookup?.fallback,
+		)
+	})
+
+	it('has a line with transforms and bounds, and a line with a required factor', () => {
+		const field = factors[1]?.[0]
+		const required = factors[2]?.[0]
+
+		expect(field?.transforms).toHaveLength(2)
+		expect(field?.bounds).toEqual({ minimum: 20, maximum: 100 })
+		expect(required?.required).toBe(true)
+		expect(required?.checks).toHaveLength(1)
+	})
+
+	it.each(Object.entries(FAMILY_RATINGS))('%s rates as the rater documents', (_name, expected) => {
+		const rater = createRater()
+		const result = rater.rate(definition, expected.subject)
+		rater.destroy()
+
+		expect(result.success).toBe(expected.success)
+		expect(
+			Object.fromEntries(
+				result.lines.flatMap((line) => (line.amount === undefined ? [] : [[line.id, line.amount]])),
+			),
+		).toEqual(expected.amounts)
+		expect(result.total).toBe(expected.total)
+		expect(result.faults.map((fault) => formatField(fault.path))).toEqual(expected.faults)
+	})
+
+	it('cannot tell the fallback from the entry it equals, and fails the required line without a fault', () => {
+		const rater = createRater()
+		const [studio, attic, costly] = ['standing', 'attic', 'costly'].map((name) =>
+			rater.rate(definition, FAMILY_RATINGS[name]?.subject ?? {}),
+		)
+		rater.destroy()
+
+		expect(studio?.lines[0]?.amount).toBe(80)
+		expect(attic?.lines[0]?.amount).toBe(studio?.lines[0]?.amount)
+		expect(costly?.lines[2]?.amount).toBeUndefined()
+		expect(costly?.lines[2]?.worksheet.errors).not.toEqual([])
+		expect(costly?.faults).toEqual([])
+		expect(costly?.total).toBeUndefined()
+	})
+})
+
+describe('buildFamilyProgram', () => {
+	const definition = buildFamilyProgram()
+	const program = createProgram(definition)
+	const results = Object.entries(FAMILY_PROGRAMS).map(
+		([name, expected]) => [name, expected, program.execute(expected.subject)] as const,
+	)
+
+	it('is valid, and holds the family qualification and rating, two notices, and an authority', () => {
+		expect(program.validate().errors).toEqual([])
+		expect(program.validate().valid).toBe(true)
+		expect(definition.qualification).toEqual(buildFamilyQualification())
+		expect(definition.rating).toEqual(buildFamilyRating())
+		expect(definition.notices?.map((notice) => [notice.id, notice.scope])).toEqual([
+			['closing', undefined],
+			['due', 'rent'],
+		])
+		expect(definition.notices?.flatMap((notice) => findMessageTokens(notice.message))).toEqual([
+			'room',
+		])
+		expect(definition.authority?.rules.map((rule) => rule.id)).toEqual(['heavy'])
+	})
+
+	it.each(results)('%s executes as the program documents', (_name, expected, result) => {
+		expect(result.eligibility).toBe(expected.eligibility)
+		expect(result.status).toBe(expected.status)
+		expect(result.decision).toBe(expected.decision)
+		expect(
+			result.determinations.map((determination) => ({
+				id: determination.id,
+				effect: determination.effect,
+				...(determination.scope === undefined ? {} : { scope: determination.scope }),
+				message: determination.message,
+			})),
+		).toEqual(expected.determinations)
+		expect(result.determinations.filter((determination) => determination.state !== 'met')).toEqual(
+			[],
+		)
+		expect(result.success).toBe(expected.success)
+		expect(result.faults.map((fault) => formatField(fault.path))).toEqual(expected.faults)
+		expect(result.rating?.total).toBe(expected.total)
+	})
+
+	it('reaches each of the six statuses, the three decisions and none, and a limit', () => {
+		expect(collectFamilyUnique(results.map(([, , result]) => result.status))).toEqual(
+			[...STATUSES].toSorted(),
+		)
+		expect(collectFamilyUnique(results.flatMap(([, , result]) => result.decision ?? []))).toEqual([
+			'approved',
+			'denied',
+			'submitted',
+		])
+		expect(
+			results.filter(([, , result]) => result.decision === undefined).map(([name]) => name),
+		).toEqual(['costly', 'unread', 'heavy'])
+		expect(
+			results.flatMap(([, , result]) =>
+				result.determinations.filter((determination) => determination.effect === 'limit'),
+			),
+		).toHaveLength(1)
+		expect(results.filter(([, , result]) => !result.success).map(([name]) => name)).toEqual([
+			'costly',
+			'unread',
+		])
+		program.destroy()
+	})
+})
+
+describe('FAMILY_GLOSSARY', () => {
+	const qualification = buildFamilyQualification()
+	const rating = buildFamilyRating()
+	const program = buildFamilyProgram()
+	const compared = ['above', 'below', 'from', 'to', 'between', 'outside']
+	const atoms = qualification.passes
+		.flatMap((pass) => (pass.reasoning === 'logical' ? pass.rules : []))
+		.concat(program.authority?.rules ?? [])
+		.flatMap((rule) => rule.premises.flatMap((premise) => extractAtoms(premise)))
+	const reads = [
+		...qualification.passes.flatMap(collectFamilySources),
+		...rating.lines.flatMap((line) => collectFamilySources(line.rate)),
+		...atoms.map((atom) => formatField(atom.check.field)),
+	]
+
+	it('labels every field read, the derived number, and the authority outcome, and nothing else', () => {
+		expect([...new Set(reads)].toSorted()).toEqual(Object.keys(FAMILY_GLOSSARY.labels).toSorted())
+		expect(reads).toContain('qualification.load')
+		expect(reads).toContain('outcome.total')
+		expect(Object.values(FAMILY_GLOSSARY.labels).filter((label) => label.trim() === '')).toEqual([])
+	})
+
+	it('gives a unit to every field compared as a number or summed, and a format to each unit it ships', () => {
+		const numeric = [
+			...atoms
+				.filter((atom) => compared.includes(atom.check.operator))
+				.map((atom) => formatField(atom.check.field)),
+			// `room` is a lookup key, text rather than a number, so it takes no unit.
+			...rating.lines
+				.flatMap((line) => collectFamilySources(line.rate))
+				.filter((field) => field !== 'room'),
+		]
+		const unshipped = Object.values(FAMILY_GLOSSARY.units).filter(
+			(unit) => unit !== 'plain' && unit !== 'count',
+		)
+
+		expect(numeric.filter((field) => !Object.hasOwn(FAMILY_GLOSSARY.units, field))).toEqual([])
+		expect(
+			Object.keys(FAMILY_GLOSSARY.units).filter(
+				(field) => !Object.hasOwn(FAMILY_GLOSSARY.labels, field),
+			),
+		).toEqual([])
+		expect(unshipped.filter((unit) => !Object.hasOwn(FAMILY_GLOSSARY.formats, unit))).toEqual([])
+		expect(new Intl.NumberFormat('en-US', FAMILY_GLOSSARY.formats.money).format(1250)).toBe(
+			'$1,250.00',
+		)
+	})
+
+	it('gives a unit to the rating and to each line by its definition id', () => {
+		expect(Object.keys(FAMILY_GLOSSARY.values).toSorted()).toEqual(
+			[rating.id, ...rating.lines.map((line) => line.rate.id)].toSorted(),
+		)
+	})
+
+	it('names the scope no rating line names, and leaves the one a line names to the line', () => {
+		const scopes = [
+			...new Set([
+				...(qualification.rulings ?? []).flatMap((ruling) => ruling.scope ?? []),
+				...(program.notices ?? []).flatMap((notice) => notice.scope ?? []),
+			]),
+		].toSorted()
+
+		expect(scopes).toEqual(['deposit', 'rent'])
+		expect(scopes.filter((scope) => !rating.lines.some((line) => line.id === scope))).toEqual([])
+		expect(Object.keys(FAMILY_GLOSSARY.scopes)).toEqual(['rent'])
+		expect(rating.lines.find((line) => line.id === 'deposit')?.name).toBe('Deposit')
+	})
+})
+
+describe('collectFamilyFindings', () => {
+	const started = performance.now()
+	const found = collectFamilyFindings()
+	const elapsed = performance.now() - started
+	const trees = buildExpressionTrees()
+
+	it('pairs every tree with the finding for each of the twenty-seven subjects, in under ten seconds', () => {
+		expect(found).toHaveLength(trees.length * collectTreeSubjects().length)
+		expect(elapsed).toBeLessThan(10_000)
+		expect(new Set(found.map((entry) => entry.tree.id)).size).toBe(trees.length)
+	})
+
+	it('cites one ruling on the tree rule, as a restriction', () => {
+		expect(
+			found.filter(
+				(entry) =>
+					entry.finding.id !== 'ruling' ||
+					entry.finding.rule !== 'rule' ||
+					entry.finding.pass !== entry.tree.id ||
+					entry.finding.effect !== 'restriction',
+			),
+		).toEqual([])
+	})
+
+	it('settles each finding on the state the logical engine gives the tree rule', () => {
+		const reasoner = createLogicalReasoner()
+		const disagree = found.filter((entry) => {
+			const result = reasoner.reason(entry.subject, entry.tree)
+			return !isLogicalResult(result) || result.rules[0]?.state !== entry.finding.state
+		})
+
+		expect(disagree).toEqual([])
+		expect([...new Set(found.map((entry) => entry.finding.state))].toSorted()).toEqual([
+			'met',
+			'unmet',
+			'unread',
+		])
+	})
+})
+
+describe('FAMILY_WORDED', () => {
+	const qualifier = createQualifier({ labels: FAMILY_GLOSSARY.labels })
+	const rater = createRater({ labels: FAMILY_GLOSSARY.labels })
+	const program = createProgram(buildFamilyProgram(), { labels: FAMILY_GLOSSARY.labels })
+	const subject = FAMILY_PROGRAMS.costly?.subject ?? {}
+	const qualified = qualifier.qualify(
+		FAMILY_SUBJECTS.unread?.subject ?? {},
+		buildFamilyQualification(),
+	)
+	const rated = rater.rate(buildFamilyRating(), subject)
+	const executed = program.execute(subject)
+	const pairs = [
+		['qualification', qualified, FAMILY_WORDED.qualification(qualified)],
+		['rating', rated, FAMILY_WORDED.rating(rated)],
+		['program', executed, FAMILY_WORDED.program(executed)],
+	] as const
+
+	it.each(pairs)(
+		'rewords only worded members of the %s result, keeping its shape and count',
+		(_name, before, after) => {
+			const left = collectFamilyLeaves(before)
+			const right = collectFamilyLeaves(after)
+
+			expect(right.map(([path]) => path)).toEqual(left.map(([path]) => path))
+			const changed = right.filter(
+				([path, value], index) => !Object.is(value, left[index]?.[1]) && path !== '',
+			)
+			expect(changed.length).toBeGreaterThan(0)
+			expect(changed.filter(([path]) => !FAMILY_WORDED_PATH.test(path))).toEqual([])
+			expect(
+				left.filter(
+					([path], index) =>
+						FAMILY_WORDED_PATH.test(path) && Object.is(left[index]?.[1], right[index]?.[1]),
+				),
+			).toEqual([])
+			expect(after).not.toEqual(before)
+		},
+	)
+
+	it('reaches a label, an expression, a step, a trace, and an error entry among the results', () => {
+		const paths = pairs.flatMap(([, before]) => collectFamilyLeaves(before).map(([path]) => path))
+
+		expect(paths.some((path) => /\.label$/.test(path))).toBe(true)
+		expect(paths.some((path) => /\.expression$/.test(path))).toBe(true)
+		expect(paths.some((path) => /\.steps\.\d+\.name$/.test(path))).toBe(true)
+		expect(paths.some((path) => /\.trace\.\d+$/.test(path))).toBe(true)
+		expect(paths.some((path) => /\.errors\.\d+$/.test(path))).toBe(true)
+		qualifier.destroy()
+		rater.destroy()
+		program.destroy()
 	})
 })

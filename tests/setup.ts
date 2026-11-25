@@ -13,6 +13,14 @@
 // (`.claude/rules/architecture.md` § Barrel exports).
 
 import type { ContractShape } from '@orkestrel/contract'
+import type { Decision, ProgramDefinition, ProgramResult, Status } from '@orkestrel/program'
+import type {
+	Eligibility,
+	Finding,
+	QualificationDefinition,
+	QualificationResult,
+} from '@orkestrel/qualifier'
+import type { RatingDefinition, RatingResult } from '@orkestrel/rater'
 import type {
 	CheckState,
 	Expression,
@@ -42,6 +50,14 @@ import {
 	seededRandom,
 	stringShape,
 } from '@orkestrel/contract'
+import { buildNotice, buildProgramDefinition, isProgramResult } from '@orkestrel/program'
+import {
+	createQualificationDefinition,
+	createQualifier,
+	createRuling,
+	isQualificationResult,
+} from '@orkestrel/qualifier'
+import { buildLineDefinition, buildRatingDefinition, isRatingResult } from '@orkestrel/rater'
 import {
 	createAtom,
 	createCompound,
@@ -1971,4 +1987,992 @@ export function collectTreeSubjects(): readonly Subject[] {
 			}),
 		),
 	)
+}
+
+// ── Family fixtures (environment-agnostic) ───────────────────────────────────
+// The invented workshop's qualification, rating, and program over the real
+// `@orkestrel/qualifier`, `@orkestrel/rater`, and `@orkestrel/program`. Each expectation is
+// written from the packages' documented semantics and proved against the engine that owns it in
+// `tests/setup.test.ts`.
+
+/** Lists the invented activities the family workshop will not lend a room for. */
+export const FAMILY_RESTRICTED: readonly string[] = Object.freeze([
+	'torch welding',
+	'axe throwing',
+	'glass blowing',
+])
+
+/** Holds the booking every family subject varies: every ruling is unmet and every line rates. */
+export const FAMILY_BASE: Subject = {
+	activity: 'pottery',
+	guests: 8,
+	staff: 2,
+	start: 10,
+	noise: 30,
+	tools: true,
+	trained: true,
+	member: 'gold',
+	score: 750,
+	room: 'studio',
+	cost: 1000,
+}
+
+/** Holds the state each family ruling settles on for the base booking: every one unmet. */
+export const FAMILY_UNMET: Readonly<Record<string, CheckState>> = {
+	restricted: 'unmet',
+	crowded: 'unmet',
+	afterhours: 'unmet',
+	noisy: 'unmet',
+	untrained: 'unmet',
+	visitor: 'unmet',
+	unstaffed: 'unmet',
+	perk: 'unmet',
+}
+
+/** Holds the scope eligibilities of a booking no met scoped ruling names: none, so every scope is open. */
+export const FAMILY_OPEN: Readonly<Record<string, Eligibility>> = {}
+
+/**
+ * Copies a subject without one field, so the rules and lines that read it cannot.
+ *
+ * @param subject - The subject to copy
+ * @param field - The field to leave out
+ * @returns A fresh subject with no such field
+ */
+export function buildFamilyWithout(subject: Subject, field: string): Subject {
+	return Object.fromEntries(Object.entries(subject).filter(([name]) => name !== field))
+}
+
+/**
+ * Builds the family qualification: a quantitative `load` pass whose number the logical `gates`
+ * pass reads, and eight named rules, each with a ruling. The rulings cover each effect, two
+ * scopes (`rent` and `deposit`, which are also the rating's line ids), a message with a
+ * `{{activity}}` slot, a rule description with a `{{guests}}` slot, and a rule under a `not` over
+ * an `or`, an `or`, an `implies`, and an `xor`. No `shape` is declared.
+ *
+ * @returns A fresh qualification definition with id `qualification`
+ */
+export function buildFamilyQualification(): QualificationDefinition {
+	const load = createQuantitativeDefinition(
+		'load',
+		'Booking load',
+		[
+			createFactorGroup(
+				'amount',
+				'sum',
+				[
+					createFieldFactor('guests', 'guests', { name: 'Guests' }),
+					createFieldFactor('staff', 'staff', {
+						name: 'Staff',
+						transforms: [{ operation: 'multiply', operand: -2 }],
+					}),
+				],
+				{ name: 'Amount' },
+			),
+		],
+		{ description: 'Counts the guests a booking brings beyond what its staff can hold.' },
+	)
+	const gates = createLogicalDefinition(
+		'gates',
+		'Booking gates',
+		[
+			createRule(
+				'restricted',
+				[createAtom('activity', 'any', [...FAMILY_RESTRICTED])],
+				createAtom('restricted', 'equals', true),
+				{
+					name: 'Restricted activity',
+					description: 'The workshop never lends a room for an activity on its restricted list.',
+				},
+			),
+			createRule(
+				'crowded',
+				[createAtom(['qualification', 'load'], 'above', 10)],
+				createAtom('crowded', 'equals', true),
+				{
+					name: 'Crowded booking',
+					description: 'A party of {{guests}} needs more hands than the room has.',
+				},
+			),
+			createRule(
+				'afterhours',
+				[createAtom('start', 'above', 18)],
+				createAtom('afterhours', 'equals', true),
+				{ name: 'After hours', description: 'A booking that starts after the workshop closes.' },
+			),
+			createRule('noisy', [createAtom('noise', 'above', 40)], createAtom('noisy', 'equals', true), {
+				name: 'Loud activity',
+				description: 'The neighbors hear about a loud activity.',
+			}),
+			createRule(
+				'untrained',
+				[
+					createCompound('not', [
+						createCompound('or', [
+							createAtom('trained', 'equals', true),
+							createAtom('tools', 'equals', false),
+						]),
+					]),
+				],
+				createAtom('untrained', 'equals', true),
+				{
+					name: 'Tools without training',
+					description: 'A booking that brings tools and no trained supervisor.',
+				},
+			),
+			createRule(
+				'visitor',
+				[
+					createCompound('or', [
+						createAtom('member', 'equals', 'guest'),
+						createAtom('score', 'below', 400),
+					]),
+				],
+				createAtom('visitor', 'equals', true),
+				{
+					name: 'Visiting booker',
+					description: 'A guest, or a booker with a low score, is a visitor.',
+				},
+			),
+			createRule(
+				'unstaffed',
+				[
+					createCompound('implies', [
+						createAtom('guests', 'above', 0),
+						createAtom('staff', 'below', 1),
+					]),
+				],
+				createAtom('unstaffed', 'equals', true),
+				{
+					name: 'Guests without staff',
+					description: 'Guests arrive and no staff member is there to meet them.',
+				},
+			),
+			createRule(
+				'perk',
+				[
+					createCompound('xor', [
+						createAtom('member', 'equals', 'gold'),
+						createAtom('tools', 'equals', true),
+					]),
+				],
+				createAtom('perk', 'equals', true),
+				{
+					name: 'Bench slot',
+					description: 'A gold member or a booking with tools, never both, takes the bench slot.',
+				},
+			),
+		],
+		{ description: 'Lists what the workshop checks in a booking.' },
+	)
+	return createQualificationDefinition('qualification', 'Booking qualification', [load, gates], {
+		description: 'Decides whether the workshop takes a booking.',
+		rulings: [
+			createRuling('restricted', 'gates', 'restricted', 'restriction', {
+				message: 'The workshop does not lend a room for {{activity}}.',
+			}),
+			createRuling('crowded', 'gates', 'crowded', 'referral'),
+			createRuling('afterhours', 'gates', 'afterhours', 'restriction', {
+				scope: 'rent',
+				message: 'The room cannot be rented after 18:00.',
+			}),
+			createRuling('noisy', 'gates', 'noisy', 'condition', {
+				scope: 'rent',
+				message: 'Neighbours must be told.',
+			}),
+			createRuling('untrained', 'gates', 'untrained', 'referral', {
+				scope: 'deposit',
+				message: 'A person must review the deposit.',
+			}),
+			createRuling('visitor', 'gates', 'visitor', 'condition'),
+			createRuling('unstaffed', 'gates', 'unstaffed', 'restriction', { scope: 'deposit' }),
+			createRuling('perk', 'gates', 'perk', 'condition', { message: 'The bench slot is held.' }),
+		],
+	})
+}
+
+/**
+ * Names the booking subjects of the family qualification, each with the eligibility, each scope's
+ * eligibility, each finding's state, the messages of the findings that are met, whether the run
+ * succeeds, the inputs it could not read, and the `load` it derives. A scope appears only
+ * where a met scoped ruling names it, and a missing scope is `eligible`. `unread` leaves
+ * `noisy` unread, and `refused` fails the `load` pass, so `crowded` and `unstaffed` read nothing.
+ * No `shape` is declared, so no subject is refused at a door.
+ */
+export const FAMILY_SUBJECTS: Readonly<
+	Record<
+		string,
+		{
+			readonly subject: Subject
+			readonly eligibility: Eligibility
+			readonly scopes: Readonly<Record<string, Eligibility>>
+			readonly states: Readonly<Record<string, CheckState>>
+			readonly messages: Readonly<Record<string, string>>
+			readonly success: boolean
+			readonly faults: readonly string[]
+			readonly load?: number
+		}
+	>
+> = {
+	standing: {
+		subject: FAMILY_BASE,
+		eligibility: 'eligible',
+		scopes: FAMILY_OPEN,
+		states: FAMILY_UNMET,
+		messages: {},
+		success: true,
+		faults: [],
+		load: 4,
+	},
+	restricted: {
+		subject: { ...FAMILY_BASE, activity: 'torch welding' },
+		eligibility: 'ineligible',
+		scopes: FAMILY_OPEN,
+		states: { ...FAMILY_UNMET, restricted: 'met' },
+		messages: { restricted: 'The workshop does not lend a room for torch welding.' },
+		success: true,
+		faults: [],
+		load: 4,
+	},
+	referred: {
+		subject: { ...FAMILY_BASE, guests: 20 },
+		eligibility: 'referral',
+		scopes: FAMILY_OPEN,
+		states: { ...FAMILY_UNMET, crowded: 'met' },
+		messages: {},
+		success: true,
+		faults: [],
+		load: 16,
+	},
+	loud: {
+		subject: { ...FAMILY_BASE, noise: 55 },
+		eligibility: 'eligible',
+		scopes: { rent: 'eligible' },
+		states: { ...FAMILY_UNMET, noisy: 'met' },
+		messages: { noisy: 'Neighbours must be told.' },
+		success: true,
+		faults: [],
+		load: 4,
+	},
+	late: {
+		subject: { ...FAMILY_BASE, start: 20 },
+		eligibility: 'eligible',
+		scopes: { rent: 'ineligible' },
+		states: { ...FAMILY_UNMET, afterhours: 'met' },
+		messages: { afterhours: 'The room cannot be rented after 18:00.' },
+		success: true,
+		faults: [],
+		load: 4,
+	},
+	untrained: {
+		subject: { ...FAMILY_BASE, trained: false },
+		eligibility: 'eligible',
+		scopes: { deposit: 'referral' },
+		states: { ...FAMILY_UNMET, untrained: 'met' },
+		messages: { untrained: 'A person must review the deposit.' },
+		success: true,
+		faults: [],
+		load: 4,
+	},
+	unstaffed: {
+		subject: { ...FAMILY_BASE, staff: 0 },
+		eligibility: 'eligible',
+		scopes: { deposit: 'ineligible' },
+		states: { ...FAMILY_UNMET, unstaffed: 'met' },
+		messages: {},
+		success: true,
+		faults: [],
+		load: 8,
+	},
+	visitor: {
+		subject: { ...FAMILY_BASE, member: 'guest', tools: false },
+		eligibility: 'eligible',
+		scopes: FAMILY_OPEN,
+		states: { ...FAMILY_UNMET, visitor: 'met' },
+		messages: {},
+		success: true,
+		faults: [],
+		load: 4,
+	},
+	perk: {
+		subject: { ...FAMILY_BASE, member: 'silver' },
+		eligibility: 'eligible',
+		scopes: FAMILY_OPEN,
+		states: { ...FAMILY_UNMET, perk: 'met' },
+		messages: { perk: 'The bench slot is held.' },
+		success: true,
+		faults: [],
+		load: 4,
+	},
+	unread: {
+		subject: buildFamilyWithout(FAMILY_BASE, 'noise'),
+		eligibility: 'referral',
+		scopes: FAMILY_OPEN,
+		states: { ...FAMILY_UNMET, noisy: 'unread' },
+		messages: {},
+		success: false,
+		faults: ['noise'],
+		load: 4,
+	},
+	refused: {
+		subject: buildFamilyWithout(FAMILY_BASE, 'guests'),
+		eligibility: 'referral',
+		scopes: FAMILY_OPEN,
+		states: { ...FAMILY_UNMET, crowded: 'unread', unstaffed: 'unread' },
+		messages: {},
+		success: false,
+		faults: ['guests'],
+	},
+}
+
+/**
+ * Builds the family rating: a lookup line whose `fallback` equals its `studio` entry, a line with
+ * transforms and bounds, and a line whose required factor a booking over the cost limit fails.
+ * The line ids are the scopes the qualification names.
+ *
+ * @returns A fresh rating definition with id `rating`
+ */
+export function buildFamilyRating(): RatingDefinition {
+	return buildRatingDefinition(
+		'rating',
+		'Booking rating',
+		[
+			buildLineDefinition(
+				'rent',
+				'Room rent',
+				createQuantitativeDefinition('rentRate', 'Room rate', [
+					createFactorGroup(
+						'hire',
+						'sum',
+						[
+							createLookupFactor(
+								'room',
+								'room',
+								{ hall: 120, studio: 80, loft: 60 },
+								{ name: 'Room rate', fallback: 80 },
+							),
+						],
+						{ name: 'Hire' },
+					),
+				]),
+				{ description: 'What the room costs for the booking.' },
+			),
+			buildLineDefinition(
+				'fee',
+				'Guest fee',
+				createQuantitativeDefinition('feeRate', 'Guest rate', [
+					createFactorGroup(
+						'heads',
+						'sum',
+						[
+							createFieldFactor('guests', 'guests', {
+								name: 'Per guest',
+								transforms: [
+									{ operation: 'multiply', operand: 2 },
+									{ operation: 'add', operand: 10 },
+								],
+								bounds: { minimum: 20, maximum: 100 },
+							}),
+						],
+						{ name: 'Heads' },
+					),
+				]),
+			),
+			buildLineDefinition(
+				'deposit',
+				'Deposit',
+				createQuantitativeDefinition('depositRate', 'Deposit rate', [
+					createFactorGroup(
+						'hold',
+						'sum',
+						[
+							createStaticFactor('deposit', 50, {
+								name: 'Deposit',
+								checks: [{ field: 'cost', operator: 'to', value: 1250 }],
+								required: true,
+							}),
+						],
+						{ name: 'Hold' },
+					),
+				]),
+			),
+		],
+		{ description: 'Prices one booking.' },
+	)
+}
+
+/**
+ * Names the rating subjects, each with the amount of every line that rates, the inputs it could
+ * not read, and the total. A line that cannot rate has no key in `amounts`, and a total is absent
+ * while any line fails. `attic` takes the lookup's fallback, which equals the `studio` entry.
+ */
+export const FAMILY_RATINGS: Readonly<
+	Record<
+		string,
+		{
+			readonly subject: Subject
+			readonly success: boolean
+			readonly amounts: Readonly<Record<string, number>>
+			readonly faults: readonly string[]
+			readonly total?: number
+		}
+	>
+> = {
+	standing: {
+		subject: FAMILY_BASE,
+		success: true,
+		amounts: { rent: 80, fee: 26, deposit: 50 },
+		faults: [],
+		total: 156,
+	},
+	attic: {
+		subject: { ...FAMILY_BASE, room: 'attic' },
+		success: true,
+		amounts: { rent: 80, fee: 26, deposit: 50 },
+		faults: [],
+		total: 156,
+	},
+	hall: {
+		subject: { ...FAMILY_BASE, room: 'hall', guests: 50 },
+		success: true,
+		amounts: { rent: 120, fee: 100, deposit: 50 },
+		faults: [],
+		total: 270,
+	},
+	small: {
+		subject: { ...FAMILY_BASE, room: 'loft', guests: 1 },
+		success: true,
+		amounts: { rent: 60, fee: 20, deposit: 50 },
+		faults: [],
+		total: 130,
+	},
+	costly: {
+		subject: { ...FAMILY_BASE, cost: 2000 },
+		success: false,
+		amounts: { rent: 80, fee: 26 },
+		faults: [],
+	},
+	noroom: {
+		subject: buildFamilyWithout(FAMILY_BASE, 'room'),
+		success: false,
+		amounts: { fee: 26, deposit: 50 },
+		faults: ['room'],
+	},
+}
+
+/**
+ * Builds the family program over the family qualification and rating: two notices (`closing`, and
+ * `due` under the `rent` scope with a `{{room}}` slot), an authority whose `heavy` rule is a limit
+ * on a rated total above 200, and no shape.
+ *
+ * @returns A fresh program definition with id `program`
+ */
+export function buildFamilyProgram(): ProgramDefinition {
+	return buildProgramDefinition(
+		'program',
+		'Booking program',
+		buildFamilyQualification(),
+		buildFamilyRating(),
+		{
+			description: 'Takes a booking from qualification to a decision.',
+			notices: [
+				buildNotice('closing', 'The workshop closes at 18:00.'),
+				buildNotice('due', 'Rent for {{room}} is due on arrival.', { scope: 'rent' }),
+			],
+			authority: createLogicalDefinition(
+				'authority',
+				'Booking authority',
+				[
+					createRule(
+						'heavy',
+						[
+							createCompound('and', [
+								createAtom(['outcome', 'rated'], 'equals', true),
+								createAtom(['outcome', 'total'], 'above', 200),
+							]),
+						],
+						createAtom('limited', 'equals', true),
+						{
+							name: 'Heavy booking',
+							description: 'A rated total above 200 needs a manual decision.',
+						},
+					),
+				],
+				{ description: 'Decides what the workshop does with a rated booking.' },
+			),
+		},
+	)
+}
+
+/**
+ * Names the program subjects, each with the eligibility, status, decision, determinations, success,
+ * rated total, and inputs it could not read. An absent `decision` is expected where the key is
+ * missing. All six statuses are reached: `standing` and `heavy` are `eligible`, `denied` is
+ * `ineligible`, `submitted` and `reviewed` are `referral`, `loud` and `late` are `conditional`,
+ * `costly` is `unrated`, and `unread` is `incomplete`. `heavy` has a limit and so no decision,
+ * `reviewed` has a scoped referral and so a decision with a `referral` status, and `unread` and
+ * `costly` fail and decide nothing.
+ */
+export const FAMILY_PROGRAMS: Readonly<
+	Record<
+		string,
+		{
+			readonly subject: Subject
+			readonly eligibility: Eligibility
+			readonly status: Status
+			readonly decision?: Decision
+			readonly determinations: ReadonlyArray<{
+				readonly id: string
+				readonly effect: 'notice' | 'limit'
+				readonly scope?: string
+				readonly message: string
+			}>
+			readonly success: boolean
+			readonly faults: readonly string[]
+			readonly total?: number
+		}
+	>
+> = {
+	standing: {
+		subject: FAMILY_BASE,
+		eligibility: 'eligible',
+		status: 'eligible',
+		decision: 'approved',
+		determinations: [
+			{ id: 'closing', effect: 'notice', message: 'The workshop closes at 18:00.' },
+			{
+				id: 'due',
+				effect: 'notice',
+				scope: 'rent',
+				message: 'Rent for studio is due on arrival.',
+			},
+		],
+		success: true,
+		faults: [],
+		total: 156,
+	},
+	denied: {
+		subject: { ...FAMILY_BASE, activity: 'torch welding' },
+		eligibility: 'ineligible',
+		status: 'ineligible',
+		decision: 'denied',
+		determinations: [
+			{ id: 'closing', effect: 'notice', message: 'The workshop closes at 18:00.' },
+			{
+				id: 'due',
+				effect: 'notice',
+				scope: 'rent',
+				message: 'Rent for studio is due on arrival.',
+			},
+		],
+		success: true,
+		faults: [],
+	},
+	submitted: {
+		subject: { ...FAMILY_BASE, guests: 20 },
+		eligibility: 'referral',
+		status: 'referral',
+		decision: 'submitted',
+		determinations: [
+			{ id: 'closing', effect: 'notice', message: 'The workshop closes at 18:00.' },
+			{
+				id: 'due',
+				effect: 'notice',
+				scope: 'rent',
+				message: 'Rent for studio is due on arrival.',
+			},
+		],
+		success: true,
+		faults: [],
+	},
+	reviewed: {
+		subject: { ...FAMILY_BASE, trained: false },
+		eligibility: 'eligible',
+		status: 'referral',
+		decision: 'approved',
+		determinations: [
+			{ id: 'closing', effect: 'notice', message: 'The workshop closes at 18:00.' },
+			{
+				id: 'due',
+				effect: 'notice',
+				scope: 'rent',
+				message: 'Rent for studio is due on arrival.',
+			},
+		],
+		success: true,
+		faults: [],
+		total: 106,
+	},
+	loud: {
+		subject: { ...FAMILY_BASE, noise: 55 },
+		eligibility: 'eligible',
+		status: 'conditional',
+		decision: 'approved',
+		determinations: [
+			{ id: 'closing', effect: 'notice', message: 'The workshop closes at 18:00.' },
+			{
+				id: 'due',
+				effect: 'notice',
+				scope: 'rent',
+				message: 'Rent for studio is due on arrival.',
+			},
+		],
+		success: true,
+		faults: [],
+		total: 156,
+	},
+	late: {
+		subject: { ...FAMILY_BASE, start: 20 },
+		eligibility: 'eligible',
+		status: 'conditional',
+		decision: 'approved',
+		determinations: [
+			{ id: 'closing', effect: 'notice', message: 'The workshop closes at 18:00.' },
+			{
+				id: 'due',
+				effect: 'notice',
+				scope: 'rent',
+				message: 'Rent for studio is due on arrival.',
+			},
+		],
+		success: true,
+		faults: [],
+		total: 76,
+	},
+	costly: {
+		subject: { ...FAMILY_BASE, cost: 2000 },
+		eligibility: 'eligible',
+		status: 'unrated',
+		determinations: [
+			{ id: 'closing', effect: 'notice', message: 'The workshop closes at 18:00.' },
+			{
+				id: 'due',
+				effect: 'notice',
+				scope: 'rent',
+				message: 'Rent for studio is due on arrival.',
+			},
+		],
+		success: false,
+		faults: [],
+	},
+	unread: {
+		subject: buildFamilyWithout(FAMILY_BASE, 'noise'),
+		eligibility: 'referral',
+		status: 'incomplete',
+		determinations: [
+			{ id: 'closing', effect: 'notice', message: 'The workshop closes at 18:00.' },
+			{
+				id: 'due',
+				effect: 'notice',
+				scope: 'rent',
+				message: 'Rent for studio is due on arrival.',
+			},
+		],
+		success: false,
+		faults: ['noise'],
+	},
+	heavy: {
+		subject: { ...FAMILY_BASE, room: 'hall', guests: 50, staff: 22 },
+		eligibility: 'eligible',
+		status: 'eligible',
+		determinations: [
+			{ id: 'closing', effect: 'notice', message: 'The workshop closes at 18:00.' },
+			{
+				id: 'due',
+				effect: 'notice',
+				scope: 'rent',
+				message: 'Rent for hall is due on arrival.',
+			},
+			{
+				id: 'heavy',
+				effect: 'limit',
+				message: 'A rated total above 200 needs a manual decision.',
+			},
+		],
+		success: true,
+		faults: [],
+		total: 270,
+	},
+}
+
+/**
+ * Holds the domain words the family definitions need, keyed by `formatField`: a label and a unit
+ * for every field the qualification, rating, and authority read, the `load` the first pass derives
+ * as `qualification.load`, and the authority's `outcome.rated` and `outcome.total`; a unit for the
+ * rating and each line's rate under its definition id; and a name for the `rent` scope. The
+ * `deposit` scope has no entry, because the rating line of that id names it.
+ */
+export const FAMILY_GLOSSARY: {
+	readonly labels: Readonly<Record<string, string>>
+	readonly units: Readonly<Record<string, string>>
+	readonly values: Readonly<Record<string, string>>
+	readonly formats: Readonly<Record<string, Intl.NumberFormatOptions>>
+	readonly scopes: Readonly<Record<string, string>>
+} = {
+	labels: {
+		activity: 'activity',
+		guests: 'guest count',
+		staff: 'staff on hand',
+		start: 'start hour',
+		noise: 'noise level',
+		tools: 'tools brought',
+		trained: 'trained supervisor',
+		member: 'workshop tier',
+		score: 'booking score',
+		room: 'room',
+		cost: 'cost',
+		'qualification.load': 'booking load',
+		'outcome.rated': 'booking rated',
+		'outcome.total': 'rated total',
+	},
+	units: {
+		guests: 'count',
+		staff: 'count',
+		start: 'plain',
+		noise: 'decibel',
+		score: 'count',
+		cost: 'money',
+		'qualification.load': 'count',
+		'outcome.total': 'money',
+	},
+	values: {
+		rating: 'money',
+		rentRate: 'money',
+		feeRate: 'money',
+		depositRate: 'money',
+	},
+	formats: {
+		money: { style: 'currency', currency: 'USD' },
+		decibel: { maximumFractionDigits: 1 },
+	},
+	scopes: { rent: 'room rent' },
+}
+
+/**
+ * Qualifies every depth 1, 2, and 3 expression tree against every assignment of its three fields,
+ * each tree as a one-ruling qualification whose ruling is a restriction on the tree's one rule.
+ *
+ * @returns Per tree and subject, the tree, the subject, and the qualifier's own finding
+ */
+export function collectFamilyFindings(): ReadonlyArray<{
+	readonly tree: LogicalDefinition
+	readonly subject: Subject
+	readonly finding: Finding
+}> {
+	const qualifier = createQualifier()
+	const subjects = collectTreeSubjects()
+	const findings = buildExpressionTrees().flatMap((tree) => {
+		const definition = createQualificationDefinition(`qualify-${tree.id}`, tree.name, [tree], {
+			rulings: [createRuling('ruling', tree.id, 'rule', 'restriction')],
+		})
+		return subjects.flatMap((subject) => {
+			const [finding] = qualifier.qualify(subject, definition).findings
+			return finding === undefined ? [] : [{ tree, subject, finding }]
+		})
+	})
+	qualifier.destroy()
+	return findings
+}
+
+/** Names the members a result's text sits under that `FAMILY_WORDED` replaces as one string. */
+export const FAMILY_WORDED_KEYS: readonly string[] = ['label', 'expression']
+
+/** Names the members a result's list of text sits under that `FAMILY_WORDED` replaces entry by entry. */
+export const FAMILY_WORDED_LISTS: readonly string[] = ['trace', 'errors']
+
+/** Names the members of a worksheet step that `FAMILY_WORDED` replaces, the rest being data. */
+export const FAMILY_WORDED_STEPS: readonly string[] = ['name', 'expression']
+
+/** Names the members that hold the subject's own values, which `FAMILY_WORDED` leaves alone. */
+export const FAMILY_KEPT_KEYS: readonly string[] = ['actual', 'expected']
+
+/**
+ * Replaces the worded members of a result's member with other text of the same shape and count.
+ *
+ * @param key - The member's name
+ * @param member - The member's value
+ * @param path - The member's path, which the replacement text names
+ * @returns The member, reworded where it is worded
+ */
+export function buildFamilyMember(key: string, member: unknown, path: string): unknown {
+	if (FAMILY_KEPT_KEYS.includes(key)) return member
+	if (FAMILY_WORDED_KEYS.includes(key) && typeof member === 'string') return `reworded ${path}`
+	if (FAMILY_WORDED_LISTS.includes(key) && isArray(member)) {
+		return member.map((entry, index) =>
+			typeof entry === 'string' ? `reworded ${path}.${String(index)}` : entry,
+		)
+	}
+	if (key === 'steps' && isArray(member)) {
+		return member.map((step, index) =>
+			isRecord(step)
+				? Object.fromEntries(
+						Object.entries(step).map(([name, value]) => [
+							name,
+							FAMILY_WORDED_STEPS.includes(name) && typeof value === 'string'
+								? `reworded ${path}.${String(index)}.${name}`
+								: value,
+						]),
+					)
+				: step,
+		)
+	}
+	return buildFamilyWording(member, path)
+}
+
+/**
+ * Replaces every worded member of a result, at any depth, with other text of the same shape and
+ * count: each `label` and `expression`, each text of a `trace` and an `errors` list, and the
+ * `name` and `expression` of each worksheet step. A subject's own `actual` and `expected` values
+ * stay.
+ *
+ * @param value - The result, or a part of one
+ * @param path - Where the value sits, which the replacement text names
+ * @returns A fresh value of the same shape, with the worded members reworded
+ */
+export function buildFamilyWording(value: unknown, path = ''): unknown {
+	if (isArray(value)) {
+		return value.map((entry, index) => buildFamilyWording(entry, `${path}.${String(index)}`))
+	}
+	if (!isRecord(value)) return value
+	return Object.fromEntries(
+		Object.entries(value).map(([key, member]) => [
+			key,
+			buildFamilyMember(key, member, `${path}.${key}`),
+		]),
+	)
+}
+
+/**
+ * Rewords a qualification result.
+ *
+ * @param result - The result to reword
+ * @returns A fresh result with every worded member replaced
+ */
+export function buildFamilyWordedQualification(result: QualificationResult): QualificationResult {
+	const worded = buildFamilyWording(result)
+	if (!isQualificationResult(worded)) throw new Error('Expected a reworded qualification result')
+	return worded
+}
+
+/**
+ * Rewords a rating result.
+ *
+ * @param result - The result to reword
+ * @returns A fresh result with every worded member replaced
+ */
+export function buildFamilyWordedRating(result: RatingResult): RatingResult {
+	const worded = buildFamilyWording(result)
+	if (!isRatingResult(worded)) throw new Error('Expected a reworded rating result')
+	return worded
+}
+
+/**
+ * Rewords a program result.
+ *
+ * @param result - The result to reword
+ * @returns A fresh result with every worded member replaced
+ */
+export function buildFamilyWordedProgram(result: ProgramResult): ProgramResult {
+	const worded = buildFamilyWording(result)
+	if (!isProgramResult(worded)) throw new Error('Expected a reworded program result')
+	return worded
+}
+
+/** Holds the reworders of the three results: each replaces every worded member and no other. */
+export const FAMILY_WORDED = {
+	qualification: buildFamilyWordedQualification,
+	rating: buildFamilyWordedRating,
+	program: buildFamilyWordedProgram,
+}
+
+/**
+ * Collects every leaf of a value with the path that reaches it, so two values can be compared
+ * leaf by leaf.
+ *
+ * @param value - The value to read
+ * @param path - Where the value sits
+ * @returns One pair per scalar leaf, in order
+ */
+export function collectFamilyLeaves(
+	value: unknown,
+	path = '',
+): ReadonlyArray<readonly [string, unknown]> {
+	if (isArray(value)) {
+		return value.flatMap((entry, index) => collectFamilyLeaves(entry, `${path}.${String(index)}`))
+	}
+	if (isRecord(value)) {
+		return Object.entries(value).flatMap(([key, member]) =>
+			collectFamilyLeaves(member, `${path}.${key}`),
+		)
+	}
+	return [[path, value]]
+}
+
+/** Matches the path of a leaf that `FAMILY_WORDED` replaces: a label, an expression, a trace or errors entry, or a step's name or expression. */
+export const FAMILY_WORDED_PATH =
+	/\.(label|expression)$|\.(trace|errors)\.\d+$|\.steps\.\d+\.(name|expression)$/
+
+/**
+ * Lists the distinct texts of a list, sorted.
+ *
+ * @param values - The texts to read
+ * @returns Each text once, in sorted order
+ */
+export function collectFamilyUnique(values: readonly string[]): readonly string[] {
+	return [...new Set(values)].toSorted()
+}
+
+/**
+ * Lists the effects of the rulings that carry a scope, or of those that carry none, sorted.
+ *
+ * @param rulings - The rulings to read
+ * @param scoped - If `true`, the rulings with a scope; if `false`, those without
+ * @returns One effect per ruling, repeats included
+ */
+export function collectFamilyEffects(
+	rulings: ReadonlyArray<{ readonly scope?: string; readonly effect: string }>,
+	scoped: boolean,
+): readonly string[] {
+	return rulings
+		.filter((ruling) => (ruling.scope !== undefined) === scoped)
+		.map((ruling) => ruling.effect)
+		.toSorted()
+}
+
+/**
+ * Collects the connective of every compound in the premises of one rule, found by id.
+ *
+ * @param passes - The logical passes to search
+ * @param id - The rule's id
+ * @returns The connectives outermost first, or none when no pass holds the rule
+ */
+export function collectFamilyConnectives(
+	passes: readonly LogicalDefinition[],
+	id: string,
+): readonly LogicalOperator[] {
+	return passes.flatMap((pass) =>
+		pass.rules
+			.filter((rule) => rule.id === id)
+			.flatMap((rule) => rule.premises.flatMap(collectConnectives)),
+	)
+}
+
+/**
+ * Collects the display path of every field a quantitative definition reads: each factor's source
+ * and each of its checks. A logical definition reads through its atoms, so it yields none here.
+ *
+ * @param definition - The definition to read
+ * @returns One display path per read, in order
+ */
+export function collectFamilySources(
+	definition: QuantitativeDefinition | LogicalDefinition,
+): readonly string[] {
+	return definition.reasoning === 'quantitative'
+		? definition.groups
+				.flatMap((group) => group.factors)
+				.flatMap((factor) => [
+					...(factor.source.origin === 'static' ? [] : [formatField(factor.source.field)]),
+					...(factor.checks ?? []).map((check) => formatField(check.field)),
+				])
+		: []
 }
