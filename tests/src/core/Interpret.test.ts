@@ -803,8 +803,7 @@ describe('Interpret', () => {
 			const result = reason.reason({}, definition)
 			const account = interpret.narrate(definition, result)
 			expect(account).toEqual(createNarrator().narrate(definition, result))
-			expect(renderAccount(account)).toBe('x is 5
-  x = 5')
+			expect(renderAccount(account)).toBe('x is 5\n  x = 5')
 			reason.destroy()
 			interpret.destroy()
 		})
@@ -821,8 +820,7 @@ describe('Interpret', () => {
 				createEquation('e1', createVariable('x'), createConstant(5), 'x'),
 			])
 			const account = interpret.narrate(definition, reason.reason({}, definition))
-			expect(renderAccount(account)).toBe('The total comes to 5
-  The total = 5')
+			expect(renderAccount(account)).toBe('The total comes to 5\n  The total = 5')
 			reason.destroy()
 			interpret.destroy()
 		})
