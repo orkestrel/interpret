@@ -44,6 +44,7 @@ import {
 	buildStatisticsRecipe,
 	buildWorkshopArea,
 	buildWorkshopFacts,
+	buildWorkshopFees,
 	buildWorkshopRules,
 	buildWorkshopScore,
 	collectConnectives,
@@ -59,6 +60,7 @@ import {
 	seedInterpretContext,
 	TRICKY_KEYS,
 	WORKSHOP_AREA,
+	WORKSHOP_FEES,
 	WORKSHOP_GLOSSARY,
 	WORKSHOP_RESTRICTED,
 	WORKSHOP_SCORES,
@@ -603,6 +605,64 @@ describe('buildWorkshopScore', () => {
 	})
 })
 
+describe('buildWorkshopFees', () => {
+	it('is a valid definition that takes every source, aggregation, and gate it names', () => {
+		const definition = buildWorkshopFees()
+		const factors = definition.groups.flatMap((group) => group.factors)
+
+		expect(createQuantitativeReasoner().validate(definition).valid).toBe(true)
+		expect(definition.groups.map((group) => group.aggregation)).toEqual([
+			'sum',
+			'product',
+			'average',
+		])
+		expect([...new Set(factors.map((factor) => factor.source.origin))]).toEqual([
+			'field',
+			'range',
+			'static',
+			'lookup',
+		])
+		expect(factors.filter((factor) => factor.required === true).map(({ id }) => id)).toEqual([
+			'deposit',
+		])
+	})
+
+	it.each(Object.entries(WORKSHOP_FEES))(
+		'prices the %s subject as expected, as the real engine reads it',
+		(_name, expected) => {
+			const result = createQuantitativeReasoner().reason(expected.subject, buildWorkshopFees())
+			if (!isQuantitativeResult(result)) throw new Error('Expected a quantitative result')
+
+			expect(result.success).toBe(expected.success)
+			expect(result.value).toBeCloseTo(expected.value, 9)
+		},
+	)
+
+	it('refuses a gated required factor with no fault, and an unread range on its field', () => {
+		const reasoner = createQuantitativeReasoner()
+		const costly = reasoner.reason(WORKSHOP_FEES.costly?.subject ?? {}, buildWorkshopFees())
+		const crowd = reasoner.reason(WORKSHOP_FEES.crowd?.subject ?? {}, buildWorkshopFees())
+
+		expect(costly.faults).toEqual([])
+		expect(costly.errors).toHaveLength(1)
+		expect(crowd.faults.map((fault) => formatField(fault.path))).toEqual(['guests'])
+	})
+
+	it('leaves the strict group unapplied where one of its factors is gated out', () => {
+		const result = createQuantitativeReasoner().reason(
+			WORKSHOP_FEES.spare?.subject ?? {},
+			buildWorkshopFees(),
+		)
+		if (!isQuantitativeResult(result)) throw new Error('Expected a quantitative result')
+
+		expect(result.groups.map((group) => [group.id, group.applied])).toEqual([
+			['hire', true],
+			['share', true],
+			['extras', false],
+		])
+	})
+})
+
 describe('buildWorkshopArea', () => {
 	it('authors a name that differs from its id on the equation', () => {
 		const definition = buildWorkshopArea()
@@ -684,9 +744,16 @@ describe('WORKSHOP_GLOSSARY', () => {
 			...collectVariables(equation.right),
 			equation.target,
 		])
-		const reads = [...logical, ...quantitative, ...symbolic]
+		const fees = buildWorkshopFees()
+			.groups.flatMap((group) => group.factors)
+			.flatMap(({ source, checks }) => [
+				...(source.origin === 'static' ? [] : [formatField(source.field)]),
+				...(checks ?? []).map((check) => formatField(check.field)),
+			])
+		const reads = [...logical, ...quantitative, ...fees, ...symbolic]
 
 		expect(reads).toContain('terms.excess')
+		expect(reads).toContain('terms.rate')
 		expect(reads.filter((field) => !Object.hasOwn(WORKSHOP_GLOSSARY.labels, field))).toEqual([])
 		expect(Object.values(WORKSHOP_GLOSSARY.labels).filter((label) => label.trim() === '')).toEqual(
 			[],
@@ -706,11 +773,12 @@ describe('WORKSHOP_GLOSSARY', () => {
 		expect(WORKSHOP_GLOSSARY.units).toEqual({
 			cost: 'money',
 			'terms.excess': 'money',
+			'terms.rate': 'money',
 			noise: 'decibel',
 			start: 'plain',
 			score: 'count',
 		})
-		expect(WORKSHOP_GLOSSARY.values).toEqual({ score: 'count' })
+		expect(WORKSHOP_GLOSSARY.values).toEqual({ score: 'count', fees: 'money' })
 	})
 
 	it('formats each unit past the shipped plain and count with a real Intl format', () => {

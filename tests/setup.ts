@@ -56,6 +56,7 @@ import {
 	createLookupFactor,
 	createOperation,
 	createQuantitativeDefinition,
+	createRangeFactor,
 	createRule,
 	createStaticFactor,
 	createSymbolicDefinition,
@@ -1453,6 +1454,131 @@ export const WORKSHOP_SCORES: Readonly<Record<string, WorkshopScoreCase>> = {
 }
 
 /**
+ * Builds the booking fees: a `sum` group with a transformed field factor, a range factor with a
+ * fallback, and a required gated factor; a `product` group with a static factor and a lookup
+ * factor with a fallback; and a strict `average` group with a gated factor.
+ *
+ * @returns A fresh quantitative definition with id `fees`
+ */
+export function buildWorkshopFees(): QuantitativeDefinition {
+	return createQuantitativeDefinition(
+		'fees',
+		'Booking fees',
+		[
+			createFactorGroup(
+				'hire',
+				'sum',
+				[
+					createFieldFactor('rate', ['terms', 'rate'], {
+						name: 'Room rate',
+						description: 'The hourly rate, for a session of two hours.',
+						transforms: [{ operation: 'multiply', operand: 2 }],
+					}),
+					createRangeFactor(
+						'crowd',
+						'guests',
+						[
+							{ bounds: { maximum: 10 }, value: 5 },
+							{ bounds: { minimum: 11, maximum: 30 }, value: 12 },
+						],
+						{
+							name: 'Crowd charge',
+							fallback: 40,
+							transforms: [{ operation: 'multiply', operand: 3 }],
+						},
+					),
+					createStaticFactor('deposit', 50, {
+						name: 'Deposit',
+						checks: [{ field: 'cost', operator: 'to', value: 1250 }],
+						required: true,
+					}),
+				],
+				{ name: 'Hire', description: 'What the room itself costs.' },
+			),
+			createFactorGroup(
+				'share',
+				'product',
+				[
+					createStaticFactor('discount', 0.9, { name: 'Discount' }),
+					createLookupFactor(
+						'season',
+						'season',
+						{ peak: 1.5, low: 0.75 },
+						{ name: 'Season', fallback: 1 },
+					),
+				],
+				{ name: 'Share' },
+			),
+			createFactorGroup(
+				'extras',
+				'average',
+				[
+					createStaticFactor('tools', 10, {
+						name: 'Tool hire',
+						checks: [
+							{ field: 'tools', operator: 'equals', value: true },
+							{ field: 'noise', operator: 'to', value: 40 },
+						],
+					}),
+					createStaticFactor('towels', 20, { name: 'Towels' }),
+				],
+				{ name: 'Extras', strict: true },
+			),
+		],
+		{ description: 'Prices one booking.' },
+	)
+}
+
+/**
+ * Names the fee subjects: one that takes every entry, one that takes both fallbacks and fails
+ * the strict group's gate, one whose required factor is gated out, and one whose range reads no
+ * number.
+ */
+export const WORKSHOP_FEES: Readonly<Record<string, WorkshopScoreCase>> = {
+	peak: {
+		subject: {
+			terms: { rate: 20 },
+			guests: 8,
+			cost: 1000,
+			season: 'peak',
+			tools: true,
+			noise: 30,
+		},
+		success: true,
+		value: 121.35,
+	},
+	spare: {
+		subject: { terms: { rate: 20 }, guests: 50, cost: 1000, season: 'spring', tools: false },
+		success: true,
+		value: 210.9,
+	},
+	costly: {
+		subject: {
+			terms: { rate: 20 },
+			guests: 8,
+			cost: 2000,
+			season: 'peak',
+			tools: true,
+			noise: 30,
+		},
+		success: false,
+		value: 71.35,
+	},
+	crowd: {
+		subject: {
+			terms: { rate: 20 },
+			guests: 'many',
+			cost: 1000,
+			season: 'peak',
+			tools: true,
+			noise: 30,
+		},
+		success: false,
+		value: 106.35,
+	},
+}
+
+/**
  * Builds the floor area: one equation that solves `area` as `width` times `depth`.
  *
  * @returns A fresh symbolic definition with id `area`
@@ -1523,6 +1649,9 @@ export const WORKSHOP_GLOSSARY: {
 	labels: {
 		activity: 'activity',
 		'terms.excess': 'places over capacity',
+		'terms.rate': 'hourly rate',
+		guests: 'guest count',
+		season: 'season',
 		start: 'start hour',
 		member: 'wOrkshop tier',
 		score: 'booking score',
@@ -1543,11 +1672,12 @@ export const WORKSHOP_GLOSSARY: {
 	units: {
 		cost: 'money',
 		'terms.excess': 'money',
+		'terms.rate': 'money',
 		noise: 'decibel',
 		start: 'plain',
 		score: 'count',
 	},
-	values: { score: 'count' },
+	values: { score: 'count', fees: 'money' },
 	formats: {
 		money: { style: 'currency', currency: 'USD' },
 		decibel: { maximumFractionDigits: 1 },

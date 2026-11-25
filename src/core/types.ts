@@ -7,7 +7,7 @@ import type {
 	CheckState,
 	Comparison,
 	Definition,
-	LogicalOperator,
+	FactorGroup,
 	ReasonResult,
 	Rule,
 	RuleResult,
@@ -713,9 +713,10 @@ export interface ComparisonPhrase {
  * Names every sentence frame a {@link Lexicon} holds.
  *
  * @remarks
- * `fact.*`, `value.*`, `condition.*`, `rule.*`, `result.*`, and `worksheet.*` frame the
- * account. `subject.*`, `prompt.*`, and `ambiguity.*` frame the forward direction.
- * `FRAME_SLOTS` lists the slots each frame offers.
+ * `fact.*`, `value.*`, `condition.*`, `reason.*`, `rule.*`, `result.*`, `worksheet.*`,
+ * `source.*`, `group.*`, `factor.*`, and `equation.*` frame the account. `subject.*`,
+ * `prompt.*`, and `ambiguity.*` frame the forward direction. `FRAME_SLOTS` lists the slots each
+ * frame offers.
  */
 export type FrameName =
 	| 'fact.equal'
@@ -723,21 +724,41 @@ export type FrameName =
 	| 'fact.listed'
 	| 'fact.unread'
 	| 'value.range'
+	| 'condition.equal'
 	| 'condition.compared'
 	| 'condition.listed'
+	| 'condition.implies'
+	| 'condition.xor'
+	| 'condition.group'
+	| 'condition.not'
+	| 'reason.rule'
+	| 'reason.step'
+	| 'reason.more'
 	| 'rule.settled'
 	| 'rule.because'
 	| 'rule.condition'
 	| 'result.refused'
+	| 'result.because'
 	| 'result.count'
 	| 'result.value'
 	| 'result.solution'
 	| 'result.derived'
 	| 'worksheet.group'
 	| 'worksheet.factor'
+	| 'worksheet.applied'
+	| 'worksheet.unapplied'
 	| 'worksheet.blocked'
 	| 'worksheet.empty'
+	| 'worksheet.raw'
 	| 'worksheet.total'
+	| 'source.static'
+	| 'source.field'
+	| 'source.lookup'
+	| 'source.range'
+	| 'source.fallback'
+	| 'group.aggregation'
+	| 'factor.condition'
+	| 'equation.target'
 	| 'subject.fields'
 	| 'subject.empty'
 	| 'prompt.base'
@@ -752,21 +773,24 @@ export type FrameName =
  * Represents the general words of one language, complete.
  *
  * @remarks
- * `checks` words a check's state and `rules` a rule's. `faults` words why a field was not
- * read, and `missing` is the word for a value nobody read. `frames` are
+ * `checks` words a check's state, `rules` a rule's, and `verdicts` a definition's. `faults`
+ * words what a field that was not read is, and `missing` is the word for a value nobody read.
+ * `joins.reasons` stands between reasons and `joins.last` before the last one. `frames` are
  * `@orkestrel/template` templates whose slots `FRAME_SLOTS` lists. `limits.list` is the
- * longest list printed in full; a longer one is counted.
+ * longest list printed in full, a longer one being counted, and `limits.reasons` the most
+ * reasons one sentence gives.
  */
 export interface Lexicon {
 	readonly comparisons: Readonly<Record<Comparison, ComparisonPhrase>>
 	readonly checks: Readonly<Record<CheckState, string>>
 	readonly rules: Readonly<Record<CheckState, string>>
-	readonly connectives: Readonly<Record<LogicalOperator, string>>
+	readonly verdicts: Readonly<Record<CheckState, string>>
 	readonly aggregations: Readonly<Record<Aggregation, string>>
 	readonly faults: Readonly<Record<AuditFault['reason'], string>>
 	readonly values: { readonly true: string; readonly false: string; readonly null: string }
+	readonly joins: { readonly reasons: string; readonly last: string }
 	readonly frames: Readonly<Record<FrameName, string>>
-	readonly limits: { readonly list: number }
+	readonly limits: { readonly list: number; readonly reasons: number }
 	readonly missing: string
 }
 
@@ -775,10 +799,11 @@ export interface LexiconInput {
 	readonly comparisons?: Readonly<Partial<Record<Comparison, Readonly<Partial<ComparisonPhrase>>>>>
 	readonly checks?: Readonly<Partial<Lexicon['checks']>>
 	readonly rules?: Readonly<Partial<Lexicon['rules']>>
-	readonly connectives?: Readonly<Partial<Lexicon['connectives']>>
+	readonly verdicts?: Readonly<Partial<Lexicon['verdicts']>>
 	readonly aggregations?: Readonly<Partial<Lexicon['aggregations']>>
 	readonly faults?: Readonly<Partial<Lexicon['faults']>>
 	readonly values?: Readonly<Partial<Lexicon['values']>>
+	readonly joins?: Readonly<Partial<Lexicon['joins']>>
 	readonly frames?: Readonly<Partial<Lexicon['frames']>>
 	readonly limits?: Readonly<Partial<Lexicon['limits']>>
 	readonly missing?: string
@@ -844,6 +869,17 @@ export interface AccountContext {
 	readonly faults: readonly AuditFault[]
 }
 
+/**
+ * Represents what one worksheet reads: the definition's groups by id, the fields left unread,
+ * whether the run answered, so that its numbers print, and the unit those numbers are in.
+ */
+export interface WorksheetContext {
+	readonly groups: ReadonlyMap<string, FactorGroup>
+	readonly faults: readonly AuditFault[]
+	readonly stated: boolean
+	readonly unit: string | undefined
+}
+
 /** Represents a worded part of an account's line, with the domain words it needed and lacked. */
 export interface AccountText {
 	readonly text: string
@@ -880,17 +916,31 @@ export interface AccountSource {
  * Represents one written line of an {@link Account}, with the evidence behind it.
  *
  * @remarks
- * `decisive` is true when the line decides the line it stands under, or the account's verdict
- * at the top level. `gaps` lists the domain words the text needed and lacked.
+ * `text` states the outcome alone, and `summary` adds its reasons; `summary` is `text` when the
+ * line has none. `decisive` is true when the line decides the line it stands under, or the
+ * account's verdict at the top level. `gaps` lists the domain words the two needed and lacked.
  */
 export interface AccountLine {
 	readonly role: AccountRole
 	readonly state?: CheckState
 	readonly decisive: boolean
 	readonly text: string
+	readonly summary: string
 	readonly source: AccountSource
 	readonly gaps: readonly GlossaryGap[]
 	readonly lines: readonly AccountLine[]
+}
+
+/** Represents the parts `buildAccountLine` builds an {@link AccountLine} from. */
+export interface AccountLineInput {
+	readonly role: AccountRole
+	readonly state?: CheckState
+	readonly decisive?: boolean
+	readonly text: string
+	readonly summary?: string
+	readonly source?: AccountSource
+	readonly gaps?: readonly GlossaryGap[]
+	readonly lines?: readonly AccountLine[]
 }
 
 /** Represents a worded account of a definition, or of one of its results; a guide carries no `success`. */
@@ -1334,7 +1384,7 @@ export interface NarratorInterface {
 	 */
 	line(id: string, values: Readonly<Record<string, unknown>>): string
 	/**
-	 * Writes a definition's name and the name of each of its enabled parts.
+	 * Writes the guide to a definition: each enabled part's name, description, and condition.
 	 *
 	 * @param definition - The definition to describe
 	 * @returns The guide's account, with no `success`
@@ -1344,8 +1394,9 @@ export interface NarratorInterface {
 	 * Writes a result's verdict with the evidence that decided it.
 	 *
 	 * @remarks
-	 * A result whose `success` is false states no value, count, or solution: its verdict names
-	 * each field that was not read.
+	 * A quantitative result is written as a worksheet of its groups and factors. A result whose
+	 * `success` is false states no value, count, or solution: its verdict names each field that
+	 * was not read and each factor that found no value.
 	 *
 	 * @param definition - The definition the result answers
 	 * @param result - The result to narrate
@@ -1626,7 +1677,7 @@ export interface InterpretInterface {
 	 */
 	recipes(): readonly Recipe[]
 	/**
-	 * Writes a definition's name and the name of each of its enabled parts.
+	 * Writes the guide to a definition: each enabled part's name, description, and condition.
 	 *
 	 * @param definition - The definition to describe
 	 * @returns The guide's account, with no `success`

@@ -196,6 +196,25 @@ A rule's reasons are the checks that fix its state. interpret pairs the rule's a
 
 A condition is a check with no subject: `condition.equal` (`{{label}} is {{expected}}`), `condition.compared`, or `condition.listed`. Under `not`, the check takes its failing words. A conclusion key reads as its concluding rule's name with `rules.met`, or `rules.unmet` under `not`. `and` and `or` join through `Intl.ListFormat`, conjunction and disjunction; `implies` reads `condition.implies` (`if {{first}}, then {{second}}`); `xor` reads `condition.xor` (`either {{first}} or {{second}}, but not both`); and a compound inside another takes `condition.group` (`({{condition}})`). A `not` over a compound takes `condition.not` (`not ({{condition}})`).
 
+## The verdict of a logical definition
+
+`reason`'s `conclusion` is the last evaluated rule's state, so it's a verdict only where that rule is a goal. A definition has a goal when it has one enabled rule, or when its last enabled rule reads a key another enabled rule concludes.
+
+- **With a goal,** the verdict is the goal rule's outcome under the definition's name: `{{name}} {{verdict}}`, and its reasons.
+- **Without one,** the rules are independent gates, and the verdict counts them: `result.count` (`{{name}}: {{met}} of {{total}} rules apply`), with the names of the rules that apply in its `summary` (`result.applied`, bounded by `limits.reasons`). A refused run without a goal prints `result.refused` and its causes.
+
+The rule came from running one application's own definitions, where a list of gates printed as not holding because its last gate, on an unrelated field, didn't apply.
+
+## Words ruled on 2026-11-25, from the second unit's output
+
+- **A rule applies everywhere:** `result.count`, `rule.condition` (`{{name}} applies when {{condition}}`), and the guide's nested line `condition.when` (`applies when {{condition}}`), so a guide names a rule once.
+- **`implies`** reads as its equivalent, the failing words of its first operand `or` its second, so `applies when` reads before it; `condition.implies` leaves.
+- **`between` and `outside`** read `is in the range` and `is outside the range`.
+- **`result.value`** is `{{name}}: {{value}}`, as a worksheet's lines are, so a plural name reads.
+- **A lookup or range that found no entry** says so: `source.missed` (`no entry matches {{label}}`), and the fallback's line uses the same words.
+- **A worksheet shows what its numbers rest on:** a base (`worksheet.base`), a weight (`worksheet.weight`), and a bound (`worksheet.bounds`), wherever the definition authors one, so its lines account for its value.
+- **`limits.reasons`** is 4.
+
 ## Words ruled on 2026-11-25, from the first unit's output
 
 - **Rules and verdicts take two tables:** `rules` (`applies`, `does not apply`, `cannot be decided`) for a rule's line, and `verdicts` (`holds`, `does not hold`, `cannot be decided`) for a definition's. A logical verdict is the last enabled rule's, under the definition's name.

@@ -1,5 +1,5 @@
-import type { Expression } from '@orkestrel/reason'
-import type { Account, AccountLine, Entity } from '@src/core'
+import type { Check, Expression } from '@orkestrel/reason'
+import type { Account, Entity } from '@src/core'
 import {
 	arrayShape,
 	nullableShape,
@@ -8,6 +8,7 @@ import {
 	optionalShape,
 } from '@orkestrel/contract'
 import {
+	collectConcluders,
 	combineStates,
 	createAtom,
 	createCompound,
@@ -33,12 +34,14 @@ import {
 	assertRecipe,
 	assignEntities,
 	scanNumbers,
+	buildAccountLine,
 	buildSubject,
 	canonicalize,
 	canonicalizeNode,
 	classifyIntent,
 	collapseWhitespace,
 	collectAccountText,
+	collectFaultFields,
 	collectFieldGaps,
 	collectGaps,
 	collectNameGaps,
@@ -52,12 +55,14 @@ import {
 	digestValue,
 	extractNumbers,
 	filterUniqueGaps,
+	findConditionRules,
 	findDecidingOperands,
 	findEntityField,
 	findAnchoredNumber,
 	findLinkedNumbers,
 	findSpanOffset,
 	findFieldDescription,
+	findSoleExpression,
 	findUnclaimedNumbers,
 	findWord,
 	FRAME_SLOTS,
@@ -68,10 +73,10 @@ import {
 	mergeLexicon,
 	isInterpretError,
 	matchRecipe,
-	normalizeAccountLine,
 	normalizeLine,
 	renderAccount,
 	renderName,
+	renderReasons,
 	renderSubject,
 	resolveExpression,
 	resolveGlossary,
@@ -1062,7 +1067,9 @@ describe('the words', () => {
 		[{ comparisons: { from: { holds: '' } } }, 'comparisons.from.holds is empty'],
 		[{ checks: { read: 'x' } }, 'checks.read is not one of met, unmet, unread'],
 		[{ rules: { met: 5 } }, 'rules.met is not text'],
-		[{ connectives: { nor: 'nor' } }, 'connectives.nor is not one of and, or, not, implies, xor'],
+		[{ verdicts: { won: 'x' } }, 'verdicts.won is not one of met, unmet, unread'],
+		[{ joins: { first: 'x' } }, 'joins.first is not one of reasons, last'],
+		[{ joins: { last: ' ' } }, 'joins.last is empty'],
 		[
 			{ aggregations: { mode: 'x' } },
 			'aggregations.mode is not one of sum, product, average, minimum, maximum',
@@ -1078,13 +1085,14 @@ describe('the words', () => {
 			'frames."rule.settled" names the slot "label", and it offers name, verdict',
 		],
 		[{ limits: 3 }, 'limits is not a table of limits'],
-		[{ limits: { rows: 3 } }, 'limits.rows is not one of list'],
+		[{ limits: { rows: 3 } }, 'limits.rows is not one of list, reasons'],
+		[{ limits: { reasons: 0 } }, 'limits.reasons is not a whole number from 1'],
 		[{ limits: { list: -1 } }, 'limits.list is not a whole number from 0'],
 		[{ limits: { list: 1.5 } }, 'limits.list is not a whole number from 0'],
 		[{ missing: 'a\nb' }, 'missing holds a line break'],
 		[
 			{ labels: { cost: 'Cost' } },
-			'labels is not one of comparisons, checks, rules, connectives, aggregations, faults, values, frames, limits, missing',
+			'labels is not one of comparisons, checks, rules, verdicts, aggregations, faults, values, joins, frames, limits, missing',
 		],
 	])('scanLexicon refuses %j', (input, finding) => {
 		expect(scanLexicon(input)).toEqual([finding])
@@ -1148,7 +1156,8 @@ describe('the words', () => {
 	it('mergeLexicon overrides one word and keeps every other, in a frozen copy', () => {
 		const input = {
 			comparisons: { from: { fails: 'is below' } },
-			rules: { met: 'applies' },
+			rules: { met: 'fires' },
+			joins: { last: ' plus ' },
 			limits: { list: 2 },
 			missing: 'is unknown',
 		}
@@ -1159,12 +1168,13 @@ describe('the words', () => {
 				...DEFAULT_LEXICON.comparisons,
 				from: { holds: 'is at least', fails: 'is below' },
 			},
-			rules: { met: 'applies', unmet: 'does not hold', unread: 'cannot be read' },
-			limits: { list: 2 },
+			rules: { met: 'fires', unmet: 'does not apply', unread: 'cannot be decided' },
+			joins: { reasons: '; ', last: ' plus ' },
+			limits: { list: 2, reasons: 3 },
 			missing: 'is unknown',
 		})
 		input.rules.met = 'changed'
-		expect(merged.rules.met).toBe('applies')
+		expect(merged.rules.met).toBe('fires')
 		expect(Object.isFrozen(merged) && Object.isFrozen(merged.comparisons.from)).toBe(true)
 	})
 
@@ -1267,12 +1277,16 @@ describe('the gaps', () => {
 			createRule('t', [createAtom('z', 'above', 1)], createAtom('n', 'equals', true), {
 				enabled: false,
 			}),
+			createRule('u', [createAtom('k', 'equals', 'never')], createAtom('o', 'equals', true), {
+				name: 'Fourth',
+			}),
 		])
 		expect(collectGaps([logical, logical], { labels: {} }, formats)).toEqual([
 			{ word: 'name', part: 'definition', id: 'l' },
 			{ word: 'name', part: 'rule', id: 'r' },
 			{ word: 'label', field: 'a' },
 			{ word: 'unit', field: 'a' },
+			{ word: 'label', field: 'k' },
 		])
 		const quantitative = createQuantitativeDefinition('q', 'Q', [
 			createFactorGroup('g', 'sum', [
@@ -1286,6 +1300,7 @@ describe('the gaps', () => {
 			{ word: 'name', part: 'group', id: 'g' },
 			{ word: 'name', part: 'factor', id: 'f' },
 			{ word: 'label', field: ['x', 'y'] },
+			{ word: 'unit', field: ['x', 'y'] },
 			{ word: 'label', field: 'c' },
 			{ word: 'unit', field: 'c' },
 			{ word: 'format', unit: 'acre' },
@@ -1354,7 +1369,41 @@ describe('the reasons', () => {
 		})
 	})
 
-	it('findDecidingOperands names operands that fix the state, over every assignment', () => {
+	it('findConditionRules finds the rules whose value bears on a check of their key', () => {
+		const gold = createRule('gold', [a], createAtom('tier', 'equals', 'gold'))
+		const tin = createRule('tin', [b], createAtom('tier', 'equals', 'tin'))
+		const concluders = collectConcluders([gold, tin])
+		const cases = [
+			['equals', 'gold', [gold]],
+			['equals', 'lead', []],
+			['any', ['gold', 'tin'], [gold, tin]],
+			['not', 'gold', [gold]],
+			['none', ['gold', 'tin'], [gold, tin]],
+			['above', 5, []],
+		] as const
+		for (const [operator, value, rules] of cases) {
+			expect(findConditionRules({ field: 'tier', operator, value }, concluders)).toEqual(rules)
+		}
+		expect(
+			findConditionRules({ field: 'other', operator: 'equals', value: 1 }, concluders),
+		).toEqual([])
+		const unknown: Check = JSON.parse('{"field":"tier","operator":"near","value":1}')
+		expect(findConditionRules(unknown, concluders)).toEqual([])
+	})
+
+	it('findSoleExpression unwraps an and or an or over one operand, and nothing else', () => {
+		const negated = createCompound('not', [a])
+		const pair = createCompound('or', [a, b])
+		expect(findSoleExpression(a)).toBe(a)
+		expect(findSoleExpression(createCompound('and', [createCompound('or', [a])]))).toBe(a)
+		expect(findSoleExpression(createCompound('and', [negated]))).toBe(negated)
+		expect(findSoleExpression(negated)).toBe(negated)
+		expect(findSoleExpression(pair)).toBe(pair)
+		const empty = createCompound('and', [])
+		expect(findSoleExpression(empty)).toBe(empty)
+	})
+
+	it('findDecidingOperands names unread operands alone for an unread state, and settling them settles it', () => {
 		const states = ['met', 'unmet', 'unread'] as const
 		const arities = { and: [1, 2, 3], or: [1, 2, 3], not: [1], implies: [2], xor: [2] } as const
 		for (const operator of LOGICAL_OPERATORS) {
@@ -1365,13 +1414,47 @@ describe('the reasons', () => {
 						(_entry, index) => states[Math.floor(number / 3 ** index) % 3] ?? 'met',
 					),
 				)
-				const moved = assignments.flatMap((assignment) => {
-					const deciding = findDecidingOperands(operator, assignment)
-					const state = combineStates(operator, assignment)
-					return assignments
-						.filter((other) => deciding.every((index) => other[index] === assignment[index]))
-						.filter((other) => combineStates(operator, other) !== state)
-				})
+				const open = assignments
+					.filter((assignment) => combineStates(operator, assignment) === 'unread')
+					.filter((assignment) => {
+						const deciding = findDecidingOperands(operator, assignment)
+						return (
+							deciding.length === 0 ||
+							deciding.some((index) => assignment[index] !== 'unread') ||
+							assignments.some(
+								(other) =>
+									combineStates(operator, other) === 'unread' &&
+									other.every((state, index) =>
+										deciding.includes(index) ? state !== 'unread' : state === assignment[index],
+									),
+							)
+						)
+					})
+				expect(open).toEqual([])
+			}
+		}
+	})
+
+	it('findDecidingOperands names operands that fix a settled state, over every assignment', () => {
+		const states = ['met', 'unmet', 'unread'] as const
+		const arities = { and: [1, 2, 3], or: [1, 2, 3], not: [1], implies: [2], xor: [2] } as const
+		for (const operator of LOGICAL_OPERATORS) {
+			for (const arity of arities[operator]) {
+				const assignments = Array.from({ length: 3 ** arity }, (_, number) =>
+					Array.from(
+						{ length: arity },
+						(_entry, index) => states[Math.floor(number / 3 ** index) % 3] ?? 'met',
+					),
+				)
+				const moved = assignments
+					.filter((assignment) => combineStates(operator, assignment) !== 'unread')
+					.flatMap((assignment) => {
+						const deciding = findDecidingOperands(operator, assignment)
+						const state = combineStates(operator, assignment)
+						return assignments
+							.filter((other) => deciding.every((index) => other[index] === assignment[index]))
+							.filter((other) => combineStates(operator, other) !== state)
+					})
 				expect(moved).toEqual([])
 			}
 		}
@@ -1418,42 +1501,77 @@ describe('the reasons', () => {
 })
 
 describe("the account's text", () => {
-	const verdict: AccountLine = {
+	const verdict = buildAccountLine({
 		role: 'verdict',
 		decisive: true,
 		text: 'verdict',
-		source: {},
-		gaps: [],
+		summary: 'verdict, because why',
 		lines: [
-			{ role: 'reason', decisive: true, text: 'why', source: {}, gaps: [], lines: [] },
-			{ role: 'step', decisive: false, text: 'aside', source: {}, gaps: [], lines: [] },
+			buildAccountLine({ role: 'reason', decisive: true, text: 'why' }),
+			buildAccountLine({ role: 'step', text: 'aside' }),
 		],
-	}
-	const step: AccountLine = {
+	})
+	const step = buildAccountLine({
 		role: 'step',
-		decisive: false,
 		text: 'step',
-		source: {},
-		gaps: [],
-		lines: [{ role: 'reason', decisive: true, text: 'under', source: {}, gaps: [], lines: [] }],
-	}
+		lines: [buildAccountLine({ role: 'reason', decisive: true, text: 'under' })],
+	})
 
 	it('normalizeLine makes one space of each run of line breaks', () => {
 		expect(normalizeLine('one\r\n\u{2028}two\vthree')).toBe('one two three')
 		expect(normalizeLine('one  two')).toBe('one  two')
 	})
 
-	it('normalizeAccountLine keeps each gap once', () => {
+	it('buildAccountLine fills what is absent, and keeps each gap once', () => {
+		expect(buildAccountLine({ role: 'step', text: 'a\nb' })).toEqual({
+			role: 'step',
+			decisive: false,
+			text: 'a b',
+			summary: 'a b',
+			source: {},
+			gaps: [],
+			lines: [],
+		})
 		expect(
-			normalizeAccountLine({
-				...step,
-				text: 'a\nb',
+			buildAccountLine({
+				role: 'reason',
+				state: 'met',
+				decisive: true,
+				text: 'a',
+				summary: 'a\r\nb',
+				source: { rule: 'r' },
 				gaps: [
 					{ word: 'unit', field: 'a' },
 					{ word: 'unit', field: 'a' },
 				],
+				lines: [step],
 			}),
-		).toEqual({ ...step, text: 'a b', gaps: [{ word: 'unit', field: 'a' }] })
+		).toEqual({
+			role: 'reason',
+			state: 'met',
+			decisive: true,
+			text: 'a',
+			summary: 'a b',
+			source: { rule: 'r' },
+			gaps: [{ word: 'unit', field: 'a' }],
+			lines: [step],
+		})
+	})
+
+	it('collectFaultFields reads the faults of every line, nested ones too', () => {
+		const fault = { reason: 'missing', path: ['a', 'b'], expected: 'number' } as const
+		const inner = buildAccountLine({ role: 'reason', text: 'x', source: { fault } })
+		const outer = buildAccountLine({ role: 'reason', text: 'y', lines: [step, inner] })
+		expect(collectFaultFields([verdict, outer])).toEqual(new Set(['a.b']))
+		expect(collectFaultFields([])).toEqual(new Set())
+	})
+
+	it('renderReasons joins reasons, with its own word before the last', () => {
+		const joins = { reasons: '; ', last: '; and ' }
+		expect(renderReasons([], joins)).toBe('')
+		expect(renderReasons(['a'], joins)).toBe('a')
+		expect(renderReasons(['a', 'b'], joins)).toBe('a; and b')
+		expect(renderReasons(['a', 'b', 'c'], joins)).toBe('a; b; and c')
 	})
 
 	it('renderName prints the name, then the id, then the quoted id', () => {
@@ -1464,7 +1582,7 @@ describe("the account's text", () => {
 
 	it('renderAccount prints the verdict, the deciding lines, or every line', () => {
 		const account: Account = { id: 'd', name: 'D', lines: [verdict, step] }
-		expect(renderAccount(account, { detail: 'line' })).toBe('verdict')
+		expect(renderAccount(account, { detail: 'line' })).toBe('verdict, because why')
 		expect(renderAccount(account, { detail: 'reasons' })).toBe('verdict\n  why')
 		expect(renderAccount(account)).toBe('verdict\n  why')
 		expect(renderAccount(account, { detail: 'full' })).toBe(

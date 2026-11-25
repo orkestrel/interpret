@@ -16,6 +16,7 @@ import type {
 	Account,
 	AccountDetail,
 	AccountLine,
+	AccountLineInput,
 	AccountOptions,
 	AnchorCandidate,
 	AnchorRefusalHandler,
@@ -62,12 +63,15 @@ import {
 	combineStates,
 	COMPARISONS,
 	extractAtoms,
+	extractConclusions,
 	findFieldShape,
 	formatField,
 	isComparison,
 	projectValue,
+	readClosedState,
 	scanShape,
 	scanSymbolicExpression,
+	settleComparison,
 } from '@orkestrel/reason'
 import { DEFAULT_LOCALE, FILL_PATTERN, UNSAFE_FIELD_SEGMENTS } from '@orkestrel/template'
 import {
@@ -853,7 +857,7 @@ export function scanFrame(id: FrameName, frame: string): readonly string[] {
  * @remarks
  * Every word stands on its own: a table, a word, or a frame the lexicon does not hold is a
  * finding, as a blank word, a word with a line break, a frame naming a slot it does not offer,
- * and a list limit that counts nothing are. Nothing the input holds throws.
+ * and a limit that is no whole number it can keep are. Nothing the input holds throws.
  *
  * @param input - The override to scan
  * @returns One string per finding, empty when the override stands
@@ -883,10 +887,11 @@ export function scanLexicon(input: unknown): readonly string[] {
 					: ['comparisons is not a table of words']
 			case 'checks':
 			case 'rules':
-			case 'connectives':
+			case 'verdicts':
 			case 'aggregations':
 			case 'faults':
 			case 'values':
+			case 'joins':
 				return scanWords([table], words, Object.keys(DEFAULT_LEXICON[table]))
 			case 'frames':
 				return [
@@ -897,13 +902,16 @@ export function scanLexicon(input: unknown): readonly string[] {
 				]
 			case 'limits':
 				return isRecord(words)
-					? Object.entries(words).flatMap(([limit, value]) =>
-							limit !== 'list'
-								? [`${renderPath(['limits', limit])} is not one of list`]
-								: isNonNegativeInteger(value)
-									? []
-									: ['limits.list is not a whole number from 0'],
-						)
+					? Object.entries(words).flatMap(([limit, value]) => {
+							const place = renderPath(['limits', limit])
+							if (limit !== 'list' && limit !== 'reasons') {
+								return [`${place} is not one of list, reasons`]
+							}
+							const least = limit === 'list' ? 0 : 1
+							return isNonNegativeInteger(value) && value >= least
+								? []
+								: [`${place} is not a whole number from ${String(least)}`]
+						})
 					: ['limits is not a table of limits']
 			case 'missing':
 				return scanWord('missing', words)
@@ -1012,10 +1020,11 @@ export function mergeLexicon(base: Lexicon, input: LexiconInput): Lexicon {
 		}),
 		checks: Object.freeze({ ...base.checks, ...input.checks }),
 		rules: Object.freeze({ ...base.rules, ...input.rules }),
-		connectives: Object.freeze({ ...base.connectives, ...input.connectives }),
+		verdicts: Object.freeze({ ...base.verdicts, ...input.verdicts }),
 		aggregations: Object.freeze({ ...base.aggregations, ...input.aggregations }),
 		faults: Object.freeze({ ...base.faults, ...input.faults }),
 		values: Object.freeze({ ...base.values, ...input.values }),
+		joins: Object.freeze({ ...base.joins, ...input.joins }),
 		frames: Object.freeze({ ...base.frames, ...input.frames }),
 		limits: Object.freeze({ ...base.limits, ...input.limits }),
 		missing: input.missing ?? base.missing,
@@ -1225,7 +1234,8 @@ export function filterUniqueGaps(gaps: readonly GlossaryGap[]): readonly Glossar
  *
  * @remarks
  * A disabled part needs no word, and a key an enabled rule concludes needs no label, because
- * the concluding rule's name prints in its place.
+ * the concluding rule's name prints in its place. A definition's value needs no unit, and a unit
+ * the glossary names for it needs a format.
  *
  * @param definitions - The definitions to read
  * @param glossary - The domain words supplied
@@ -1256,13 +1266,13 @@ export function collectGaps(
 			switch (definition.reasoning) {
 				case 'logical': {
 					const rules = definition.rules.filter((rule) => rule.enabled !== false)
-					const concluded = collectConcluders(rules)
+					const concluders = collectConcluders(rules)
 					return [
 						...name,
 						...rules.flatMap((rule) => collectNameGaps('rule', rule)),
 						...rules
 							.flatMap((rule) => rule.premises.flatMap((premise) => extractAtoms(premise)))
-							.filter((atom) => !concluded.has(formatField(atom.check.field)))
+							.filter(({ check }) => findConditionRules(check, concluders).length === 0)
 							.flatMap(({ check }) =>
 								collectFieldGaps(check.field, matchesNumericCheck(check), glossary, formats),
 							),
@@ -1280,7 +1290,7 @@ export function collectGaps(
 						...factors.flatMap(({ source }) =>
 							source.origin === 'static'
 								? []
-								: collectFieldGaps(source.field, false, glossary, formats),
+								: collectFieldGaps(source.field, source.origin === 'field', glossary, formats),
 						),
 						...factors
 							.flatMap((factor) => factor.checks ?? [])
@@ -1318,13 +1328,13 @@ export function collectGaps(
 // === The reasons: the checks that fix a rule's state
 
 /**
- * Finds the operands whose states fix a connective's state.
+ * Finds the operands that decide a connective's state.
  *
  * @remarks
- * While the operands named keep their states, no change to any other moves the connective.
+ * While the operands named keep their states, no change to any other moves a settled connective.
  * The first unmet operand fixes an `and` and the first met one an `or`; without one, every
- * operand does, because any of them could be that one. An unmet first operand or a met second
- * one fixes an `implies`, and any unread operand an `xor`.
+ * operand does. An unmet first operand or a met second one fixes an `implies`. An unread
+ * connective names its unread operands alone: settling all of them, whichever way, settles it.
  *
  * @param operator - The connective
  * @param states - The operands' states, in order
@@ -1343,7 +1353,9 @@ export function findDecidingOperands(
 	states: readonly CheckState[],
 ): readonly number[] {
 	const every = states.map((_state, index) => index)
-	const unread = every.filter((index) => states[index] === 'unread')
+	if (combineStates(operator, states) === 'unread') {
+		return every.filter((index) => states[index] === 'unread')
+	}
 	switch (operator) {
 		case 'and':
 			return states.includes('unmet') ? [states.indexOf('unmet')] : every
@@ -1353,10 +1365,70 @@ export function findDecidingOperands(
 			if (states[0] === 'unmet') return [0]
 			return states[1] === 'met' ? [1] : every
 		case 'xor':
-			return unread.length > 0 ? unread : every
 		case 'not':
 			return every
 	}
+}
+
+/**
+ * Finds the expression an `and` or an `or` over one operand stands for.
+ *
+ * @param expression - The expression to read
+ * @returns The innermost expression that is no such connective
+ *
+ * @example
+ * ```ts
+ * import { createAtom, createCompound } from '@orkestrel/reason'
+ * import { findSoleExpression } from '@orkestrel/interpret'
+ *
+ * const atom = createAtom('a', 'equals', 1)
+ * findSoleExpression(createCompound('and', [createCompound('or', [atom])])) // atom
+ * ```
+ */
+export function findSoleExpression(expression: Expression): Expression {
+	if (expression.form === 'atom') return expression
+	const [sole, ...rest] = expression.operands
+	return sole !== undefined &&
+		rest.length === 0 &&
+		(expression.operator === 'and' || expression.operator === 'or')
+		? findSoleExpression(sole)
+		: expression
+}
+
+/**
+ * Finds the rules a check on a conclusion key is a condition of.
+ *
+ * @remarks
+ * A comparison that a key no rule concluded leaves unmet holds when one of these rules applies:
+ * those whose concluded value meets it. One that such a key meets, `not` and `none`, holds when
+ * none of these rules applies: those whose concluded value does not meet it.
+ *
+ * @param check - The check to read
+ * @param concluders - The enabled rules concluding each key
+ * @returns The rules, in authored order; empty when no rule's value bears on the check
+ *
+ * @example
+ * ```ts
+ * import { collectConcluders, createAtom, createRule } from '@orkestrel/reason'
+ * import { findConditionRules } from '@orkestrel/interpret'
+ *
+ * const rule = createRule('adult', [createAtom('age', 'from', 18)], createAtom('adult', 'equals', true))
+ * const check = { field: 'adult', operator: 'equals', value: true } as const
+ * findConditionRules(check, collectConcluders([rule])) // [rule]
+ * ```
+ */
+export function findConditionRules(
+	check: Check,
+	concluders: ReadonlyMap<string, readonly Rule[]>,
+): readonly Rule[] {
+	const key = formatField(check.field)
+	const bearing = readClosedState(check.operator) === 'met' ? 'unmet' : 'met'
+	return (concluders.get(key) ?? []).filter((rule) => {
+		const settled = attempt(() =>
+			settleComparison(extractConclusions(rule.conclusion)[key], check.operator, check.value),
+		)
+		return isSuccess(settled) && settled.value === bearing
+	})
 }
 
 /**
@@ -1504,21 +1576,80 @@ export function normalizeLine(text: string): string {
 }
 
 /**
- * Normalizes an account's line: its text on one line, and each of its gaps once.
+ * Builds an account's line: each text on one line, and each gap once.
  *
- * @param line - The line to normalize
- * @returns A fresh line
+ * @remarks
+ * An absent `summary` is the text, an absent `decisive` is `false`, and an absent collection is
+ * empty.
+ *
+ * @param input - The line's parts
+ * @returns The line
  *
  * @example
  * ```ts
- * import { normalizeAccountLine } from '@orkestrel/interpret'
+ * import { buildAccountLine } from '@orkestrel/interpret'
  *
- * normalizeAccountLine({ role: 'step', decisive: false, text: 'a\nb', source: {}, gaps: [], lines: [] }).text
- * // 'a b'
+ * buildAccountLine({ role: 'step', text: 'a\nb' })
+ * // { role: 'step', decisive: false, text: 'a b', summary: 'a b', source: {}, gaps: [], lines: [] }
  * ```
  */
-export function normalizeAccountLine(line: AccountLine): AccountLine {
-	return { ...line, text: normalizeLine(line.text), gaps: filterUniqueGaps(line.gaps) }
+export function buildAccountLine(input: AccountLineInput): AccountLine {
+	return {
+		role: input.role,
+		...(input.state === undefined ? {} : { state: input.state }),
+		decisive: input.decisive ?? false,
+		text: normalizeLine(input.text),
+		summary: normalizeLine(input.summary ?? input.text),
+		source: input.source ?? {},
+		gaps: filterUniqueGaps(input.gaps ?? []),
+		lines: input.lines ?? [],
+	}
+}
+
+/**
+ * Collects the fields whose faults an account's lines name, their nested lines included.
+ *
+ * @param lines - The lines to read
+ * @returns The display path of each field
+ *
+ * @example
+ * ```ts
+ * import { buildAccountLine, collectFaultFields } from '@orkestrel/interpret'
+ *
+ * const fault = { reason: 'missing', path: 'cost', expected: 'number' } as const
+ * collectFaultFields([buildAccountLine({ role: 'reason', text: 'cost', source: { fault } })])
+ * // a set holding 'cost'
+ * ```
+ */
+export function collectFaultFields(lines: readonly AccountLine[]): ReadonlySet<string> {
+	const pending = [...lines]
+	for (const line of pending) pending.push(...line.lines)
+	return new Set(
+		pending.flatMap(({ source }) =>
+			source.fault === undefined ? [] : [formatField(source.fault.path)],
+		),
+	)
+}
+
+/**
+ * Renders reasons as one list, joined by a lexicon's words.
+ *
+ * @param reasons - The reasons, in order
+ * @param joins - The words that stand between reasons, and before the last one
+ * @returns The reasons as one text
+ *
+ * @example
+ * ```ts
+ * import { renderReasons } from '@orkestrel/interpret'
+ *
+ * renderReasons(['a', 'b', 'c'], { reasons: '; ', last: '; and ' }) // 'a; b; and c'
+ * ```
+ */
+export function renderReasons(reasons: readonly string[], joins: Lexicon['joins']): string {
+	const last = reasons.at(-1) ?? ''
+	return reasons.length < 2
+		? last
+		: `${reasons.slice(0, -1).join(joins.reasons)}${joins.last}${last}`
 }
 
 /**
@@ -1550,10 +1681,10 @@ export function renderName(named: { readonly id: string; readonly name: string }
  *
  * @example
  * ```ts
- * import { collectAccountText } from '@orkestrel/interpret'
+ * import { buildAccountLine, collectAccountText } from '@orkestrel/interpret'
  *
- * const line = { role: 'verdict', decisive: true, text: 'Loan holds', source: {}, gaps: [], lines: [] } as const
- * collectAccountText([line], 'full', 1) // ['  Loan holds']
+ * collectAccountText([buildAccountLine({ role: 'verdict', text: 'Loan holds' })], 'full', 1)
+ * // ['  Loan holds']
  * ```
  */
 export function collectAccountText(
@@ -1561,13 +1692,14 @@ export function collectAccountText(
 	detail: AccountDetail,
 	depth = 0,
 ): readonly string[] {
+	if (detail === 'line') {
+		return lines.filter((line) => line.role === 'verdict').map((line) => line.summary)
+	}
 	return lines
-		.filter((line) =>
-			detail === 'line' ? line.role === 'verdict' : detail === 'full' || line.decisive,
-		)
+		.filter((line) => detail === 'full' || line.decisive)
 		.flatMap((line) => [
 			`${'  '.repeat(depth)}${line.text}`,
-			...(detail === 'line' ? [] : collectAccountText(line.lines, detail, depth + 1)),
+			...collectAccountText(line.lines, detail, depth + 1),
 		])
 }
 
