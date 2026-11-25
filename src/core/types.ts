@@ -736,6 +736,7 @@ export type FrameName =
 	| 'fact.unread'
 	| 'fact.stated'
 	| 'fact.confidence'
+	| 'fact.some'
 	| 'fact.proved'
 	| 'fault.type'
 	| 'fault.missing'
@@ -767,6 +768,7 @@ export type FrameName =
 	| 'result.value'
 	| 'result.solution'
 	| 'result.derived'
+	| 'result.facts'
 	| 'result.outcome'
 	| 'result.decided'
 	| 'result.decision'
@@ -813,6 +815,9 @@ export type FrameName =
 	| 'ambiguity.intent'
 	| 'ambiguity.confidence'
 
+/** Names a value a {@link Lexicon} words, as the `preview` of `@orkestrel/contract` names it. */
+export type ReceivedKey = 'array' | 'object' | 'instance' | 'function'
+
 /** Names an eligibility a {@link Lexicon} words, mirroring `Eligibility` of `@orkestrel/qualifier`. */
 export type EligibilityKey = 'eligible' | 'ineligible' | 'referral'
 
@@ -840,17 +845,18 @@ export type DecisionKey = 'approved' | 'denied' | 'submitted'
  * @remarks
  * `checks` words a check's state, `rules` a rule's, and `verdicts` a definition's. `faults`
  * words what a field that was not read is, and `missing` is the word for a value nobody read.
- * `expected` words the kind of value a fault needed, `constraints` a bound on a value, and
- * `lengths` a bound on a length. `operations` words an equation's operation over its operands,
- * and `transforms` a factor's. `refusals` words why a number in a text was not taken, and
- * `unreadables` why it could not be read exactly. `eligibilities`, `effects`, `statuses`, and
- * `decisions` word what other packages decide; `phrase` reads them. `joins.reasons` stands
- * between reasons, `joins.last` before the last one, `joins.steps` between a factor's steps, and
- * `joins.terms` between a fact's terms. `frames` are `@orkestrel/template` templates whose slots `FRAME_SLOTS` lists, and
- * `WORD_SLOTS` lists those of `operations`, `transforms`, `constraints`, `lengths`, and
- * `refusals`. `limits.list` is the longest list a fact prints in full, a longer one being
- * counted, and `limits.reasons` the most reasons, or rules that apply, one sentence gives. A
- * condition prints every member of its list.
+ * `expected` words the kind of value a fault needed, `received` a value it got that has no text of
+ * its own, `constraints` a bound on a value, and `lengths` a bound on a length. `operations` words
+ * an equation's operation over its operands, and `transforms` a factor's. `refusals` words why a
+ * number in a text was not taken, and `unreadables` why it could not be read exactly.
+ * `eligibilities`, `effects`, `statuses`, and `decisions` word what other packages decide; `phrase`
+ * reads them. `joins.reasons` stands between reasons, `joins.last` before the last one,
+ * `joins.steps` between a factor's steps, and `joins.terms` between a fact's terms. `frames` are
+ * `@orkestrel/template` templates whose slots `FRAME_SLOTS` lists, and `WORD_SLOTS` lists those of
+ * `operations`, `transforms`, `constraints`, `lengths`, and `refusals`. `limits.list` is the longest
+ * list a fact prints in full, a longer one being counted, and `limits.reasons` the most reasons,
+ * rules that apply, or derived facts one sentence gives. A condition prints every member of its
+ * list.
  */
 export interface Lexicon {
 	readonly comparisons: Readonly<Record<Comparison, ComparisonPhrase>>
@@ -860,6 +866,7 @@ export interface Lexicon {
 	readonly aggregations: Readonly<Record<Aggregation, string>>
 	readonly faults: Readonly<Record<AuditFault['reason'], string>>
 	readonly expected: Readonly<Record<FaultKind, string>>
+	readonly received: Readonly<Record<ReceivedKey, string>>
 	readonly constraints: Readonly<Record<FaultConstraint, string>>
 	readonly lengths: { readonly min: string; readonly max: string }
 	readonly operations: Readonly<Record<MathOperation, string>>
@@ -886,6 +893,7 @@ export interface LexiconInput {
 	readonly aggregations?: Readonly<Partial<Lexicon['aggregations']>>
 	readonly faults?: Readonly<Partial<Lexicon['faults']>>
 	readonly expected?: Readonly<Partial<Lexicon['expected']>>
+	readonly received?: Readonly<Partial<Lexicon['received']>>
 	readonly constraints?: Readonly<Partial<Lexicon['constraints']>>
 	readonly lengths?: Readonly<Partial<Lexicon['lengths']>>
 	readonly operations?: Readonly<Partial<Lexicon['operations']>>

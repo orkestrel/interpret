@@ -969,6 +969,7 @@ export function scanLexicon(input: unknown): readonly string[] {
 			case 'aggregations':
 			case 'faults':
 			case 'expected':
+			case 'received':
 			case 'unreadables':
 			case 'eligibilities':
 			case 'effects':
@@ -1130,6 +1131,7 @@ export function mergeLexicon(base: Lexicon, input: LexiconInput): Lexicon {
 		aggregations: Object.freeze({ ...base.aggregations, ...input.aggregations }),
 		faults: Object.freeze({ ...base.faults, ...input.faults }),
 		expected: Object.freeze({ ...base.expected, ...input.expected }),
+		received: Object.freeze({ ...base.received, ...input.received }),
 		constraints: Object.freeze({ ...base.constraints, ...input.constraints }),
 		lengths: Object.freeze({ ...base.lengths, ...input.lengths }),
 		operations: Object.freeze({ ...base.operations, ...input.operations }),
@@ -1538,6 +1540,25 @@ export function findFactSentence(
 	const listed = slots.has('terms') && positions.length > 0
 	const whole = listed || (!slots.has('terms') && positions.every((slot) => slots.has(slot)))
 	return whole && !past ? sentence : undefined
+}
+
+/**
+ * Determines whether a fact leaves a variable unbound.
+ *
+ * @param fact - The fact to read
+ * @returns True if a term is a variable; false otherwise
+ *
+ * @example
+ * ```ts
+ * import { createFact } from '@orkestrel/reason'
+ * import { matchesUnboundFact } from '@orkestrel/interpret'
+ *
+ * matchesUnboundFact(createFact('f', 'mortal', ['?x'])) // true
+ * matchesUnboundFact(createFact('f', 'mortal', ['socrates'])) // false
+ * ```
+ */
+export function matchesUnboundFact(fact: Fact): boolean {
+	return fact.terms.some((term) => isString(term) && term.startsWith('?'))
 }
 
 /**
@@ -2089,6 +2110,44 @@ export function buildAccountLine(input: AccountLineInput): AccountLine {
 		gaps: filterUniqueGaps(input.gaps ?? []).map((gap) => cloneGlossaryGap(gap)),
 		lines: input.lines ?? [],
 	}
+}
+
+/**
+ * Finds the number a fault received, where its preview is a number's text.
+ *
+ * @param received - The preview the fault holds
+ * @returns The number, one that is not finite included, or `undefined` for any other preview
+ *
+ * @example
+ * ```ts
+ * import { findReceivedNumber } from '@orkestrel/interpret'
+ *
+ * findReceivedNumber('1.5') // 1.5
+ * findReceivedNumber('"1.5"') // undefined
+ * ```
+ */
+export function findReceivedNumber(received: string): number | undefined {
+	const number = Number(received)
+	return String(number) === received ? number : undefined
+}
+
+/**
+ * Determines whether a fault's preview is of a value a reader can be told.
+ *
+ * @param received - The preview the fault holds
+ * @returns False for an absent value and for a number that is not finite; true otherwise
+ *
+ * @example
+ * ```ts
+ * import { matchesReceivedValue } from '@orkestrel/interpret'
+ *
+ * matchesReceivedValue('5') // true
+ * matchesReceivedValue('Infinity') // false
+ * ```
+ */
+export function matchesReceivedValue(received: string): boolean {
+	const number = findReceivedNumber(received)
+	return received !== preview(undefined) && (number === undefined || isFiniteNumber(number))
 }
 
 /**

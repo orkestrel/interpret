@@ -11,6 +11,7 @@ import {
 	numberShape,
 	objectShape,
 	optionalShape,
+	preview,
 } from '@orkestrel/contract'
 import { DECISIONS, PROGRAM_EFFECTS, STATUSES } from '@orkestrel/program'
 import { ELIGIBILITIES, QUALIFICATION_EFFECTS } from '@orkestrel/qualifier'
@@ -87,6 +88,7 @@ import {
 	findFactSentence,
 	findFieldDescription,
 	findGoalRule,
+	findReceivedNumber,
 	findSoleExpression,
 	findSubjectKey,
 	findUnclaimedNumbers,
@@ -98,7 +100,9 @@ import {
 	matchesFilledField,
 	matchesNumericCheck,
 	matchesNumericSource,
+	matchesReceivedValue,
 	matchesSubjectKeys,
+	matchesUnboundFact,
 	mergeLexicon,
 	isInterpretError,
 	matchRecipe,
@@ -1135,9 +1139,11 @@ describe('the words', () => {
 		[{ missing: 'a\nb' }, 'missing holds a line break'],
 		[
 			{ labels: { cost: 'Cost' } },
-			'labels is not one of comparisons, checks, rules, verdicts, aggregations, faults, expected, constraints, lengths, operations, transforms, refusals, unreadables, eligibilities, effects, statuses, decisions, values, joins, frames, limits, missing',
+			'labels is not one of comparisons, checks, rules, verdicts, aggregations, faults, expected, received, constraints, lengths, operations, transforms, refusals, unreadables, eligibilities, effects, statuses, decisions, values, joins, frames, limits, missing',
 		],
 		[{ expected: { text: 'x' } }, `expected.text is not one of ${FAULT_KINDS.join(', ')}`],
+		[{ received: { text: 'x' } }, 'received.text is not one of array, object, instance, function'],
+		[{ received: { array: '' } }, 'received.array is empty'],
 		[
 			{ constraints: { least: 'x' } },
 			`constraints.least is not one of ${FAULT_CONSTRAINTS.join(', ')}`,
@@ -1278,6 +1284,7 @@ describe('the words', () => {
 	it('mergeLexicon overrides one word of each table alone', () => {
 		const input = {
 			expected: { number: 'a figure' },
+			received: { instance: 'a thing' },
 			constraints: { min: 'no less than {{limit}}' },
 			lengths: { max: 'at most {{limit}} parts' },
 			operations: { add: '{{left}} plus {{right}}' },
@@ -1293,6 +1300,7 @@ describe('the words', () => {
 		const merged = mergeLexicon(DEFAULT_LEXICON, input)
 		const tables = [
 			'expected',
+			'received',
 			'constraints',
 			'lengths',
 			'operations',
@@ -1368,6 +1376,9 @@ describe('the words', () => {
 			[
 				'fact.stated',
 				'fact.confidence',
+				'fact.some',
+				'result.facts',
+				'worksheet.base',
 				'fact.proved',
 				'value.any',
 				'result.outcome',
@@ -1391,6 +1402,9 @@ describe('the words', () => {
 		).toEqual([
 			'{{predicate}}({{terms}})',
 			'{{fact}} (confidence {{confidence}})',
+			'{{fact}}, its values left open',
+			'Facts derived: {{count}} ({{facts}})',
+			'base: {{value}}, added to the rest',
 			'proved through {{name}}',
 			'any value',
 			'{{name}}: {{outcome}}',
@@ -1424,6 +1438,12 @@ describe('the words', () => {
 			['operations', DEFAULT_LEXICON.operations, MATH_OPERATIONS],
 			['transforms', DEFAULT_LEXICON.transforms, MATH_OPERATIONS],
 			['expected', DEFAULT_LEXICON.expected, FAULT_KINDS],
+			// `preview` of `@orkestrel/contract`, over a value of each kind it names by a word of its own.
+			[
+				'received',
+				DEFAULT_LEXICON.received,
+				[[], {}, new Map(), Math.max].map((value) => preview(value)),
+			],
 			['constraints', DEFAULT_LEXICON.constraints, FAULT_CONSTRAINTS],
 			['lengths', DEFAULT_LEXICON.lengths, ['min', 'max']],
 			// `AuditFault['reason']` of `@orkestrel/contract`, which exports no list of it.
@@ -2180,6 +2200,40 @@ describe("the account's text", () => {
 			gaps: [{ word: 'unit', field: 'a' }],
 			lines: [step],
 		})
+	})
+
+	it('findReceivedNumber reads a number from its own preview alone, and one that is not finite too', () => {
+		for (const number of [...EXTREME_NUMBERS, 1.5, -2, 1e21, 1e-7, Number.NaN]) {
+			// A preview of `-0` is `0`.
+			expect(findReceivedNumber(preview(number))).toBe(Object.is(number, -0) ? 0 : number)
+		}
+		for (const value of ['5', '', ' ', null, undefined, true, 5n, [], {}, new Map(), Math.max]) {
+			expect(findReceivedNumber(preview(value))).toBeUndefined()
+		}
+		for (const text of ['', ' ', '05', '5 ', '1e3', '0x10', '+5']) {
+			expect(findReceivedNumber(text)).toBeUndefined()
+		}
+	})
+
+	it('matchesReceivedValue refuses an absent value and a number that is not finite alone', () => {
+		const absent = [undefined, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]
+		expect(absent.map((value) => matchesReceivedValue(preview(value)))).toEqual(
+			absent.map(() => false),
+		)
+		const told = [0, -0, 1e21, 'NaN', 'undefined', 'Infinity', '', null, false, [], {}, new Map()]
+		expect(told.map((value) => matchesReceivedValue(preview(value)))).toEqual(told.map(() => true))
+	})
+
+	it('matchesUnboundFact reads a variable among the terms, and no other text', () => {
+		const terms = [[], ['a', 5], ['a?'], [['?x']], ['?x'], ['a', '?']]
+		expect(terms.map((held) => matchesUnboundFact(createFact('f', 'p', held)))).toEqual([
+			false,
+			false,
+			false,
+			false,
+			true,
+			true,
+		])
 	})
 
 	it('collectFaultFields reads the faults of every line, nested ones too', () => {

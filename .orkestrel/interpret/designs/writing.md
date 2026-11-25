@@ -407,7 +407,7 @@ export interface NarratorInterface {
 ```
 
 - A number's limit prints in its field's unit. `min` and `max` on a string or an array are lengths, so they take `fault.length` and print plain.
-- `received` is `contract`'s own bounded preview, printed as it is.
+- **What was received** is read from `contract`'s own bounded preview: a finite number prints as its field's value does, unless its format couldn't tell it from the limit, and then plain; `true`, `false`, and `null` print through `values`; `array`, `object`, `instance`, and `function` through the `received` table (`a list`, `a record`, `a special object`, `a function`); `NaN`, an infinity, and `undefined` read as missing; and a quoted text prints as it is.
 - `variant`, `oneOf`, `extra`, and `hidden` keep the words `fact.unread` gives them.
 - A refusal with an `unreadable` cause takes `refusal.unreadable`, and one with a `field` takes `refusal.field` around it. No shipped sentence needs `word`, because the record doesn't always hold one.
 - The account's fault lines and `explain` share one writer.
@@ -458,6 +458,20 @@ export interface Glossary {
 - **A subject's fact** `has(key, value)` prints through `fact.equal`, with the key's label and unit. A variable prints as written, `?x`. Confidence prints through the shipped `percent` format, and only below 1.
 - **The guide** prints each inference: `?x is a grandparent of ?z, when ?x is a parent of ?y and ?y is a parent of ?z`.
 - **A backward account** prints the conclusion as the result holds it and `proved through {{name}}` from the proof's root, and nothing below it: an inner node holds the goal pattern's id, and no fact.
+
+### Corrected while building
+
+Each was read against the engine's own code, and the unit's report holds the line that decides it.
+
+- **Refusals:** six reasons and causes say what the reader's own condition is (`the way it is written makes it uncertain`, `it is not clear which number goes with which value`, `the text may be correcting or replacing it`, `the same part of the text holds a negation`, `it could not be tied to a value`, and `it is part of a range or a choice`), a currency cause reads `a currency unit other than dollars`, and `refusal.field` reads `(considered for {{label}})`, because the field is the mapping at the decision and not a nearness.
+- **`expected.null`** is `none`, as `values.null` is.
+- **A strict group** whose factors didn't all apply contributes nothing to the total, whatever its base.
+- **`has(key, value)`** prints through `fact.equal` only where the definition states or concludes no two-term `has` fact and the glossary has no sentence for `has`.
+- **A predicate's sentence** is used only where it names every term and no position past the last; otherwise the fact prints as stated, its terms joined by `joins.terms`, and the line carries the gap.
+- **A negative constant inside an operation** takes `equation.group`. A confidence the percent format would round prints plain. A fact of no terms prints its predicate alone.
+- **A backward conclusion with a variable unbound** prints through `fact.some` (`{{fact}}, its values left open`): the engine proves each premise on its own and carries no binding between them, so no sentence about which values satisfy it is true.
+- **A forward verdict's summary** names its facts (`result.facts`), bounded by `limits.reasons`.
+- **`worksheet.base`** reads `base: {{value}}, added to the rest`, which holds under all five aggregations at a group and at a definition.
 
 ## Truth
 

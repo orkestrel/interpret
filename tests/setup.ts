@@ -535,6 +535,21 @@ export const STRANGE_RECORDS: ReadonlyArray<readonly [record: unknown, text: str
 		},
 		'a must be at least not known, and 5 is not',
 	],
+	[
+		{
+			reason: 'constraint',
+			path: ['a'],
+			expected: 'number',
+			constraint: 'max',
+			limit: 5,
+			received: 'Infinity',
+		},
+		'a is not known, and must be at most 5',
+	],
+	[
+		{ reason: 'type', path: ['a'], expected: 'number', received: 'undefined' },
+		'a is not known, and must be a number',
+	],
 ]
 
 /** Holds one shape of each kind a subject door's fault can expect, keyed by that kind. */
@@ -573,11 +588,19 @@ export const FAULT_WORDS: Readonly<Record<string, string>> = {
 export const FAULT_BOUNDS: ReadonlyArray<
 	readonly [shape: ContractShape, value: unknown, text: string]
 > = [
-	[numberShape({ min: 1250 }), 5, 'the AMOUNT must be at least $1,250.00, and 5 is not'],
-	[numberShape({ over: 5 }), 5, 'the AMOUNT must be more than $5.00, and 5 is not'],
-	[numberShape({ max: 5 }), 9, 'the AMOUNT must be at most $5.00, and 9 is not'],
-	[numberShape({ under: 5 }), 5, 'the AMOUNT must be less than $5.00, and 5 is not'],
-	[integerShape(), 1.5, 'the AMOUNT must be a whole number, and 1.5 is not'],
+	[numberShape({ min: 1250 }), 5, 'the AMOUNT must be at least $1,250.00, and $5.00 is not'],
+	[numberShape({ over: 5 }), 5, 'the AMOUNT must be more than $5.00, and $5.00 is not'],
+	[numberShape({ max: 5 }), 9, 'the AMOUNT must be at most $5.00, and $9.00 is not'],
+	[
+		numberShape({ max: 5 }),
+		1e21,
+		'the AMOUNT must be at most $5.00, and $1,000,000,000,000,000,000,000.00 is not',
+	],
+	[numberShape({ under: 5 }), 5, 'the AMOUNT must be less than $5.00, and $5.00 is not'],
+	// The money format rounds to cents, so a number it would not tell from the limit prints plain.
+	[numberShape({ max: 5 }), 5.001, 'the AMOUNT must be at most $5.00, and 5.001 is not'],
+	[integerShape(), 1.5, 'the AMOUNT must be a whole number, and $1.50 is not'],
+	[integerShape(), 1.999, 'the AMOUNT must be a whole number, and 1.999 is not'],
 	[
 		stringShape({ pattern: /^a+$/ }),
 		'b',
@@ -588,6 +611,35 @@ export const FAULT_BOUNDS: ReadonlyArray<
 	[stringShape({ max: 3 }), 'abcd', 'the AMOUNT must have a length of at most 3'],
 	[arrayShape(numberShape(), { min: 2 }), [1], 'the AMOUNT must have a length of at least 2'],
 	[arrayShape(numberShape(), { max: 1 }), [1, 2], 'the AMOUNT must have a length of at most 1'],
+]
+
+/** Holds a field's shape, a value of another kind, and what a reader is told it got, the field worded as money. */
+export const FAULT_RECEIPTS: ReadonlyArray<
+	readonly [shape: ContractShape, value: unknown, received: string]
+> = [
+	[arrayShape(numberShape()), 5, '$5.00'],
+	[booleanShape(), -0.5, '-$0.50'],
+	[literalShape([1, 2]), 1250, '$1,250.00'],
+	[numberShape(), true, 'true'],
+	[stringShape(), false, 'false'],
+	[numberShape(), null, 'none'],
+	[numberShape(), [5], 'a list'],
+	[numberShape(), {}, 'a record'],
+	[numberShape(), new Map(), 'a special object'],
+	[numberShape(), Math.max, 'a function'],
+	[arrayShape(numberShape()), '5', '"5"'],
+	[numberShape(), 'array', '"array"'],
+	[numberShape(), 'null', '"null"'],
+	[numberShape(), 'NaN', '"NaN"'],
+	[numberShape(), 5n, '5n'],
+	[numberShape(), Symbol('array'), 'Symbol(array)'],
+]
+
+/** Holds each value a fault's preview names that no reader can be told. */
+export const FAULT_ABSENCES: readonly unknown[] = [
+	Number.NaN,
+	Number.POSITIVE_INFINITY,
+	Number.NEGATIVE_INFINITY,
 ]
 
 /** Holds a subject whose field `f` gives a fault that expects nothing, its shape, and the sentences. */

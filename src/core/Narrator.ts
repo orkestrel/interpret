@@ -98,12 +98,15 @@ import {
 	findDecidingOperands,
 	findFactSentence,
 	findGoalRule,
+	findReceivedNumber,
 	findSoleExpression,
 	findSubjectKey,
 	findWord,
 	matchesChangedFactor,
 	matchesNumericCheck,
+	matchesReceivedValue,
 	matchesSubjectKeys,
+	matchesUnboundFact,
 	normalizeLine,
 	readNarratorOption,
 	renderCitedReasons,
@@ -283,6 +286,7 @@ export class Narrator implements NarratorInterface {
 			case 'aggregations':
 			case 'faults':
 			case 'expected':
+			case 'received':
 			case 'constraints':
 			case 'lengths':
 			case 'operations':
@@ -420,15 +424,24 @@ export class Narrator implements NarratorInterface {
 			buildAccountLine({
 				role: proved ? 'verdict' : 'step',
 				decisive: true,
-				...this.#writeDerived(fact, keyed),
+				...this.#writeDerived(fact, keyed, proved),
 				source: { fact: fact.id },
 				lines: inference === undefined ? [] : [this.#provedLine(inference, authored)],
 			}),
 		)
 		if (proved) return facts
 		const count = this.#plain.format(derived.length)
-		const text = this.line('result.derived', { count })
-		return [buildAccountLine({ role: 'verdict', decisive: true, text }), ...facts]
+		const cited = renderCitedReasons(facts, this.#lexicon, (more) => this.#writeMore(more))
+		const verdict = buildAccountLine({
+			role: 'verdict',
+			decisive: true,
+			text: this.line('result.derived', { count }),
+			...(facts.length === 0
+				? {}
+				: { summary: this.line('result.facts', { count, facts: cited.text }) }),
+			gaps: cited.gaps,
+		})
+		return [verdict, ...facts]
 	}
 
 	#provedLine(inference: string, definition: InferentialDefinition | undefined): AccountLine {
@@ -448,12 +461,17 @@ export class Narrator implements NarratorInterface {
 		})
 	}
 
-	#writeDerived(fact: Fact, keyed: boolean): AccountText {
-		const written = this.#writeStatement(fact, keyed)
+	// A proof binds no variable of its conclusion, so a conclusion that holds one is no claim of every
+	// value.
+	#writeDerived(fact: Fact, keyed: boolean, proved: boolean): AccountText {
+		const { text, gaps } = this.#writeStatement(fact, keyed)
+		const some = proved && matchesUnboundFact(fact) ? this.line('fact.some', { fact: text }) : text
 		const confidence = this.#writeConfidence(fact.confidence)
-		return confidence === undefined
-			? written
-			: { ...written, text: this.line('fact.confidence', { fact: written.text, confidence }) }
+		return {
+			text:
+				confidence === undefined ? some : this.line('fact.confidence', { fact: some, confidence }),
+			gaps,
+		}
 	}
 
 	// A confidence the percent format would round prints as it is, so that none below 1 reads as 100%.
@@ -596,26 +614,50 @@ export class Narrator implements NarratorInterface {
 		if (fault.reason === 'missing' || fault.reason === 'type') {
 			const expected = findWord(this.#lexicon.expected, fault.expected)
 			if (expected === undefined) return plain
-			// `NaN` and an absent value print as no value everywhere.
-			if (
-				fault.reason === 'missing' ||
-				fault.received === preview(Number.NaN) ||
-				fault.received === preview(undefined)
-			) {
-				const absent = this.#lexicon.faults.missing
-				return { text: this.line('fault.missing', { label, missing: absent, expected }), gaps }
+			if (fault.reason === 'missing' || !matchesReceivedValue(fault.received)) {
+				return { text: this.#writeAbsent(label, expected), gaps }
 			}
-			const received = this.#writeScalar(path, fault.received)
-			return { text: this.line('fault.type', { label, expected, received }), gaps }
+			const received = this.#writeReceived(path, fault.received)
+			return {
+				text: this.line('fault.type', { label, expected, received }),
+				gaps:
+					findReceivedNumber(fault.received) === undefined
+						? gaps
+						: collectFieldGaps(path, false, this.#glossary, this.#units),
+			}
 		}
 		return fault.reason === 'constraint' ? (this.#writeBound(fault) ?? plain) : plain
+	}
+
+	// A value that is absent, and a number that is not finite, print as no value everywhere.
+	#writeAbsent(label: string, expected: string): string {
+		const missing = this.#lexicon.faults.missing
+		return this.line('fault.missing', { label, missing, expected })
+	}
+
+	// Writes a received value's preview in the reader's words: a number in its field's unit, and a
+	// value with no text of its own as what it is. A text is quoted in its preview, so it is no such
+	// word. A number the unit's format would not tell from the limit prints as it is.
+	#writeReceived(path: FieldPath, received: string, limit?: number): string {
+		const number = findReceivedNumber(received)
+		if (number !== undefined) {
+			const text = this.#writeScalar(path, number)
+			const same =
+				limit !== undefined && limit !== number && text === this.#writeScalar(path, limit)
+			return same ? this.#writeNumber(undefined, number) : text
+		}
+		if (received === preview(true)) return this.#lexicon.values.true
+		if (received === preview(false)) return this.#lexicon.values.false
+		if (received === preview(null)) return this.#lexicon.values.null
+		return findWord(this.#lexicon.received, received) ?? this.#writeScalar(path, received)
 	}
 
 	// A bound on text, a date, or a list is a length, and any other prints in its field's unit.
 	#writeBound(
 		fault: Extract<AuditFault, { readonly reason: 'constraint' }>,
 	): AccountText | undefined {
-		const { path, expected, constraint, limit } = fault
+		const { path, expected, constraint, limit, received } = fault
+		const number = findReceivedNumber(received)
 		const label = this.label(path)
 		const sized =
 			(constraint === 'min' || constraint === 'max') &&
@@ -626,12 +668,21 @@ export class Narrator implements NarratorInterface {
 			sized && isNumber(limit) ? this.#writeNumber(undefined, limit) : this.value(path, limit)
 		const words = { label, constraint: this.#fill(template, { limit: bound }) }
 		if (sized) return { text: this.line('fault.length', words), gaps: this.#collectLabelGaps(path) }
-		const received = this.#writeScalar(path, fault.received)
+		const numeric = isNumber(limit) || isFiniteNumber(number)
+		const gaps = numeric
+			? collectFieldGaps(path, true, this.#glossary, this.#units)
+			: this.#collectLabelGaps(path)
+		if (!matchesReceivedValue(received)) {
+			return { text: this.#writeAbsent(label, words.constraint), gaps }
+		}
+		const whole = number === undefined ? undefined : Math.round(number)
+		const near = isNumber(limit) ? limit : whole
 		return {
-			text: this.line('fault.constraint', { ...words, received }),
-			gaps: isNumber(limit)
-				? collectFieldGaps(path, true, this.#glossary, this.#units)
-				: this.#collectLabelGaps(path),
+			text: this.line('fault.constraint', {
+				...words,
+				received: this.#writeReceived(path, received, near),
+			}),
+			gaps,
 		}
 	}
 
