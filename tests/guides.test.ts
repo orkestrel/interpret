@@ -40,7 +40,7 @@ await new GuideCommand({
 	reader: readInventory,
 	runner: createVitest,
 }).execute(async ({ files, report, rows }) => {
-	const { arrayShape, isRecord, numberShape, objectShape, parseJSON } =
+	const { arrayShape, integerShape, isRecord, numberShape, objectShape, parseJSON } =
 		await import('@orkestrel/contract')
 	const {
 		computeSymbolKey,
@@ -51,17 +51,29 @@ await new GuideCommand({
 		isExternalLink,
 		resolveLink,
 	} = await import('@orkestrel/guide')
+	const { createProgram } = await import('@orkestrel/program')
 	const {
 		createAtom,
+		createEquation,
+		createFact,
 		createFactorGroup,
 		createFieldFactor,
+		createInference,
+		createInferentialDefinition,
+		createInferentialReasoner,
 		createLogicalDefinition,
 		createLogicalReasoner,
 		createLookupFactor,
+		createOperation,
 		createQuantitativeDefinition,
 		createQuantitativeReasoner,
+		createRangeFactor,
 		createRule,
 		createStaticFactor,
+		createSubjectDoor,
+		createSymbolicDefinition,
+		createSymbolicReasoner,
+		createVariable,
 	} = await import('@orkestrel/reason')
 	const {
 		applyReplacements,
@@ -126,7 +138,7 @@ await new GuideCommand({
 		tokenize,
 		variablesOf,
 	} = await import('@src/core')
-	const { captureError, requireValue } = await import('@orkestrel/test')
+	const { captureError, invokeUnchecked, requireValue } = await import('@orkestrel/test')
 	const { describe, expect, it } = await import('vitest')
 	const own = requireValue(
 		rows.find((row) => row.entry.spec === GUIDE_SPEC),
@@ -740,63 +752,715 @@ await new GuideCommand({
 			expect(isInterpretError(caught) ? caught.code : undefined).toBe('DESTROYED')
 		})
 
-		it('Write a qualification: the account and the guide read as the fence prints them', () => {
+		it('Write a number: the guide at each detail, and the worksheet with its changes', () => {
 			const narrator = createNarrator({
 				glossary: {
-					labels: { noise: 'noise level' },
-					units: { noise: 'plain' },
-					scopes: { hall: 'Main hall' },
+					labels: { pier: 'pier', length: 'boat length', insured: 'insurance on file' },
+					units: { length: 'meter' },
+					values: { mooring: 'money' },
+					formats: {
+						meter: { style: 'unit', unit: 'meter' },
+						money: { style: 'currency', currency: 'USD' },
+					},
 				},
 			})
-			const qualification = {
-				id: 'booking',
-				name: 'Booking',
-				passes: [
-					createLogicalDefinition('gates', 'Gates', [
-						createRule(
-							'loud',
-							[createAtom('noise', 'above', 40)],
-							createAtom('loud', 'equals', true),
-							{ name: 'Loud activity' },
-						),
-					]),
+			const definition = createQuantitativeDefinition(
+				'mooring',
+				'Mooring price',
+				[
+					createFactorGroup(
+						'nights',
+						'sum',
+						[
+							createLookupFactor(
+								'pier',
+								'pier',
+								{ north: 30, south: 24 },
+								{ name: 'Pier rate', fallback: 20 },
+							),
+							createRangeFactor(
+								'length',
+								'length',
+								[
+									{ bounds: { maximum: 8 }, value: 10 },
+									{ bounds: { maximum: 15 }, value: 18 },
+								],
+								{
+									name: 'Length charge',
+									transforms: [{ operation: 'percentage', operand: 90 }],
+									bounds: { minimum: 10, maximum: 30 },
+								},
+							),
+							createStaticFactor('key', 5, {
+								name: 'Key deposit',
+								required: true,
+								checks: [{ field: 'insured', operator: 'equals', value: true }],
+							}),
+						],
+						{ name: 'Per night' },
+					),
 				],
-				rulings: [{ id: 'loud', pass: 'gates', rule: 'loud', effect: 'referral', scope: 'hall' }],
-			}
-			const result = {
-				id: 'booking',
-				name: 'Booking',
-				eligibility: 'eligible',
-				scopes: { hall: 'referral' },
-				findings: [
+				{ precision: 2 },
+			)
+			expect(narrator.audit([definition])).toEqual([])
+			expect(renderAccount(narrator.describe(definition)).split('\n')).toEqual([
+				'Mooring price',
+				'  Total of the values that apply',
+				'Per night',
+				'  Total of the values that apply',
+				'  Pier rate',
+				'    looked up by pier',
+				'  Length charge',
+				'    set by the first range boat length falls in',
+				'  Key deposit',
+				'    fixed at $5.00',
+				'    applies when insurance on file is true',
+			])
+			expect(renderAccount(narrator.describe(definition), { detail: 'full' }).split('\n')).toEqual([
+				'Mooring price',
+				'  Total of the values that apply',
+				'  decimal places: 2',
+				'Per night',
+				'  Total of the values that apply',
+				'  Pier rate',
+				'    looked up by pier',
+				'      north: $30.00',
+				'      south: $24.00',
+				'      fallback: $20.00',
+				'  Length charge',
+				'    set by the first range boat length falls in',
+				'      at most 8 m: 10',
+				'      at most 15 m: 18',
+				'    changes: 90% of it',
+				'    bounds: $10.00 to $30.00',
+				'  Key deposit',
+				'    fixed at $5.00',
+				'    must apply',
+				'    applies when insurance on file is true',
+			])
+			const result = createQuantitativeReasoner().reason(
+				{ pier: 'east', length: 9, insured: true },
+				definition,
+			)
+			expect(renderAccount(narrator.narrate(definition, result)).split('\n')).toEqual([
+				'Mooring price: $41.20',
+				'Per night: $41.20',
+				'  Pier rate: $20.00',
+				'    its fallback, because no entry matches pier',
+				'  Length charge: $16.20',
+				'    set by the first range boat length falls in',
+				'    before its changes: 18',
+				'    changes: 90% of it',
+				'    bounds: $10.00 to $30.00',
+				'  Key deposit: $5.00',
+				'    fixed at $5.00',
+				'Total: $41.20',
+			])
+		})
+
+		it('Write equations: the guide and the solution with its equation', () => {
+			const narrator = createNarrator({
+				glossary: {
+					labels: {
+						range: 'cruising time',
+						tank: 'fuel on board',
+						reserve: 'fuel kept back',
+						burn: 'hourly burn',
+					},
+					units: { range: 'hour' },
+					formats: { hour: { style: 'unit', unit: 'hour', unitDisplay: 'long' } },
+				},
+			})
+			const definition = createSymbolicDefinition('fuel', 'Fuel plan', [
+				createEquation(
+					'range',
+					createVariable('range'),
+					createOperation(
+						'divide',
+						createOperation('subtract', createVariable('tank'), createVariable('reserve')),
+						createVariable('burn'),
+					),
+					'range',
+					{ name: 'Time under way' },
+				),
+			])
+			expect(renderAccount(narrator.describe(definition)).split('\n')).toEqual([
+				'Fuel plan',
+				'Time under way',
+				'  cruising time = (fuel on board - fuel kept back) ÷ hourly burn',
+				'  solves for cruising time',
+			])
+			const result = createSymbolicReasoner().reason({ tank: 90, reserve: 10, burn: 8 }, definition)
+			expect(renderAccount(narrator.narrate(definition, result)).split('\n')).toEqual([
+				'cruising time is 10 hours',
+				'  cruising time = (fuel on board - fuel kept back) ÷ hourly burn',
+			])
+			expect(narrator.audit([definition])).toEqual([])
+		})
+
+		it('Write facts: a predicate’s sentence, its fallback with its gap, and a backward run', () => {
+			const inferences = [
+				createInference(
+					'change',
+					[createFact('first', 'sails', ['?x', '?y']), createFact('second', 'sails', ['?y', '?z'])],
+					createFact('reached', 'reaches', ['?x', '?z']),
+					{ name: 'One change', confidence: 0.9 },
+				),
+			]
+			const facts = [
+				createFact('a', 'sails', ['Oban', 'Mull']),
+				createFact('b', 'sails', ['Mull', 'Iona']),
+			]
+			const definition = createInferentialDefinition('ferries', 'Ferry links', facts, inferences)
+			const reasoner = createInferentialReasoner()
+			const result = reasoner.reason({}, definition)
+			const worded = createNarrator({
+				glossary: {
+					labels: {},
+					predicates: { sails: '{{1}} has a ferry to {{2}}', reaches: '{{1}} reaches {{2}}' },
+				},
+			})
+			expect(renderAccount(worded.describe(definition)).split('\n')).toEqual([
+				'Ferry links',
+				'One change',
+				'  ?x reaches ?z, when ?x has a ferry to ?y and ?y has a ferry to ?z',
+				'  confidence: 90%',
+			])
+			expect(renderAccount(worded.narrate(definition, result)).split('\n')).toEqual([
+				'Facts derived: 1',
+				'Oban reaches Iona (confidence 90%)',
+			])
+			expect(renderAccount(worded.narrate(definition, result), { detail: 'line' })).toBe(
+				'Facts derived: 1 (Oban reaches Iona (confidence 90%))',
+			)
+			const bare = createNarrator()
+			expect(renderAccount(bare.narrate(definition, result)).split('\n')).toEqual([
+				'Facts derived: 1',
+				'reaches(Oban, Iona) (confidence 90%)',
+			])
+			expect(bare.audit([definition])).toEqual([
+				{ word: 'predicate', id: 'sails' },
+				{ word: 'predicate', id: 'reaches' },
+			])
+
+			const backward = createInferentialDefinition('ferries', 'Ferry links', facts, inferences, {
+				strategy: 'backward',
+			})
+			const proved = worded.narrate(backward, reasoner.reason({}, backward))
+			expect(renderAccount(proved).split('\n')).toEqual([
+				'?x reaches ?z, its values left open (confidence 90%)',
+				'  proved through One change',
+			])
+		})
+
+		it('Write a program: the account, the guide, and the qualification alone', () => {
+			const program = createProgram({
+				id: 'stay',
+				name: 'Harbor stay',
+				qualification: {
+					id: 'entry',
+					name: 'Entry check',
+					passes: [
+						createLogicalDefinition('gates', 'Gates', [
+							createRule(
+								'late',
+								[createAtom('arrival', 'above', 20)],
+								createAtom('late', 'equals', true),
+								{ name: 'Late arrival' },
+							),
+						]),
+					],
+					rulings: [
+						{
+							id: 'late',
+							pass: 'gates',
+							rule: 'late',
+							effect: 'restriction',
+							scope: 'power',
+							message: 'Shore power is off after 20:00.',
+						},
+					],
+				},
+				rating: {
+					id: 'prices',
+					name: 'Prices',
+					lines: [
+						{
+							id: 'berth',
+							name: 'Berth',
+							rate: createQuantitativeDefinition('berthRate', 'Berth rate', [
+								createFactorGroup(
+									'fees',
+									'sum',
+									[createFieldFactor('fee', 'fee', { name: 'Night' })],
+									{
+										name: 'Fees',
+									},
+								),
+							]),
+						},
+						{
+							id: 'power',
+							name: 'Shore power',
+							rate: createQuantitativeDefinition('powerRate', 'Power rate', [
+								createFactorGroup(
+									'fees',
+									'sum',
+									[createStaticFactor('flat', 5, { name: 'Flat fee' })],
+									{
+										name: 'Fees',
+									},
+								),
+							]),
+						},
+					],
+				},
+				notices: [{ id: 'office', message: 'The harbor office closes at 18:00.' }],
+				authority: createLogicalDefinition('authority', 'Harbor authority', [
+					createRule(
+						'large',
+						[
+							createAtom(['outcome', 'rated'], 'equals', true),
+							createAtom(['outcome', 'total'], 'above', 200),
+						],
+						createAtom('held', 'equals', true),
+						{ name: 'Large total', description: 'A large total needs the harbor master.' },
+					),
+				]),
+			})
+			const narrator = createNarrator({
+				glossary: {
+					labels: {
+						arrival: 'arrival hour',
+						fee: 'nightly fee',
+						'outcome.rated': 'stay rated',
+						'outcome.total': 'stay total',
+					},
+					units: { arrival: 'plain', fee: 'money', 'outcome.total': 'money' },
+					values: { prices: 'money', berthRate: 'money', powerRate: 'money' },
+					formats: { money: { style: 'currency', currency: 'USD' } },
+				},
+			})
+			expect(narrator.audit([program.definition])).toEqual([])
+
+			const result = program.execute({ arrival: 21, fee: 35 })
+			const account = narrator.narrate(program.definition, result)
+			expect(renderAccount(account, { detail: 'line' })).toBe(
+				'Harbor stay: eligible with conditions, because Shore power: Shore power is off after 20:00.',
+			)
+			expect(renderAccount(account).split('\n')).toEqual([
+				'Harbor stay: eligible with conditions',
+				'Decision: approved',
+				'Notice: The harbor office closes at 18:00.',
+				'Entry check: eligible',
+				'  Shore power: not eligible',
+				'    Restriction: Shore power is off after 20:00.',
+				'      arrival hour is 21, which is more than 20',
+				'Prices: $35.00',
+				'  Berth: $35.00',
+				'    Fees: $35.00',
+				'      Night: $35.00',
+				'        nightly fee is $35.00',
+				'    Total: $35.00',
+			])
+			expect(renderAccount(narrator.describe(program.definition)).split('\n')).toEqual([
+				'Harbor stay',
+				'Notice: The harbor office closes at 18:00.',
+				'Harbor authority',
+				'  Large total',
+				'    applies when stay rated is true and stay total is more than $200.00',
+				'Entry check',
+				'  Shore power: Restriction: Late arrival',
+				'    applies when arrival hour is more than 20',
+				'Prices',
+				'  Berth',
+				'    Total of the values that apply',
+				'    Fees',
+				'      Total of the values that apply',
+				'      Night',
+				'        taken from nightly fee',
+				'  Shore power',
+				'    Total of the values that apply',
+				'    Fees',
+				'      Total of the values that apply',
+				'      Flat fee',
+				'        fixed at $5.00',
+			])
+
+			const { qualification } = program.definition
+			const alone = narrator.narrate(qualification, result.qualification)
+			expect(renderAccount(alone).split('\n')).toEqual([
+				'Entry check: eligible',
+				'power: not eligible',
+				'  Restriction: Shore power is off after 20:00.',
+				'    arrival hour is 21, which is more than 20',
+			])
+			expect(narrator.audit([qualification])).toEqual([
+				{ word: 'name', part: 'scope', id: 'power' },
+			])
+
+			// A finding that isn't met prints its rule's name, and only at `full`.
+			const early = narrator.narrate(
+				qualification,
+				program.execute({ arrival: 9, fee: 35 }).qualification,
+			)
+			expect(renderAccount(early)).toBe('Entry check: eligible')
+			expect(renderAccount(early, { detail: 'full' }).split('\n')).toEqual([
+				'Entry check: eligible',
+				'power: Restriction: Late arrival does not apply',
+				'  arrival hour is 9, which is not more than 20',
+			])
+			program.destroy()
+		})
+
+		it('Say why a value was not taken: a fault, a refused number, and neither', () => {
+			const narrator = createNarrator({
+				glossary: {
+					labels: { fee: 'nightly fee', length: 'boat length', nights: 'nights' },
+					units: { fee: 'money', length: 'plain', nights: 'plain' },
+					formats: { money: { style: 'currency', currency: 'USD' } },
+				},
+			})
+			const shape = objectShape({
+				fee: numberShape({ max: 40 }),
+				length: numberShape(),
+				nights: integerShape(),
+			})
+			const { faults } = createSubjectDoor().admit({ fee: 55, length: 'long' }, shape)
+			expect(faults.map((fault) => narrator.explain(fault))).toEqual([
+				'nightly fee must be at most $40.00, and $55.00 is not',
+				'boat length must be a number, and "long" is not',
+				'nights is not known, and must be a whole number',
+			])
+			const text = 'nights 2 to 3'
+			const mappings = [{ entity: 'nights', aliases: [], field: 'nights' }]
+			const { refusals } = compileEntities(scanNumbers(text), mappings, text, shape)
+			expect(refusals?.items.map((refusal) => narrator.explain(refusal))).toEqual([
+				'"2" was not taken, because it is part of a range or a choice (considered for nights)',
+				'"3" was not taken, because it could not be tied to a value',
+			])
+			expect(invokeUnchecked<string>(narrator, narrator.explain, [{}])).toBe('not known')
+		})
+
+		it('Reword it: one word of each kind', () => {
+			const narrator = createNarrator({
+				glossary: {
+					labels: {
+						length: 'boat length',
+						fee: 'nightly fee',
+						speed: 'speed',
+						distance: 'miles',
+						hours: 'hour',
+					},
+					units: { length: 'plain', fee: 'plain' },
+				},
+				lexicon: {
+					comparisons: { to: { holds: 'is within the limit of' } },
+					operations: { divide: '{{left}} per {{right}}' },
+					expected: { number: 'a figure' },
+					statuses: { referral: 'waiting for the harbor master' },
+					joins: { reasons: ', ', last: ', and ' },
+				},
+			})
+			const berth = createLogicalDefinition('berth', 'Berth request', [
+				createRule(
+					'grant',
+					[createAtom('length', 'to', 12), createAtom('fee', 'to', 40)],
+					createAtom('granted', 'equals', true),
+					{ name: 'Grant' },
+				),
+			])
+			const result = createLogicalReasoner().reason({ length: 9, fee: 35 }, berth)
+			expect(renderAccount(narrator.narrate(berth, result), { detail: 'line' })).toBe(
+				'Berth request holds, because boat length is 9, which is within the limit of 12, and nightly fee is 35, which is within the limit of 40',
+			)
+			expect(narrator.phrase('comparisons', 'from')).toBe('is at least')
+			const speed = createEquation(
+				'speed',
+				createVariable('speed'),
+				createOperation('divide', createVariable('distance'), createVariable('hours')),
+				'speed',
+				{ name: 'Speed' },
+			)
+			expect(
+				renderAccount(narrator.describe(createSymbolicDefinition('trip', 'Trip', [speed]))).split(
+					'\n',
+				),
+			).toEqual(['Trip', 'Speed', '  speed = miles per hour', '  solves for speed'])
+			expect(narrator.explain({ reason: 'missing', path: 'length', expected: 'number' })).toBe(
+				'boat length is not known, and must be a figure',
+			)
+			expect(narrator.phrase('statuses', 'referral')).toBe('waiting for the harbor master')
+		})
+
+		it('Reword it: another language, and the English a missing word falls back to', () => {
+			const german = createNarrator({
+				glossary: { labels: { length: 'Bootslänge' }, units: { length: 'plain' } },
+				lexicon: {
+					comparisons: { to: { holds: 'ist höchstens', fails: 'ist mehr als' } },
+					frames: { 'fact.compared': '{{label}} ist {{actual}} und {{comparison}} {{expected}}' },
+				},
+				locale: 'de-DE',
+			})
+			const definition = createLogicalDefinition('berth', 'Liegeplatz', [
+				createRule('size', [createAtom('length', 'to', 12)], createAtom('fits', 'equals', true), {
+					name: 'Größe',
+				}),
+			])
+			const result = createLogicalReasoner().reason({ length: 12.5 }, definition)
+			expect(renderAccount(german.narrate(definition, result), { detail: 'line' })).toBe(
+				'Liegeplatz does not hold, because Bootslänge ist 12,5 und ist mehr als 12',
+			)
+		})
+
+		it('What an account promises: a qualification, a rating, and a program', () => {
+			const narrator = createNarrator()
+			const sized = createQuantitativeDefinition('size', 'Size', [
+				createFactorGroup('sizes', 'sum', [
+					createLookupFactor('pier', 'pier', { north: 1 }, { name: 'Pier' }),
+				]),
+			])
+			const gates = createLogicalDefinition('gates', 'Gates', [
+				createRule(
+					'late',
+					[createAtom('arrival', 'above', 20)],
+					createAtom('late', 'equals', true),
 					{
-						id: 'loud',
-						pass: 'gates',
-						rule: 'loud',
-						effect: 'referral',
-						scope: 'hall',
-						state: 'met' as const,
-						message: 'A person reviews a loud booking.',
-						premises: [{ field: 'noise', actual: 55, state: 'met' as const }],
+						name: 'Late arrival',
+						description: 'After {{arrival}}.',
+					},
+				),
+			])
+			const rulings = [
+				{
+					id: 'late',
+					pass: 'gates',
+					rule: 'late',
+					effect: 'restriction' as const,
+					message: 'Closed at {{arrival}}.',
+				},
+			]
+			const rating = {
+				id: 'prices',
+				name: 'Prices',
+				lines: [
+					{
+						id: 'berth',
+						name: 'Berth',
+						rate: createQuantitativeDefinition('rate', 'Rate', [
+							createFactorGroup('fees', 'sum', [
+								createLookupFactor(
+									'pier',
+									'pier',
+									{ north: 10 },
+									{
+										name: 'Pier',
+										fallback: 5,
+										transforms: [{ operation: 'multiply', operand: 2 }],
+									},
+								),
+							]),
+						]),
+					},
+					{
+						id: 'power',
+						name: 'Power',
+						rate: createQuantitativeDefinition('flat', 'Flat', [
+							createFactorGroup('fees', 'sum', [
+								createLookupFactor('socket', 'socket', { one: 5 }, { name: 'Socket' }),
+							]),
+						]),
 					},
 				],
-				derivations: [],
-				success: true,
-				errors: [],
-				faults: [],
 			}
-			expect(renderAccount(narrator.narrate(qualification, result)).split('\n')).toEqual([
-				'Booking: eligible',
-				'Main hall: referred for review',
-				'  Referral: A person reviews a loud booking.',
-				'    noise level is 55, which is more than 40',
+
+			// Errors that outnumber the faults leave no answer, and none of the program over it.
+			const missed = createProgram({
+				id: 'stay',
+				name: 'Stay',
+				qualification: { id: 'entry', name: 'Entry', passes: [sized, gates], rulings },
+			})
+			const unanswered = missed.execute({ pier: 'south', arrival: 21 })
+			expect(unanswered.qualification.errors.length).toBeGreaterThan(
+				unanswered.qualification.faults.length,
+			)
+			expect(
+				renderAccount(narrator.narrate(missed.definition, unanswered), { detail: 'full' }),
+			).toBe('Stay gave no answer\nEntry gave no answer')
+
+			// A program's own errors take its limit and not its status.
+			const limited = createProgram({
+				id: 'stay',
+				name: 'Stay',
+				qualification: { id: 'entry', name: 'Entry', passes: [gates], rulings },
+				rating,
+				authority: createLogicalDefinition('authority', 'Authority', [
+					createRule(
+						'turned',
+						[createAtom(['outcome', 'status'], 'equals', 'ineligible')],
+						createAtom('turned', 'equals', true),
+						{ name: 'Turned away', description: 'The stay was turned away.' },
+					),
+					createRule(
+						'large',
+						[createAtom(['outcome', 'total'], 'above', 200)],
+						createAtom('large', 'equals', true),
+						{ name: 'Large total' },
+					),
+				]),
+			})
+			const denied = limited.execute({ pier: 'north', socket: 'one', arrival: 21 })
+			expect(denied.determinations.length).toBe(1)
+			expect(denied.errors.length).toBeGreaterThan(denied.faults.length)
+			expect(renderAccount(narrator.narrate(limited.definition, denied)).split('\n')).toEqual([
+				'Stay: not eligible',
+				'Entry: not eligible',
+				'  Restriction: Closed at 21.',
+				'    arrival is 21, which is more than 20',
 			])
-			expect(renderAccount(narrator.describe(qualification)).split('\n')).toEqual([
-				'Booking',
-				'Main hall: Referral: Loud activity',
-				'  applies when noise level is more than 40',
+
+			// A line states an amount only where its result holds one, and no text an engine words prints.
+			const priced = limited.execute({ pier: 'north', socket: 'two', arrival: 9 })
+			const account = narrator.narrate(limited.definition, priced)
+			expect(renderAccount(account).split('\n')).toEqual([
+				'Stay: not fully rated',
+				'Entry: eligible',
+				'Prices gave no answer',
+				'  Berth: 20',
+				'    fees: 20',
+				'      Pier: 20',
+				'        looked up by pier, or its fallback',
+				'    Total: 20',
+				'  Power gave no answer',
+				'    Socket found no value to use',
 			])
-			expect(narrator.audit([qualification])).toEqual([])
+			const reworded = {
+				...priced,
+				errors: priced.errors.map(() => 'another text'),
+				trace: ['another text'],
+			}
+			expect(narrator.narrate(limited.definition, reworded)).toEqual(account)
+
+			const guide = renderAccount(narrator.describe(limited.definition), { detail: 'full' })
+			expect(guide).toContain('Restriction: Late arrival')
+			expect(guide).not.toContain('{{')
+			missed.destroy()
+			limited.destroy()
+		})
+
+		it('What an account promises: what it can’t say of an input, a reader, a format, and a bound', () => {
+			const narrator = createNarrator({
+				glossary: {
+					labels: { net: 'net + gross' },
+					units: { fee: 'money' },
+					formats: { money: { style: 'currency', currency: 'USD' } },
+				},
+			})
+			const tripled = createSymbolicDefinition('sum', 'Sum', [
+				createEquation(
+					'total',
+					createVariable('total'),
+					createOperation('multiply', createVariable('net'), createVariable('net')),
+					'total',
+					{ name: 'Total' },
+				),
+			])
+			expect(
+				renderAccount(
+					narrator.narrate(tripled, createSymbolicReasoner().reason({ net: 7 }, tripled)),
+				),
+			).toBe('total is 49\n  total = net + gross × net + gross')
+
+			const shared = createQuantitativeDefinition('quote', 'Quote', [
+				createFactorGroup('parts', 'sum', [
+					createFieldFactor('field', 'tier', { name: 'Field' }),
+					createLookupFactor('lookup', 'tier', { a: 1 }, { name: 'Lookup' }),
+				]),
+			])
+			expect(
+				renderAccount(
+					narrator.narrate(shared, createQuantitativeReasoner().reason({}, shared)),
+				).split('\n'),
+			).toEqual([
+				'Quote gave no answer',
+				'  Field found no value to use',
+				'    tier is not known, and must be a number',
+				'  Lookup found no value to use',
+				'    tier is not known',
+			])
+			expect(narrator.value('fee', 15.125)).toBe('$15.13')
+
+			const bounded = createLogicalDefinition(
+				'loan',
+				'Loan',
+				[
+					createRule(
+						'any',
+						[createAtom('size', 'equals', 'small')],
+						createAtom('a', 'equals', true),
+					),
+				],
+				{ shape: objectShape({ size: numberShape({ max: 5 }) }) },
+			)
+			const refused = narrator.narrate(
+				bounded,
+				createLogicalReasoner().reason({ size: 9 }, bounded),
+			)
+			expect(refused.lines[0]?.lines[0]?.gaps).toContainEqual({ word: 'unit', field: ['size'] })
+			expect(narrator.audit([bounded]).map((gap) => gap.word)).not.toContain('unit')
+		})
+
+		it('Migration: the glossary refuses a phrase table under each lexicon name', () => {
+			for (const table of Object.keys(DEFAULT_LEXICON)) {
+				const phrases = Object.fromEntries([[table, { word: 'words' }]])
+				const refused = captureError(() => createNarrator({ glossary: { labels: {}, phrases } }))
+				expect(isInterpretError(refused) && refused.code).toBe('GLOSSARY')
+			}
+		})
+
+		it('README: the program reads as the fence prints it', () => {
+			const program = createProgram({
+				id: 'stay',
+				name: 'Harbor stay',
+				qualification: {
+					id: 'entry',
+					name: 'Entry check',
+					passes: [
+						createLogicalDefinition('gates', 'Gates', [
+							createRule(
+								'long',
+								[createAtom('length', 'above', 12)],
+								createAtom('long', 'equals', true),
+								{ name: 'Long boat' },
+							),
+						]),
+					],
+					rulings: [
+						{
+							id: 'long',
+							pass: 'gates',
+							rule: 'long',
+							effect: 'referral',
+							message: 'The harbor master sees a long boat in.',
+						},
+					],
+				},
+			})
+			const narrator = createNarrator({
+				glossary: {
+					labels: { length: 'boat length' },
+					units: { length: 'meter' },
+					formats: { meter: { style: 'unit', unit: 'meter' } },
+				},
+			})
+			const account = narrator.narrate(program.definition, program.execute({ length: 15 }))
+			expect(renderAccount(account).split('\n')).toEqual([
+				'Harbor stay: referred for review',
+				'Entry check: referred for review',
+				'  Referral: The harbor master sees a long boat in.',
+				'    boat length is 15 m, which is more than 12 m',
+			])
+			program.destroy()
 		})
 
 		it('FamilyNarratorInterface: the audit, the guide, and the refusal read as the fence prints them', () => {

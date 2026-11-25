@@ -32,8 +32,8 @@ import type {
 // for numeric entities, clarified (carry-over / defaults / computed fields),
 // formatted into a refined prompt, then generated into a `Subject` +
 // `Definition` pair ready for `Reason.reason`. Reverse: `Definition` /
-// `Subject` / `ReasonResult` render to display-neutral prose, complementing
-// (never duplicating) raters' `describe*` family. Nothing here is an LLM,
+// `Subject` / `ReasonResult`, and the family's definitions and results, are
+// written in words from their evidence. Nothing here is an LLM,
 // provider, or agent — the `prompt` a result carries is written for an external
 // model, never consumed internally. Types are the source of truth, and every
 // discriminant names its axis, never `kind` / `type`: `stage` splits pipeline
@@ -2027,8 +2027,8 @@ export interface InterpretContextInterface {
  * `add` returns `void` where `RecipeManagerInterface#add` returns the record
  * it minted. `remove` carries the same batch overloads as that delegate, so
  * the shared verb promises no form the orchestrator lacks. `describe` /
- * `narrate` are the reverse direction — structure-to-prose, complementing
- * (never duplicating) raters' `describe*` family. After `destroy()` every
+ * `narrate` are the reverse direction: a definition and a result, written in
+ * words from their evidence. After `destroy()` every
  * method except the `emitter` getter and `destroy` itself throws
  * `InterpretError('DESTROYED', …)`; `destroy()` is idempotent, tears down the
  * recipe registry and the context it constructed itself — never a `context`

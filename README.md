@@ -4,9 +4,9 @@
 > `@orkestrel/reason` engine: a forward pipeline that normalizes raw text, classifies its
 > intent, matches an added `Recipe`, clarifies the fields extraction left open, and
 > generates a `Subject` and `Definition` pair ready for `Reason.reason`, plus a reverse
-> direction that writes a `Definition` or a `ReasonResult` as a worded `Account`, and a
-> `Subject` as one line, through a `Narrator` over its own general words and your domain's
-> `Glossary`.
+> direction that writes a `Definition`, a qualification, a rating, or a program, and the
+> result of each, as a worded `Account`, and a `Subject` as one line, through a `Narrator`
+> over its own general words and your domain's `Glossary`.
 
 Install the package, wire an orchestrator with the action and domain vocabularies your
 domain speaks, add the recipes it answers, and call `interpret()` on each turn of raw
@@ -85,6 +85,63 @@ interpret.destroy()
 `[normalize, extract, clarify, format, generate]`. A `NO_RECIPE` or `LOW_CONFIDENCE`
 non-match, and a thrown stage, each yield a visible incomplete result rather than an arbitrary
 fallback.
+
+The reverse direction writes a result in words. A `Narrator` takes the domain's words and writes,
+for example, a program of `@orkestrel/program` with its result:
+
+```ts
+import { createNarrator, renderAccount } from '@orkestrel/interpret'
+import { createProgram } from '@orkestrel/program'
+import { createAtom, createLogicalDefinition, createRule } from '@orkestrel/reason'
+
+const program = createProgram({
+	id: 'stay',
+	name: 'Harbor stay',
+	qualification: {
+		id: 'entry',
+		name: 'Entry check',
+		passes: [
+			createLogicalDefinition('gates', 'Gates', [
+				createRule(
+					'long',
+					[createAtom('length', 'above', 12)],
+					createAtom('long', 'equals', true),
+					{
+						name: 'Long boat',
+					},
+				),
+			]),
+		],
+		rulings: [
+			{
+				id: 'long',
+				pass: 'gates',
+				rule: 'long',
+				effect: 'referral',
+				message: 'The harbor master sees a long boat in.',
+			},
+		],
+	},
+})
+const narrator = createNarrator({
+	glossary: {
+		labels: { length: 'boat length' },
+		units: { length: 'meter' },
+		formats: { meter: { style: 'unit', unit: 'meter' } },
+	},
+})
+
+renderAccount(narrator.narrate(program.definition, program.execute({ length: 15 })))
+// Harbor stay: referred for review
+// Entry check: referred for review
+//   Referral: The harbor master sees a long boat in.
+//     boat length is 15 m, which is more than 12 m
+
+program.destroy()
+```
+
+It writes each `Definition` and each `ReasonResult` of `@orkestrel/reason` the same way. See
+[Write a result for a person](guides/interpret.md#write-a-result-for-a-person).
 
 ## Guide
 
