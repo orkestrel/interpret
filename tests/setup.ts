@@ -12,8 +12,8 @@
 // `@src/core` — the barrel re-exports only local `interprets` modules
 // (`.claude/rules/architecture.md` § Barrel exports).
 
-import type { ContractShape, FieldPath } from '@orkestrel/contract'
-import type { Decision, ProgramDefinition, ProgramResult, Status } from '@orkestrel/program'
+import type { AuditFault, ContractShape, FieldPath } from '@orkestrel/contract'
+import type { Disposition, ProgramDefinition, ProgramResult, Status } from '@orkestrel/program'
 import type {
 	Eligibility,
 	Finding,
@@ -24,15 +24,19 @@ import type { RatingDefinition, RatingResult } from '@orkestrel/rater'
 import type {
 	Bounds,
 	ChainStrategy,
+	CheckResult,
 	CheckState,
 	Definition,
+	EvaluatorInterface,
 	Expression,
 	FactorRange,
-	InferentialDefinition,
+	DeductiveDefinition,
 	LogicalDefinition,
 	LogicalOperator,
 	MathOperation,
 	QuantitativeDefinition,
+	ReasonerInterface,
+	ReasonRefusal,
 	ReasonResult,
 	Subject,
 	SymbolicDefinition,
@@ -46,6 +50,16 @@ import type {
 	Entity,
 	ExtractorInterface,
 	ExtractResult,
+	FamilyDerivation,
+	FamilyFinding,
+	FamilyLineResult,
+	FamilyProgramResult,
+	FamilyQualificationResult,
+	FamilyRatingResult,
+	FamilySlot,
+	FamilyWorksheet,
+	FamilyWorksheetFactor,
+	FamilyWorksheetGroup,
 	Glossary,
 	Interpretation,
 	RecordStamp,
@@ -97,9 +111,9 @@ import {
 	createFact,
 	createFactorGroup,
 	createFieldFactor,
-	createInference,
-	createInferentialDefinition,
-	createInferentialReasoner,
+	createDeduction,
+	createDeductiveDefinition,
+	createDeductiveReasoner,
 	createLogicalDefinition,
 	createLogicalReasoner,
 	createLookupFactor,
@@ -118,6 +132,7 @@ import {
 	MATH_OPERATIONS,
 } from '@orkestrel/reason'
 import { Extractor, Interpret, InterpretContext, RecordManager } from '@src/core'
+import { invokeUnchecked } from '@orkestrel/test'
 import { createContract } from '@orkestrel/contract'
 import { projectValue } from '@orkestrel/reason'
 import * as surface from '@src/core'
@@ -2147,30 +2162,30 @@ export const WORKSHOP_AREA: Readonly<Record<string, WorkshopAreaCase>> = {
 }
 
 /**
- * Builds the booking facts: a chain of three inferences over a depth of 1, so a forward run
+ * Builds the booking facts: a chain of three deductions over a depth of 1, so a forward run
  * derives every step and still hits the cap.
  *
- * @returns A fresh inferential definition with id `facts`
+ * @returns A fresh deductive definition with id `facts`
  */
-export function buildWorkshopFacts(): InferentialDefinition {
-	return createInferentialDefinition(
+export function buildWorkshopFacts(): DeductiveDefinition {
+	return createDeductiveDefinition(
 		'facts',
 		'Booking facts',
 		[createFact('booked', 'booked', ['hall'])],
 		[
-			createInference(
+			createDeduction(
 				'staffing',
 				[createFact('staffing-premise', 'booked', ['?room'])],
 				createFact('staffing-conclusion', 'staffed', ['?room']),
 				{ name: 'Staffing' },
 			),
-			createInference(
+			createDeduction(
 				'cleaning',
 				[createFact('cleaning-premise', 'staffed', ['?room'])],
 				createFact('cleaning-conclusion', 'cleaned', ['?room']),
 				{ name: 'Cleaning' },
 			),
-			createInference(
+			createDeduction(
 				'closing',
 				[createFact('closing-premise', 'cleaned', ['?room'])],
 				createFact('closing-conclusion', 'closed', ['?room']),
@@ -2322,14 +2337,14 @@ export const WORKSHOP_CHARGES: Readonly<Record<string, WorkshopAreaCase>> = {
 }
 
 /**
- * Builds the workshop kin: two parents, one less than certain, an inference over both, and one that
+ * Builds the workshop kin: two parents, one less than certain, a deduction over both, and one that
  * also reads the subject's `member`.
  *
  * @param strategy - How the definition's runs reason. Default: `'forward'`
- * @returns A fresh inferential definition with id `kin`
+ * @returns A fresh deductive definition with id `kin`
  */
-export function buildWorkshopKin(strategy: ChainStrategy = 'forward'): InferentialDefinition {
-	return createInferentialDefinition(
+export function buildWorkshopKin(strategy: ChainStrategy = 'forward'): DeductiveDefinition {
+	return createDeductiveDefinition(
 		'kin',
 		'Workshop kin',
 		[
@@ -2337,13 +2352,13 @@ export function buildWorkshopKin(strategy: ChainStrategy = 'forward'): Inferenti
 			createFact('bc', 'parent', ['bob', 'cara'], 0.9),
 		],
 		[
-			createInference(
+			createDeduction(
 				'grandparent',
 				[createFact('first', 'parent', ['?x', '?y']), createFact('second', 'parent', ['?y', '?z'])],
 				createFact('grandparent-conclusion', 'grandparent', ['?x', '?z']),
 				{ name: 'Grandparents', description: 'A parent of a parent.', confidence: 0.95 },
 			),
-			createInference(
+			createDeduction(
 				'welcome',
 				[
 					createFact('elder', 'grandparent', ['?x', '?z']),
@@ -3464,12 +3479,12 @@ export function buildFamilyProgram(): ProgramDefinition {
 }
 
 /**
- * Names the program subjects, each with the eligibility, status, decision, determinations, success,
- * rated total, and inputs it could not read. An absent `decision` is expected where the key is
+ * Names the program subjects, each with the eligibility, status, disposition, determinations, success,
+ * rated total, and inputs it could not read. An absent `disposition` is expected where the key is
  * missing. All six statuses are reached: `standing` and `heavy` are `eligible`, `denied` is
  * `ineligible`, `submitted` and `reviewed` are `referral`, `loud` and `late` are `conditional`,
- * `costly` is `unrated`, and `unread` is `incomplete`. `heavy` has a limit and so no decision,
- * `reviewed` has a scoped referral and so a decision with a `referral` status, and `unread` and
+ * `costly` is `unrated`, and `unread` is `incomplete`. `heavy` has a limit and so no disposition,
+ * `reviewed` has a scoped referral and so a disposition with a `referral` status, and `unread` and
  * `costly` fail and decide nothing.
  */
 export const FAMILY_PROGRAMS: Readonly<
@@ -3479,7 +3494,7 @@ export const FAMILY_PROGRAMS: Readonly<
 			readonly subject: Subject
 			readonly eligibility: Eligibility
 			readonly status: Status
-			readonly decision?: Decision
+			readonly disposition?: Disposition
 			readonly determinations: ReadonlyArray<{
 				readonly id: string
 				readonly effect: 'notice' | 'limit'
@@ -3496,7 +3511,7 @@ export const FAMILY_PROGRAMS: Readonly<
 		subject: FAMILY_BASE,
 		eligibility: 'eligible',
 		status: 'eligible',
-		decision: 'approved',
+		disposition: 'approved',
 		determinations: [
 			{ id: 'closing', effect: 'notice', message: 'The workshop closes at 18:00.' },
 			{
@@ -3514,7 +3529,7 @@ export const FAMILY_PROGRAMS: Readonly<
 		subject: { ...FAMILY_BASE, activity: 'torch welding' },
 		eligibility: 'ineligible',
 		status: 'ineligible',
-		decision: 'denied',
+		disposition: 'denied',
 		determinations: [
 			{ id: 'closing', effect: 'notice', message: 'The workshop closes at 18:00.' },
 			{
@@ -3531,7 +3546,7 @@ export const FAMILY_PROGRAMS: Readonly<
 		subject: { ...FAMILY_BASE, guests: 20 },
 		eligibility: 'referral',
 		status: 'referral',
-		decision: 'submitted',
+		disposition: 'submitted',
 		determinations: [
 			{ id: 'closing', effect: 'notice', message: 'The workshop closes at 18:00.' },
 			{
@@ -3548,7 +3563,7 @@ export const FAMILY_PROGRAMS: Readonly<
 		subject: { ...FAMILY_BASE, trained: false },
 		eligibility: 'eligible',
 		status: 'referral',
-		decision: 'approved',
+		disposition: 'approved',
 		determinations: [
 			{ id: 'closing', effect: 'notice', message: 'The workshop closes at 18:00.' },
 			{
@@ -3566,7 +3581,7 @@ export const FAMILY_PROGRAMS: Readonly<
 		subject: { ...FAMILY_BASE, noise: 55 },
 		eligibility: 'eligible',
 		status: 'conditional',
-		decision: 'approved',
+		disposition: 'approved',
 		determinations: [
 			{ id: 'closing', effect: 'notice', message: 'The workshop closes at 18:00.' },
 			{
@@ -3584,7 +3599,7 @@ export const FAMILY_PROGRAMS: Readonly<
 		subject: { ...FAMILY_BASE, start: 20 },
 		eligibility: 'eligible',
 		status: 'conditional',
-		decision: 'approved',
+		disposition: 'approved',
 		determinations: [
 			{ id: 'closing', effect: 'notice', message: 'The workshop closes at 18:00.' },
 			{
@@ -3733,17 +3748,17 @@ export function collectFamilyFindings(): ReadonlyArray<{
 	return findings
 }
 
-/** Names the members a result's text sits under that `FAMILY_WORDED` replaces as one string. */
-export const FAMILY_WORDED_KEYS: readonly string[] = ['label', 'expression']
-
 /** Names the members a result's list of text sits under that `FAMILY_WORDED` replaces entry by entry. */
-export const FAMILY_WORDED_LISTS: readonly string[] = ['trace', 'errors']
+export const FAMILY_WORDED_LISTS: readonly string[] = ['trace']
 
 /** Names the members of a worksheet step that `FAMILY_WORDED` replaces, the rest being data. */
-export const FAMILY_WORDED_STEPS: readonly string[] = ['name', 'expression']
+export const FAMILY_WORDED_STEPS: readonly string[] = ['name']
 
-/** Names the members that hold the subject's own values, which `FAMILY_WORDED` leaves alone. */
-export const FAMILY_KEPT_KEYS: readonly string[] = ['actual', 'expected']
+/**
+ * Names the members `FAMILY_WORDED` leaves alone: the subject's own values, and a refusal's
+ * `message`, which is a thrown error's own.
+ */
+export const FAMILY_KEPT_KEYS: readonly string[] = ['actual', 'expected', 'message']
 
 /**
  * Replaces the worded members of a result's member with other text of the same shape and count.
@@ -3755,7 +3770,6 @@ export const FAMILY_KEPT_KEYS: readonly string[] = ['actual', 'expected']
  */
 export function buildFamilyMember(key: string, member: unknown, path: string): unknown {
 	if (FAMILY_KEPT_KEYS.includes(key)) return member
-	if (FAMILY_WORDED_KEYS.includes(key) && typeof member === 'string') return `reworded ${path}`
 	if (FAMILY_WORDED_LISTS.includes(key) && isArray(member)) {
 		return member.map((entry, index) =>
 			typeof entry === 'string' ? `reworded ${path}.${String(index)}` : entry,
@@ -3780,9 +3794,8 @@ export function buildFamilyMember(key: string, member: unknown, path: string): u
 
 /**
  * Replaces every worded member of a result, at any depth, with other text of the same shape and
- * count: each `label` and `expression`, each text of a `trace` and an `errors` list, and the
- * `name` and `expression` of each worksheet step. A subject's own `actual` and `expected` values
- * stay.
+ * count: each text of a `trace` list, and the `name` of each worksheet step. A subject's own
+ * `actual` and `expected` values stay, and so do a message's parts and a thrown error's message.
  *
  * @param value - The result, or a part of one
  * @param path - Where the value sits, which the replacement text names
@@ -3867,9 +3880,39 @@ export function collectFamilyLeaves(
 	return [[path, value]]
 }
 
-/** Matches the path of a leaf that `FAMILY_WORDED` replaces: a label, an expression, a trace or errors entry, or a step's name or expression. */
-export const FAMILY_WORDED_PATH =
-	/\.(label|expression)$|\.(trace|errors)\.\d+$|\.steps\.\d+\.(name|expression)$/
+/** Matches the path of a leaf that `FAMILY_WORDED` replaces: a trace entry, or a step's name. */
+export const FAMILY_WORDED_PATH = /\.trace\.\d+$|\.steps\.\d+\.name$/
+
+/** Joins a message's parts, each slot as the value it holds. */
+export function renderFamilyMessage(message: ReadonlyArray<string | FamilySlot>): string {
+	return message.map((part) => (typeof part === 'string' ? part : String(part.actual))).join('')
+}
+
+/** Collects every text and summary of an account's lines, at any depth. */
+export function collectWrittenTexts(account: Account): readonly string[] {
+	const lines = [...account.lines]
+	for (const line of lines) lines.push(...line.lines)
+	return lines.flatMap(({ text, summary }) => [text, summary])
+}
+
+/** Creates a reasoner that answers as another does, with members of its answer replaced. */
+export function createAnsweringReasoner(
+	reasoner: ReasonerInterface,
+	answer: object,
+): ReasonerInterface {
+	return {
+		id: reasoner.id,
+		reasoning: reasoner.reasoning,
+		supports: (definition) => reasoner.supports(definition),
+		validate: (definition) => reasoner.validate(definition),
+		reason: (subject, definition) =>
+			invokeUnchecked<ReasonResult>(Object, Object.assign, [
+				{},
+				reasoner.reason(subject, definition),
+				answer,
+			]),
+	}
+}
 
 /**
  * Lists the distinct texts of a list, sorted.
@@ -4428,14 +4471,538 @@ export const EVIDENCE_VALUES: readonly unknown[] = [
 	{ kept: 1, dropped: undefined, nested: { count: Number.NEGATIVE_INFINITY } },
 ]
 
-/** Collects every fixture's account: each result's and each guide, in the shipped words and its own. */
+/** Builds one of every part of a family result, each member an account reads present. */
+export function buildFamilyParts() {
+	const check: CheckResult = {
+		check: { field: 'guests', operator: 'to', value: 40 },
+		state: 'unmet',
+		actual: 50,
+	}
+	const refusal: ReasonRefusal = { cause: 'source', path: ['rent'], field: 'room', actual: 'loft' }
+	const fault: AuditFault = { reason: 'missing', path: 'staff', expected: 'number' }
+	const slot: FamilySlot = { field: ['room'], actual: 'hall' }
+	const finding: FamilyFinding = {
+		id: 'crowded',
+		effect: 'referral',
+		state: 'unmet',
+		pass: 'gates',
+		rule: 'crowded',
+		scope: 'rent',
+		message: ['The room is ', slot],
+		checks: [check],
+	}
+	const derivation: FamilyDerivation = {
+		id: 'load',
+		value: 4,
+		success: false,
+		refusals: [refusal],
+		faults: [fault],
+	}
+	const qualification: FamilyQualificationResult = {
+		id: 'qualification',
+		name: 'Booking qualification',
+		eligibility: 'referral',
+		scopes: { rent: 'eligible' },
+		findings: [finding],
+		derivations: [derivation],
+		success: false,
+		refusals: [refusal],
+		faults: [fault],
+	}
+	const factor: FamilyWorksheetFactor = {
+		id: 'room',
+		applied: true,
+		value: 80,
+		raw: 40,
+		actual: 'hall',
+		fallback: false,
+		checks: [check],
+	}
+	const group: FamilyWorksheetGroup = { id: 'hire', applied: true, value: 80, factors: [factor] }
+	const worksheet: FamilyWorksheet = {
+		value: 80,
+		groups: [group],
+		success: false,
+		refusals: [refusal],
+		faults: [fault],
+	}
+	const line: FamilyLineResult = { id: 'rent', name: 'Rent', amount: 80, worksheet }
+	const rating: FamilyRatingResult = {
+		lines: [line],
+		total: 80,
+		success: false,
+		refusals: [refusal],
+		faults: [fault],
+	}
+	const result: FamilyProgramResult = {
+		id: 'program',
+		name: 'Booking program',
+		eligibility: 'referral',
+		status: 'referral',
+		disposition: 'submitted',
+		qualification,
+		rating,
+		determinations: [finding],
+		success: false,
+		refusals: [refusal],
+		faults: [fault],
+	}
+	return { slot, finding, factor, group, line, rating, result }
+}
+
+/** Holds one of every part of a family result. */
+export const FAMILY_PARTS = buildFamilyParts()
+
+/** Holds the words the refused runs are written in. */
+export const REFUSED_GLOSSARY: Glossary = {
+	labels: {
+		guests: 'Group size',
+		room: 'Room',
+		member: 'Member',
+		tier: 'Tier',
+		area: 'Floor area',
+		side: 'Side length',
+		rate: 'Hourly rate',
+	},
+	units: { guests: 'count', area: 'plain', side: 'plain', rate: 'plain' },
+	values: { quote: 'plain' },
+	predicates: { near: '{{1}} is near {{2}}', linked: '{{1}} is linked to {{2}}' },
+}
+
+/** Represents one real run that refused, its causes as sentences, and what the guard says of it. */
+export interface RefusedRun {
+	readonly name: string
+	readonly definition: Definition
+	readonly admitted: boolean
+	readonly result: ReasonResult
+	readonly sentences: readonly string[]
+}
+
+/** Creates an evaluator that answers every check by what it is given, as an untrusted one can. */
+export function createAnsweringEvaluator(answer: () => unknown): EvaluatorInterface {
+	return invokeUnchecked<EvaluatorInterface>(Object, Object.assign, [
+		{},
+		{ id: 'answering', evaluate: answer, batch: answer },
+	])
+}
+
+/** Builds a quote of one group, `Fees`, over the given factors. */
+export function buildRefusedQuote(factors: readonly unknown[]): QuantitativeDefinition {
+	return invokeUnchecked<QuantitativeDefinition>(undefined, createQuantitativeDefinition, [
+		'quote',
+		'Quote',
+		[{ ...createFactorGroup('fees', 'sum', []), name: 'Fees', factors }],
+	])
+}
+
+/** Builds a quote of one late fee, gated by one check of the group size. */
+export function buildGatedQuote(operator: string, required: boolean): QuantitativeDefinition {
+	return buildRefusedQuote([
+		{
+			...createStaticFactor('late', 10, { name: 'Late fee' }),
+			required,
+			checks: [{ field: 'guests', operator, value: 10 }],
+		},
+	])
+}
+
+/** Builds a tier definition: one rule for members, and one that reads the tier it concludes. */
+export function buildRefusedTier(operator: string, value: unknown): LogicalDefinition {
+	return createLogicalDefinition('pricing', 'Pricing', [
+		createRule('known', [createAtom('guests', 'from', 10)], createAtom('tier', 'equals', 'group'), {
+			name: 'Group booking',
+		}),
+		createRule(
+			'priced',
+			[invokeUnchecked(undefined, createAtom, ['tier', operator, value])],
+			createAtom('priced', 'equals', true),
+			{ name: 'Priced booking' },
+		),
+	])
+}
+
+/** Builds every refused run: each cause a reasoner gives, in each engine that gives it. */
+export function buildRefusedRuns(): readonly RefusedRun[] {
+	const failing = createAnsweringEvaluator(() => {
+		throw new Error('clock stopped')
+	})
+	const short = createAnsweringEvaluator(() => [])
+	const quantitative = createQuantitativeReasoner()
+	const logical = createLogicalReasoner()
+	const symbolic = createSymbolicReasoner()
+	const deductive = createDeductiveReasoner()
+	const large = { guests: 12 }
+	const member = createLogicalDefinition('pricing', 'Pricing', [
+		createRule('known', [createAtom('guests', 'from', 10)], createAtom('member', 'equals', true), {
+			name: 'Group booking',
+		}),
+	])
+	const tiers = createLogicalDefinition(
+		'pricing',
+		'Pricing',
+		['group', 'party'].map((tier) =>
+			createRule(tier, [createAtom('guests', 'from', 10)], createAtom('tier', 'equals', tier), {
+				name: `The ${tier} tier`,
+			}),
+		),
+	)
+	const self = createLogicalDefinition('pricing', 'Pricing', [
+		createRule(
+			'self',
+			[createCompound('not', [createAtom('member', 'equals', true)])],
+			createAtom('member', 'equals', true),
+			{ name: 'Guest booking' },
+		),
+	])
+	const bare = createLogicalDefinition('pricing', 'Pricing', [
+		createRule('bare', [], createAtom('member', 'equals', true), { name: 'Bare rule' }),
+	])
+	const square = createEquation(
+		'square',
+		createVariable('area'),
+		createOperation('power', createVariable('side'), createConstant(2)),
+		'side',
+		{ name: 'Square' },
+	)
+	const ahead = createEquation('ahead', createVariable('area'), createVariable('rate'), 'area', {
+		name: 'Floor cost',
+	})
+	const rated = createEquation('rated', createVariable('rate'), createConstant(3), 'rate', {
+		name: 'Rate card',
+	})
+	const broken = createEquation(
+		'broken',
+		createVariable('area'),
+		createOperation('divide', createVariable('side'), createConstant(0)),
+		'area',
+		{ name: 'Split' },
+	)
+	const open: SymbolicExpression = { form: 'operation', operator: 'add', left: createConstant(1) }
+	const links = [createFact('ab', 'linked', ['a', 'b']), createFact('bc', 'linked', ['b', 'c'])]
+	const chain = createDeduction(
+		'near',
+		[createFact('p', 'linked', ['?x', '?y'])],
+		createFact('c', 'near', ['?x', '?y']),
+		{ name: 'Nearness' },
+	)
+	const graph = createDeductiveDefinition('map', 'Map', links, [chain])
+	const runs: ReadonlyArray<
+		readonly [
+			name: string,
+			reasoner: ReasonerInterface,
+			definition: unknown,
+			subject: Subject,
+			admitted: boolean,
+			sentences: readonly string[],
+		]
+	> = [
+		[
+			'an empty group',
+			quantitative,
+			buildRefusedQuote([]),
+			{},
+			true,
+			['Fees has a part missing or written in a form that cannot be used'],
+		],
+		[
+			'a group that is none',
+			quantitative,
+			{ ...buildRefusedQuote([]), groups: [null] },
+			{},
+			false,
+			['entry 1 has a part missing or written in a form that cannot be used'],
+		],
+		[
+			'a factor that is none',
+			quantitative,
+			buildRefusedQuote([createStaticFactor('flat', 5, { name: 'Flat fee' }), null]),
+			{},
+			false,
+			['fees: entry 2 has a part missing or written in a form that cannot be used'],
+		],
+		[
+			'a required factor gated out',
+			quantitative,
+			buildGatedQuote('from', true),
+			{ guests: 4 },
+			true,
+			['Fees: Late fee had to apply and did not'],
+		],
+		[
+			'a lookup with no entry',
+			quantitative,
+			buildRefusedQuote([createLookupFactor('room', 'room', { hall: 60 }, { name: 'Room rate' })]),
+			{ room: 'loft' },
+			true,
+			['Fees: Room rate has no entry for the value it read (Room: loft)'],
+		],
+		[
+			'a range with no band',
+			quantitative,
+			buildRefusedQuote([
+				createRangeFactor('size', 'guests', [{ bounds: { maximum: 10 }, value: 1 }], {
+					name: 'Size rate',
+				}),
+			]),
+			large,
+			true,
+			['Fees: Size rate has no entry for the value it read (Group size: 12)'],
+		],
+		[
+			'a change that divides by zero',
+			quantitative,
+			buildRefusedQuote([
+				createFieldFactor('share', 'guests', {
+					name: 'Share',
+					transforms: [{ operation: 'divide', operand: 0 }],
+				}),
+			]),
+			large,
+			true,
+			['Fees: Share did not give a finite number'],
+		],
+		[
+			'an aggregate of nothing',
+			quantitative,
+			createQuantitativeDefinition(
+				'quote',
+				'Quote',
+				[createFactorGroup('fees', 'sum', [createStaticFactor('off', 1, { enabled: false })])],
+				{ aggregation: 'minimum' },
+			),
+			{},
+			true,
+			['the run did not give a finite number'],
+		],
+		[
+			'a factor with an unknown comparison',
+			quantitative,
+			buildGatedQuote('odd', false),
+			large,
+			false,
+			['fees: late uses an operation that is not known (Group size; and "odd")'],
+		],
+		[
+			'a factor with an unknown change',
+			quantitative,
+			buildRefusedQuote([
+				{ ...createStaticFactor('flat', 5), transforms: [{ operation: 'halve', operand: 1 }] },
+			]),
+			{},
+			false,
+			['fees: flat uses an operation that is not known ("halve")'],
+		],
+		[
+			'an evaluator that throws',
+			createQuantitativeReasoner({ evaluator: failing }),
+			buildGatedQuote('from', false),
+			large,
+			true,
+			['Fees: Late fee failed while it ran ("clock stopped")'],
+		],
+		[
+			'an evaluator that answers too little',
+			createQuantitativeReasoner({ evaluator: short }),
+			buildGatedQuote('from', false),
+			large,
+			true,
+			['Fees: Late fee rests on a result that cannot be used'],
+		],
+		[
+			'a conclusion the subject holds',
+			logical,
+			member,
+			{ ...large, member: true },
+			true,
+			['the run was given a value that only its rules can set (Member)'],
+		],
+		[
+			'a key given two values',
+			logical,
+			tiers,
+			large,
+			true,
+			['The party tier gives a second value for something already decided (Tier: party)'],
+		],
+		[
+			'a rule over its own absence',
+			logical,
+			self,
+			{},
+			true,
+			['Guest booking decides something that another rule had taken as not decided (Member)'],
+		],
+		[
+			'an ordering of a text a rule concludes',
+			logical,
+			buildRefusedTier('above', 5),
+			large,
+			true,
+			[
+				'Priced booking compares what a rule decides in a way that cannot be answered (Tier: group)',
+			],
+		],
+		[
+			'an ordering of a key nothing concludes',
+			logical,
+			buildRefusedTier('above', 5),
+			{ guests: 4 },
+			true,
+			['Priced booking compares what a rule decides in a way that cannot be answered (Tier)'],
+		],
+		[
+			'a rule with an unknown comparison',
+			logical,
+			buildRefusedTier('odd', 5),
+			large,
+			false,
+			['priced uses an operation that is not known (Tier; and "odd")'],
+		],
+		[
+			'a chain past its depth',
+			logical,
+			{ ...buildRefusedTier('equals', 'group'), depth: 1 },
+			large,
+			true,
+			['the run did not settle in the passes it was allowed (passes allowed: 1)'],
+		],
+		[
+			'a rule with no premise',
+			logical,
+			bare,
+			{},
+			true,
+			['Bare rule has a part missing or written in a form that cannot be used'],
+		],
+		[
+			'a rule whose evaluator throws',
+			createLogicalReasoner({ evaluator: failing }),
+			member,
+			large,
+			true,
+			['Group booking failed while it ran ("clock stopped")'],
+		],
+		[
+			'a rule whose evaluator answers no state',
+			createLogicalReasoner({ evaluator: short }),
+			member,
+			large,
+			true,
+			['Group booking rests on a result that cannot be used (Group size)'],
+		],
+		[
+			'an operation that cannot be undone',
+			symbolic,
+			createSymbolicDefinition('room', 'Room size', [square]),
+			{ area: 9 },
+			true,
+			['Square could not be solved (Side length)'],
+		],
+		[
+			'an equation ahead of the one it needs',
+			symbolic,
+			createSymbolicDefinition('room', 'Room size', [ahead, rated]),
+			{},
+			true,
+			['Floor cost could not be solved (Hourly rate)'],
+		],
+		[
+			'a division by zero',
+			symbolic,
+			createSymbolicDefinition('room', 'Room size', [broken]),
+			{ side: 4 },
+			true,
+			['Split did not give a finite number (Floor area)'],
+		],
+		[
+			'an operation with one side',
+			symbolic,
+			createSymbolicDefinition('room', 'Room size', [
+				{ id: 'half', name: 'Half', left: createVariable('area'), right: open, target: 'area' },
+			]),
+			{},
+			true,
+			['Half has a part missing or written in a form that cannot be used'],
+		],
+		[
+			'an unknown operation',
+			symbolic,
+			createSymbolicDefinition('room', 'Room size', [
+				{ ...broken, right: { ...open, operator: invokeUnchecked(undefined, String, ['cube']) } },
+			]),
+			{},
+			false,
+			['broken uses an operation that is not known ("cube")'],
+		],
+		[
+			'a seeded variable that is no number',
+			symbolic,
+			{ ...createSymbolicDefinition('room', 'Room size', [rated]), variables: { side: 'long' } },
+			{},
+			false,
+			['the run has a part missing or written in a form that cannot be used (Side length)'],
+		],
+		[
+			'a derivation past its depth',
+			deductive,
+			{ ...graph, depth: 1 },
+			{},
+			true,
+			['the run did not settle in the passes it was allowed (passes allowed: 1)'],
+		],
+		[
+			'a backward derivation past its depth',
+			deductive,
+			{ ...graph, strategy: 'backward', depth: 1 },
+			{},
+			true,
+			['the run did not settle in the passes it was allowed (passes allowed: 1)'],
+		],
+		[
+			'a deduction with no premise',
+			deductive,
+			{ ...graph, deductions: [{ ...chain, premises: [] }] },
+			{},
+			true,
+			['Nearness has a part missing or written in a form that cannot be used'],
+		],
+		[
+			'a fact that is none',
+			deductive,
+			{ ...graph, facts: [...links, null] },
+			{},
+			false,
+			['entry 3 has a part missing or written in a form that cannot be used'],
+		],
+		[
+			'facts that are no list',
+			deductive,
+			{ ...graph, facts: 'none' },
+			{},
+			false,
+			['the run has a part missing or written in a form that cannot be used'],
+		],
+	]
+	return runs.map(([name, reasoner, definition, subject, admitted, sentences]) => ({
+		name,
+		definition: invokeUnchecked<Definition>(Object, Object.assign, [{}, definition]),
+		admitted,
+		result: invokeUnchecked<ReasonResult>(reasoner, reasoner.reason, [subject, definition]),
+		sentences,
+	}))
+}
+
+/**
+ * Collects the account of each fixture of `@orkestrel/reason`: each result's, each refused run's, and
+ * each guide, in the shipped words and in the glossaries of the fixtures.
+ */
 export function collectFixtureAccounts(): readonly Account[] {
 	const engine = createReason({
 		reasoners: [
 			createLogicalReasoner(),
 			createQuantitativeReasoner(),
 			createSymbolicReasoner(),
-			createInferentialReasoner(),
+			createDeductiveReasoner(),
 		],
 	})
 	const runs: ReadonlyArray<readonly [Definition, readonly Subject[]]> = [
@@ -4457,6 +5024,67 @@ export function collectFixtureAccounts(): readonly Account[] {
 			.slice(0, 12)
 			.map((tree) => [tree, collectTreeSubjects().slice(0, 2)] as const),
 	]
+	const refused = buildRefusedRuns()
+	return [
+		new surface.Narrator(),
+		new surface.Narrator({ glossary: WORKSHOP_GLOSSARY }),
+		new surface.Narrator({ glossary: FAMILY_GLOSSARY }),
+	].flatMap((narrator) => [
+		...runs.flatMap(([definition, subjects]) => [
+			narrator.describe(definition),
+			...subjects.map((subject) =>
+				narrator.narrate(definition, engine.reason(subject, definition)),
+			),
+		]),
+		...refused.map(({ definition, result }) => narrator.narrate(definition, result)),
+	])
+}
+
+/** Collects the qualification of each family subject under its name, and what it must hold. */
+export function collectFamilyQualified() {
+	const qualifier = createQualifier()
+	const definition = buildFamilyQualification()
+	const results = Object.entries(FAMILY_SUBJECTS).map(
+		([name, expected]) =>
+			[name, qualifier.qualify(expected.subject, definition), expected] as const,
+	)
+	qualifier.destroy()
+	return results
+}
+
+/** Collects the program run of each family subject under its name, and what it must hold. */
+export function collectFamilyExecuted() {
+	const program = createProgram(buildFamilyProgram())
+	const results = Object.entries(FAMILY_PROGRAMS).map(
+		([name, expected]) => [name, program.execute(expected.subject), expected] as const,
+	)
+	program.destroy()
+	return results
+}
+
+/** Collects a qualification's, a rating's, and a program's result, each beside the same result reworded. */
+export function collectFamilyPairs() {
+	const qualifier = createQualifier()
+	const rater = createRater()
+	const qualified = qualifier.qualify(
+		FAMILY_SUBJECTS.unread?.subject ?? {},
+		buildFamilyQualification(),
+	)
+	const rated = rater.rate(buildFamilyRating(), FAMILY_RATINGS.costly?.subject ?? {})
+	const program = createProgram(buildFamilyProgram())
+	const executed = program.execute(FAMILY_PROGRAMS.heavy?.subject ?? {})
+	qualifier.destroy()
+	rater.destroy()
+	program.destroy()
+	return [
+		['qualification', qualified, FAMILY_WORDED.qualification(qualified)],
+		['rating', rated, FAMILY_WORDED.rating(rated)],
+		['program', executed, FAMILY_WORDED.program(executed)],
+	] as const
+}
+
+/** Collects the account of each fixture of the family: each result's and each guide. */
+export function collectFamilyAccounts(): readonly Account[] {
 	const qualification = buildFamilyQualification()
 	const rating = buildFamilyRating()
 	const program = buildFamilyProgram()
@@ -4468,12 +5096,6 @@ export function collectFixtureAccounts(): readonly Account[] {
 		new surface.Narrator({ glossary: WORKSHOP_GLOSSARY }),
 		new surface.Narrator({ glossary: FAMILY_GLOSSARY }),
 	].flatMap((narrator) => [
-		...runs.flatMap(([definition, subjects]) => [
-			narrator.describe(definition),
-			...subjects.map((subject) =>
-				narrator.narrate(definition, engine.reason(subject, definition)),
-			),
-		]),
 		...[qualification, rating, program].map((definition) => narrator.describe(definition)),
 		...Object.values(FAMILY_SUBJECTS).map(({ subject }) =>
 			narrator.narrate(qualification, qualifier.qualify(subject, qualification)),

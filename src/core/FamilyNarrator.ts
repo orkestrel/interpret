@@ -1,13 +1,12 @@
 import type { AuditFault } from '@orkestrel/contract'
 import type {
-	CheckResult,
-	Factor,
 	FactorResult,
 	GroupResult,
 	LogicalDefinition,
 	LogicalResult,
 	QuantitativeDefinition,
 	QuantitativeResult,
+	ReasonRefusal,
 	Rule,
 } from '@orkestrel/reason'
 import type {
@@ -24,7 +23,6 @@ import type {
 	FamilyNarratorInterface,
 	FamilyNarratorOptions,
 	FamilyNotice,
-	FamilyPremise,
 	FamilyProgram,
 	FamilyProgramResult,
 	FamilyQualification,
@@ -39,9 +37,10 @@ import type {
 	GlossaryGap,
 	Lexicon,
 	NarratorInterface,
+	RefusedPart,
 } from './types.js'
-import { attempt, isFiniteNumber, isSuccess } from '@orkestrel/contract'
-import { formatField } from '@orkestrel/reason'
+import { attempt, isFiniteNumber, isNumber, isString, isSuccess } from '@orkestrel/contract'
+import { formatField, isDefinition } from '@orkestrel/reason'
 import { DEFAULT_LOCALE } from '@orkestrel/template'
 import { DEFAULT_FORMATS, DEFAULT_LEXICON } from './constants.js'
 import {
@@ -52,12 +51,16 @@ import {
 	collectGaps,
 	collectNameGaps,
 	collectReasons,
+	collectRefusalGaps,
+	collectRefusedParts,
 	collectUnitGaps,
 	filterUniqueGaps,
 	findWord,
-	matchesChangedFactor,
+	matchesNestedRefusal,
+	refusalToSource,
 	renderCitedReasons,
 	renderName,
+	renderRefusal,
 	settleOperands,
 } from './helpers.js'
 
@@ -76,7 +79,7 @@ import {
  * const glossary = { labels: {}, values: { prices: 'count' } }
  * const narrator = new FamilyNarrator(new Narrator({ glossary }), { glossary })
  * const rating = { id: 'prices', name: 'Prices', lines: [] }
- * const result = { lines: [], total: 1250, success: true, faults: [] }
+ * const result = { lines: [], total: 1250, success: true, refusals: [], faults: [] }
  * renderAccount(narrator.narrate(rating, result)) // 'Prices: 1,250'
  * ```
  */
@@ -148,7 +151,10 @@ export class FamilyNarrator implements FamilyNarratorInterface {
 	}
 
 	// A word the lexicon lacks prints as the engine's own.
-	#writeWord(table: 'eligibilities' | 'effects' | 'statuses' | 'decisions', key: string): string {
+	#writeWord(
+		table: 'eligibilities' | 'effects' | 'statuses' | 'dispositions',
+		key: string,
+	): string {
 		return this.#renderName({ id: key, name: this.#narrator.phrase(table, key) })
 	}
 
@@ -193,16 +199,28 @@ export class FamilyNarrator implements FamilyNarratorInterface {
 		return this.#writeName('rule', rule ?? { id, name: id })
 	}
 
-	// A message is the domain's sentence for a finding that is met, and for no other.
-	#readMessage(finding: FamilyFinding): string | undefined {
-		const { message, state } = finding
-		return state !== 'met' || message === undefined || message.trim() === '' ? undefined : message
+	// A message is the domain's sentence for a finding that is met, and for no other: each text as it
+	// stands, and each slot as its field's value.
+	#writeMessage({ message, state }: FamilyFinding): AccountText | undefined {
+		if (state !== 'met' || message === undefined) return undefined
+		const text = message
+			.map((part) => (isString(part) ? part : this.#narrator.value(part.field, part.actual)))
+			.join('')
+		if (text.trim() === '') return undefined
+		const gaps = message
+			.flatMap((part) =>
+				!isString(part) && isNumber(part.actual)
+					? collectFieldGaps(part.field, true, this.#glossary, this.#units)
+					: [],
+			)
+			.filter((gap) => gap.word !== 'label')
+		return { text, gaps }
 	}
 
 	// A finding's outcome: its message, or its rule's name and state.
 	#writeFinding(finding: FamilyFinding, rule: Rule | undefined): AccountText {
-		const message = this.#readMessage(finding)
-		if (message !== undefined) return { text: message, gaps: [] }
+		const message = this.#writeMessage(finding)
+		if (message !== undefined) return message
 		const named = this.#writeRuleName(finding, rule)
 		const verdict = this.#lexicon.rules[finding.state]
 		return {
@@ -219,7 +237,7 @@ export class FamilyNarrator implements FamilyNarratorInterface {
 		lines: readonly FamilyLine[],
 	): AccountText {
 		const facts =
-			this.#readMessage(finding) === undefined ? this.#premiseLines(finding, rule, faults) : []
+			this.#writeMessage(finding) === undefined ? this.#checkLines(finding, rule, faults) : []
 		if (facts.length === 0) {
 			return this.#writeScoped(this.#writeFinding(finding, rule), finding.scope, lines)
 		}
@@ -236,18 +254,97 @@ export class FamilyNarrator implements FamilyNarratorInterface {
 
 	// === What the documents share
 
-	// A refusal and its causes are written as the narrator writes those of a run that read nothing.
-	#refusalLine(
+	// A run that gave no answer, with its causes.
+	#refusedLine(
 		named: { readonly id: string; readonly name: string },
-		faults: readonly AuditFault[],
+		reasons: readonly AccountText[],
+		lines: readonly AccountLine[],
 	): AccountLine {
-		const { id, name } = named
-		const { lines } = this.#narrator.narrate(
-			{ reasoning: 'logical', id, name, strategy: 'forward', rules: [] },
-			this.#unreadResult(faults),
-		)
-		const text = this.#narrator.line('result.refused', { name: this.#renderName(named) })
-		return lines[0] ?? buildAccountLine({ role: 'verdict', decisive: true, text })
+		const written = this.#writeName('definition', named)
+		const cited = this.#writeCited(reasons)
+		const name = written.text
+		return buildAccountLine({
+			role: 'verdict',
+			state: 'unread',
+			decisive: true,
+			text: this.#narrator.line('result.refused', { name }),
+			...(reasons.length === 0
+				? {}
+				: { summary: this.#narrator.line('result.because', { name, reasons: cited.text }) }),
+			gaps: [...written.gaps, ...cited.gaps],
+			lines,
+		})
+	}
+
+	#refusalLine(refusal: ReasonRefusal, parts: readonly RefusedPart[]): AccountLine {
+		const written = parts.map((named) => ({
+			text: this.#renderName(named),
+			gaps: named.part === undefined ? [] : collectNameGaps(named.part, named),
+		}))
+		const names = written.map((part) => part.text)
+		return buildAccountLine({
+			role: 'reason',
+			decisive: true,
+			text: renderRefusal(refusal, names, this.#narrator, this.#plain),
+			source: refusalToSource(refusal),
+			gaps: [
+				...written.flatMap((part) => part.gaps),
+				...collectRefusalGaps(refusal, this.#glossary, this.#units),
+			],
+		})
+	}
+
+	// The parts a composed run's refusal stands in, each under the name its definition gives.
+	#collectParts(definition: FamilyDefinition, refusal: ReasonRefusal): readonly RefusedPart[] {
+		const [id, ...path] = refusal.path ?? []
+		if (id === undefined) return collectRefusedParts(refusal)
+		const rest = { ...refusal, path }
+		if ('passes' in definition) {
+			const pass = definition.passes.find((entry) => entry.id === id)
+			return [{ part: 'pass', id, name: pass?.name ?? id }, ...this.#collectInner(rest, pass)]
+		}
+		if ('lines' in definition) {
+			const line = definition.lines.find((entry) => entry.id === id)
+			return [{ part: 'line', id, name: line?.name ?? id }, ...this.#collectInner(rest, line?.rate)]
+		}
+		const { qualification, rating, authority } = definition
+		if (id === 'qualification') {
+			return [
+				{ part: 'definition', id: qualification.id, name: qualification.name },
+				...this.#collectParts(qualification, rest),
+			]
+		}
+		if (id === 'rating' && rating !== undefined) {
+			return [
+				{ part: 'definition', id: rating.id, name: rating.name },
+				...this.#collectParts(rating, rest),
+			]
+		}
+		if (id === 'authority' && authority !== undefined) {
+			return [
+				{ part: 'definition', id: authority.id, name: authority.name },
+				...this.#collectInner(rest, authority),
+			]
+		}
+		return collectRefusedParts(refusal)
+	}
+
+	// Nothing of a definition no guard admits is read.
+	#collectInner(refusal: ReasonRefusal, definition: unknown): readonly RefusedPart[] {
+		return collectRefusedParts(refusal, isDefinition(definition) ? definition : undefined)
+	}
+
+	#causeLines(
+		definition: FamilyDefinition,
+		refusals: readonly ReasonRefusal[],
+		faults: readonly AuditFault[],
+	): readonly AccountLine[] {
+		return [
+			...refusals.map((refusal) =>
+				this.#refusalLine(refusal, this.#collectParts(definition, refusal)),
+			),
+			...this.#faultLines(definition, faults),
+		]
 	}
 
 	// The result of a run that read nothing, and of another kind than any family definition's.
@@ -259,18 +356,24 @@ export class FamilyNarrator implements FamilyNarratorInterface {
 			count: 0,
 			success: false,
 			trace: [],
-			errors: [],
+			refusals: [],
 			faults,
 			repairs: [],
 			defaulted: [],
 		}
 	}
 
+	// A fault is written as the narrator writes those of a run that read nothing.
 	#faultLines(
-		named: { readonly id: string; readonly name: string },
+		{ id, name }: { readonly id: string; readonly name: string },
 		faults: readonly AuditFault[],
 	): readonly AccountLine[] {
-		return faults.length === 0 ? [] : this.#refusalLine(named, faults).lines
+		if (faults.length === 0) return []
+		const { lines } = this.#narrator.narrate(
+			{ reasoning: 'logical', id, name, strategy: 'forward', rules: [] },
+			this.#unreadResult(faults),
+		)
+		return lines[0]?.lines ?? []
 	}
 
 	// A verdict with its reasons, and the fields a run could not read.
@@ -371,7 +474,7 @@ export class FamilyNarrator implements FamilyNarratorInterface {
 		faults: readonly AuditFault[],
 		written: AccountText,
 	): AccountLine {
-		const lines = this.#premiseLines(finding, rule, faults)
+		const lines = this.#checkLines(finding, rule, faults)
 		const cited = this.#writeCited(lines)
 		const { id, scope, pass, state } = finding
 		const ruled = finding.rule ?? rule?.id
@@ -399,16 +502,17 @@ export class FamilyNarrator implements FamilyNarratorInterface {
 		})
 	}
 
-	// The facts that fix a finding's state: the rule's atoms paired with its premises, as the rule's
-	// own result would hold them. The rule is narrated alone and concludes nothing, so a key another
-	// rule concludes prints as a plain fact, because a finding holds no other rule's result.
-	#premiseLines(
+	// The facts that fix a finding's state: the rule's atoms paired with its checks, as the rule's own
+	// result holds them. The rule is narrated alone and concludes nothing, so a key another rule
+	// concludes prints as a plain fact, because a finding holds no other rule's result. A rule that
+	// never ran holds no check, and gives no reason.
+	#checkLines(
 		finding: FamilyFinding,
 		rule: Rule | undefined,
 		faults: readonly AuditFault[],
 	): readonly AccountLine[] {
-		const checks = this.#readChecks(finding.premises)
-		if (rule === undefined || checks === undefined) return []
+		const { checks } = finding
+		if (rule === undefined || checks.length === 0) return []
 		const settled = attempt(() => settleOperands(rule.premises, checks))
 		if (!isSuccess(settled)) return []
 		const premises = settled.value.map((premise) => premise.state)
@@ -424,7 +528,7 @@ export class FamilyNarrator implements FamilyNarratorInterface {
 				count: finding.state === 'met' ? 1 : 0,
 				success: finding.state !== 'unread',
 				trace: [],
-				errors: [],
+				refusals: [],
 				faults,
 				repairs: [],
 				defaulted: [],
@@ -441,14 +545,6 @@ export class FamilyNarrator implements FamilyNarratorInterface {
 		}
 	}
 
-	// A premise with no field or no state was never checked, so no list that holds one lines up.
-	#readChecks(premises: readonly FamilyPremise[]): readonly CheckResult[] | undefined {
-		const checks = premises.flatMap(({ field, actual, state }): readonly CheckResult[] =>
-			field === undefined || state === undefined ? [] : [{ field, actual, state }],
-		)
-		return checks.length === premises.length ? checks : undefined
-	}
-
 	// === The qualification
 
 	#qualificationLines(
@@ -456,8 +552,11 @@ export class FamilyNarrator implements FamilyNarratorInterface {
 		result: FamilyQualificationResult,
 		lines: readonly FamilyLine[],
 	): readonly AccountLine[] {
-		const { faults, findings } = result
-		if (result.errors.length > faults.length) return [this.#refusalLine(definition, faults)]
+		const { faults, findings, refusals } = result
+		if (refusals.length > 0) {
+			const causes = this.#causeLines(definition, refusals, faults)
+			return [this.#refusedLine(definition, causes, causes)]
+		}
 		const causes = this.#faultLines(definition, faults)
 		const met = findings.filter((finding) => finding.state === 'met')
 		const open = met.filter((finding) => finding.scope === undefined)
@@ -570,10 +669,25 @@ export class FamilyNarrator implements FamilyNarratorInterface {
 		const { id, value } = derivation
 		const source = { pass: id }
 		if (!derivation.success || !isFiniteNumber(value)) {
-			const pass = definition.passes.find((entry) => entry.id === id) ?? { id, name: id }
-			const named = this.#writeName('pass', pass)
-			const text = this.#narrator.line('result.refused', { name: named.text })
-			return buildAccountLine({ role: 'step', text, source, gaps: named.gaps })
+			const pass = definition.passes.find((entry) => entry.id === id)
+			const named = this.#writeName('pass', pass ?? { id, name: id })
+			const reasons = [
+				...derivation.refusals.map((refusal) =>
+					this.#refusalLine(refusal, this.#collectInner(refusal, pass)),
+				),
+				...this.#faultLines(definition, derivation.faults),
+			]
+			const cited = this.#writeCited(reasons)
+			const name = named.text
+			return buildAccountLine({
+				role: 'step',
+				text: this.#narrator.line('result.refused', { name }),
+				...(reasons.length === 0
+					? {}
+					: { summary: this.#narrator.line('result.because', { name, reasons: cited.text }) }),
+				source,
+				gaps: [...named.gaps, ...cited.gaps],
+			})
 		}
 		const field = ['qualification', id]
 		return buildAccountLine({
@@ -679,35 +793,28 @@ export class FamilyNarrator implements FamilyNarratorInterface {
 			const [verdict] = this.#amountLines(definition, undefined, total)
 			return verdict === undefined ? lines : [verdict, ...lines]
 		}
-		const named = this.#writeName('definition', definition)
-		const causes = this.#faultLines(definition, result.faults)
-		const reasons = [...causes, ...this.#writeRefusedLines(definition, result)]
-		const cited = this.#writeCited(reasons)
+		const causes = this.#causeLines(definition, result.refusals, result.faults)
+		const reasons = [...causes, ...this.#writeSilentLines(definition, result)]
 		const stated = collectFaultFields(lines)
-		const verdict = buildAccountLine({
-			role: 'verdict',
-			decisive: true,
-			text: this.#narrator.line('result.refused', { name: named.text }),
-			...(reasons.length === 0
-				? {}
-				: {
-						summary: this.#narrator.line('result.because', {
-							name: named.text,
-							reasons: cited.text,
-						}),
-					}),
-			gaps: [...named.gaps, ...cited.gaps],
-			lines: causes.filter(
-				({ source }) => source.fault === undefined || !stated.has(formatField(source.fault.path)),
-			),
+		const rest = causes.filter(({ source: { fault, refusal } }) => {
+			if (fault !== undefined) return !stated.has(formatField(fault.path))
+			return !result.lines.some(
+				({ id, worksheet }) =>
+					refusal !== undefined && matchesNestedRefusal(refusal, id, worksheet.refusals),
+			)
 		})
-		return [verdict, ...lines]
+		return [this.#refusedLine(definition, reasons, rest), ...lines]
 	}
 
-	// The lines that gave no answer and hold no field that says why.
-	#writeRefusedLines(definition: FamilyRating, result: FamilyRatingResult): readonly AccountText[] {
+	// The lines that gave no answer and hold nothing that says why.
+	#writeSilentLines(definition: FamilyRating, result: FamilyRatingResult): readonly AccountText[] {
 		return result.lines
-			.filter((line) => this.#readAmount(line) === undefined && line.worksheet.faults.length === 0)
+			.filter(
+				(line) =>
+					this.#readAmount(line) === undefined &&
+					line.worksheet.faults.length === 0 &&
+					line.worksheet.refusals.length === 0,
+			)
 			.map((line) => {
 				const authored = definition.lines.find((entry) => entry.id === line.id)
 				const named = this.#writeName('line', authored ?? line)
@@ -726,10 +833,7 @@ export class FamilyNarrator implements FamilyNarratorInterface {
 		const named = this.#writeName('line', authored ?? line)
 		const { worksheet } = line
 		const amount = this.#readAmount(line)
-		const rate =
-			authored === undefined
-				? undefined
-				: { ...this.#adaptRate(authored.rate, worksheet), name: named.text }
+		const rate = authored === undefined ? undefined : { ...authored.rate, name: named.text }
 		const [verdict, ...rest] = this.#amountLines(
 			rate ?? { id: '', name: named.text },
 			rate,
@@ -759,11 +863,11 @@ export class FamilyNarrator implements FamilyNarratorInterface {
 		const result: QuantitativeResult = {
 			reasoning: 'quantitative',
 			value: amount ?? 0,
-			groups: worksheet === undefined ? [] : this.#adaptGroups(rate, worksheet),
+			groups: worksheet === undefined ? [] : this.#adaptGroups(worksheet),
 			count: 0,
 			success: amount !== undefined,
 			trace: [],
-			errors: worksheet?.errors ?? [],
+			refusals: worksheet?.refusals ?? [],
 			faults: worksheet?.faults ?? [],
 			repairs: [],
 			defaulted: [],
@@ -776,111 +880,32 @@ export class FamilyNarrator implements FamilyNarratorInterface {
 
 	// === The worksheet a rating holds, as a run's result
 
-	// A factor the run never reached holds no value, and a group with none of its factors reached
-	// was not reached either. Neither prints.
-	#adaptGroups(
-		rate: QuantitativeDefinition | undefined,
-		worksheet: FamilyWorksheet,
-	): readonly GroupResult[] {
-		return worksheet.groups.flatMap((group) => {
-			const authored = rate?.groups.find((entry) => entry.id === group.id)
-			const factors = group.factors.flatMap((factor) =>
-				factor.value === undefined
-					? []
-					: [
-							this.#adaptFactor(
-								authored?.factors.find((entry) => entry.id === factor.id),
-								factor,
-								factor.value,
-							),
-						],
-			)
-			const { id, applied, value } = group
-			return factors.length === 0 ? [] : [{ id, applied, value, factors }]
+	// A factor the run never reached holds no value, and a group with none of its factors reached was
+	// not reached either. Neither prints. A number the result holds none of is not finite, so no line
+	// states it.
+	#adaptGroups(worksheet: FamilyWorksheet): readonly GroupResult[] {
+		return worksheet.groups.flatMap(({ id, applied, value, factors }) => {
+			const reached = factors.flatMap((factor) => this.#adaptFactor(factor))
+			return reached.length === 0
+				? []
+				: [{ id, applied, value: value ?? Number.NaN, factors: reached }]
 		})
 	}
 
-	// A worksheet drops the raw value, which is the value itself where nothing changed it.
-	#adaptFactor(
-		authored: Factor | undefined,
-		factor: FamilyWorksheetFactor,
-		value: number,
-	): FactorResult {
-		const { id, applied, evidence } = factor
-		const stated = applied && authored !== undefined
-		const kept = stated && (!matchesChangedFactor(authored) || this.#matchesEither(authored))
-		return {
-			id,
-			applied,
-			value,
-			...(kept ? { raw: value } : {}),
-			...(this.#matchesGate(factor) ? { checks: this.#readChecks(evidence) ?? [] } : {}),
-		}
-	}
-
-	#matchesGate(factor: FamilyWorksheetFactor): boolean {
-		return !factor.applied && factor.evidence.some((row) => row.state !== undefined)
-	}
-
-	// A changed value does not say whether an entry or the fallback gave it.
-	#matchesEither(factor: Factor): boolean {
-		const { origin } = factor.source
-		return (
-			(origin === 'lookup' || origin === 'range') &&
-			factor.fallback !== undefined &&
-			matchesChangedFactor(factor)
-		)
-	}
-
-	#adaptRate(rate: QuantitativeDefinition, worksheet: FamilyWorksheet): QuantitativeDefinition {
-		return {
-			...rate,
-			groups: rate.groups.map((group) => {
-				const read = worksheet.groups.find((entry) => entry.id === group.id)
-				return {
-					...group,
-					factors: group.factors.map((factor) => {
-						const result = read?.factors.find((entry) => entry.id === factor.id)
-						return result === undefined
-							? factor
-							: this.#adaptSource(factor, result, worksheet.faults)
-					}),
-				}
-			}),
-		}
-	}
-
-	// The narrator reads a source to say where a number came from. Where a worksheet cannot say,
-	// this private copy holds a source that says no more: a fallback equal to an entry, with no change
-	// to count back over, where either may have given the value, and nothing to look up where a
-	// factor found no value.
-	#adaptSource(
-		factor: Factor,
-		result: FamilyWorksheetFactor,
-		faults: readonly AuditFault[],
-	): Factor {
-		const { source } = factor
-		const { value } = result
-		if (value === undefined || (source.origin !== 'lookup' && source.origin !== 'range')) {
-			return factor
-		}
-		if (result.applied) {
-			if (!this.#matchesEither(factor)) return factor
-			return {
-				...factor,
-				fallback: value,
-				transforms: [],
-				source:
-					source.origin === 'lookup'
-						? { ...source, table: { [formatField(source.field)]: value } }
-						: { ...source, ranges: [{ value }] },
-			}
-		}
-		const key = formatField(source.field)
-		const unread = faults.some((fault) => formatField(fault.path) === key)
-		return this.#matchesGate(result) || unread
-			? factor
-			: { ...factor, source: { origin: 'static', value } }
+	#adaptFactor(factor: FamilyWorksheetFactor): readonly FactorResult[] {
+		const { id, applied, value, raw, actual, fallback, checks } = factor
+		if (value === undefined) return []
+		return [
+			{
+				id,
+				applied,
+				value: value ?? Number.NaN,
+				...(raw === undefined ? {} : { raw: raw ?? Number.NaN }),
+				...(actual === undefined ? {} : { actual }),
+				fallback,
+				...(checks.length === 0 ? {} : { checks }),
+			},
+		]
 	}
 
 	#ratingGuide(definition: FamilyRating): readonly AccountLine[] {
@@ -913,26 +938,36 @@ export class FamilyNarrator implements FamilyNarratorInterface {
 				: this.#sectionLine(this.#ratingLines(definition.rating, rating), 'step')),
 		]
 		const stated = collectFaultFields(sections)
-		const causes = this.#faultLines(definition, faults)
-		const rest = causes.filter(
-			({ source }) => source.fault === undefined || !stated.has(formatField(source.fault.path)),
-		)
+		const causes = this.#causeLines(definition, result.refusals, faults)
+		// A section prints its own refusals, and the fields it could not read, so each prints once.
+		const rest = causes.filter(({ source: { fault, refusal } }) => {
+			if (fault !== undefined) return !stated.has(formatField(fault.path))
+			if (refusal?.cause === 'unread' && refusal.path?.[0] !== 'authority') {
+				return refusal.field === undefined || !stated.has(formatField(refusal.field))
+			}
+			return (
+				refusal !== undefined &&
+				!matchesNestedRefusal(refusal, 'qualification', qualification.refusals) &&
+				(definition.rating === undefined ||
+					!matchesNestedRefusal(refusal, 'rating', rating?.refusals ?? []))
+			)
+		})
 		// The status is read from the qualification and the rating, before the authority runs.
-		const refused = qualification.errors.length > qualification.faults.length
-		const verdict = refused
-			? { ...this.#refusalLine(definition, faults), lines: rest }
-			: this.#outcomeLine(
-					'verdict',
-					this.#writeName('definition', definition),
-					this.#writeWord('statuses', result.status),
-					this.#writeStatusReasons(definition, result, causes),
-					rest,
-				)
-		// The authority may be what failed, so a run with an error no fault says prints no limit.
-		const limited = result.errors.length <= faults.length
+		const verdict =
+			qualification.refusals.length > 0
+				? this.#refusedLine(definition, causes, rest)
+				: this.#outcomeLine(
+						'verdict',
+						this.#writeName('definition', definition),
+						this.#writeWord('statuses', result.status),
+						this.#writeStatusReasons(definition, result, causes),
+						rest,
+					)
+		// An authority that refused states no limit.
+		const limited = !result.refusals.some(({ path }) => path?.[0] === 'authority')
 		return [
 			verdict,
-			...(result.decision === undefined ? [] : [this.#decisionLine(result.decision)]),
+			...(result.disposition === undefined ? [] : [this.#dispositionLine(result.disposition)]),
 			...result.determinations
 				.filter((determination) => limited || determination.effect === 'notice')
 				.map((determination) => this.#determinationLine(definition, determination, faults)),
@@ -951,10 +986,13 @@ export class FamilyNarrator implements FamilyNarratorInterface {
 		if (status === 'unrated' && rating !== undefined) {
 			return definition.rating === undefined
 				? []
-				: this.#writeRefusedLines(definition.rating, rating)
+				: [
+						...this.#causeLines(definition.rating, rating.refusals, rating.faults),
+						...this.#writeSilentLines(definition.rating, rating),
+					]
 		}
-		const { faults, findings } = result.qualification
-		return findings
+		const { eligibility, faults, findings } = result.qualification
+		const fixing = findings
 			.filter((finding) => finding.state === 'met' && this.#matchesStatus(finding, result))
 			.map((finding) =>
 				this.#writeReason(
@@ -964,6 +1002,10 @@ export class FamilyNarrator implements FamilyNarratorInterface {
 					definition.rating?.lines ?? [],
 				),
 			)
+		// A qualification is referred for what it could not read, as its own verdict states it.
+		return status === 'referral' && eligibility === 'referral'
+			? [...fixing, ...this.#faultLines(definition.qualification, faults)]
+			: fixing
 	}
 
 	#matchesStatus({ effect, scope }: FamilyFinding, result: FamilyProgramResult): boolean {
@@ -984,12 +1026,12 @@ export class FamilyNarrator implements FamilyNarratorInterface {
 		}
 	}
 
-	#decisionLine(decision: string): AccountLine {
+	#dispositionLine(disposition: string): AccountLine {
 		return buildAccountLine({
 			role: 'step',
 			decisive: true,
-			text: this.#narrator.line('result.decision', {
-				decision: this.#writeWord('decisions', decision),
+			text: this.#narrator.line('result.disposition', {
+				disposition: this.#writeWord('dispositions', disposition),
 			}),
 		})
 	}

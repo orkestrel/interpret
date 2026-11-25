@@ -8,13 +8,12 @@ import type {
 import type {
 	Derivation,
 	Finding,
-	Premise,
+	MessageSlot,
 	QualificationDefinition,
 	QualificationResult,
 	Ruling,
 } from '@orkestrel/qualifier'
 import type {
-	Evidence,
 	LineDefinition,
 	LineResult,
 	RatingDefinition,
@@ -23,7 +22,7 @@ import type {
 	WorksheetFactor,
 	WorksheetGroup,
 } from '@orkestrel/rater'
-import type { ReasonResult } from '@orkestrel/reason'
+import type { CheckResult, ReasonRefusal, ReasonResult } from '@orkestrel/reason'
 import type {
 	Account,
 	AccountDefinition,
@@ -35,7 +34,6 @@ import type {
 	FamilyLine,
 	FamilyLineResult,
 	FamilyNotice,
-	FamilyPremise,
 	FamilyProgram,
 	FamilyProgramResult,
 	FamilyQualification,
@@ -44,6 +42,7 @@ import type {
 	FamilyRatingResult,
 	FamilyResult,
 	FamilyRuling,
+	FamilySlot,
 	FamilyWorksheet,
 	FamilyWorksheetFactor,
 	FamilyWorksheetGroup,
@@ -56,20 +55,23 @@ import { createQualificationDefinition, createQualifier, createRuling } from '@o
 import { buildLineDefinition, buildRatingDefinition, createRater } from '@orkestrel/rater'
 import {
 	createAtom,
+	createCheck,
 	createCompound,
 	createFactorGroup,
 	createFieldFactor,
-	createInferentialReasoner,
+	createDeductiveReasoner,
 	createLogicalDefinition,
 	createLogicalReasoner,
 	createLookupFactor,
 	createQuantitativeDefinition,
 	createQuantitativeReasoner,
 	createRangeFactor,
+	createReason,
 	createRule,
 	createStaticFactor,
 	createSymbolicReasoner,
 	formatField,
+	REASON_REFUSAL_CAUSES,
 } from '@orkestrel/reason'
 import { requireValue } from '@orkestrel/test'
 import {
@@ -77,6 +79,9 @@ import {
 	DEFAULT_LEXICON,
 	FamilyNarrator,
 	Interpret,
+	isAccountResult,
+	isFamilyFinding,
+	isFamilyLineResult,
 	isFamilyProgram,
 	isFamilyProgramResult,
 	isFamilyQualification,
@@ -96,7 +101,12 @@ import {
 	buildWorkshopArea,
 	buildWorkshopFacts,
 	buildWorkshopScore,
+	collectFamilyExecuted,
 	collectFamilyFindings,
+	collectWrittenTexts,
+	createAnsweringEvaluator,
+	createAnsweringReasoner,
+	renderFamilyMessage,
 	FAMILY_BASE,
 	FAMILY_GLOSSARY,
 	FAMILY_PROGRAMS,
@@ -122,9 +132,9 @@ const FAMILY = new FamilyNarrator(new Narrator({ glossary: GLOSSARY }), {
 
 const DETAILS: readonly AccountDetail[] = ['line', 'reasons', 'full']
 
-const QUALIFIER = createQualifier({ labels: { noise: 'a label nobody reads' } })
+const QUALIFIER = createQualifier()
 
-const RATER = createRater({ labels: { cost: 'a label nobody reads' } })
+const RATER = createRater()
 
 const QUALIFICATION = buildFamilyQualification()
 
@@ -140,11 +150,11 @@ const RATED: ReadonlyArray<readonly [string, RatingResult]> = Object.entries(FAM
 	([name, { subject }]) => [name, RATER.rate(RATING, subject)],
 )
 
-const EXECUTED: ReadonlyArray<readonly [string, ProgramResult]> = Object.entries(
-	FAMILY_PROGRAMS,
-).map(([name, { subject }]) => [name, createProgram(PROGRAM).execute(subject)])
+const EXECUTED: ReadonlyArray<readonly [string, ProgramResult]> = collectFamilyExecuted().map(
+	([name, result]) => [name, result],
+)
 
-// Every document of the workshop: each result's account, and each guide.
+// Each guide of the workshop, and the account of each result.
 const ACCOUNTS: readonly Account[] = [
 	...QUALIFIED.map(([, result]) => FAMILY.narrate(QUALIFICATION, result)),
 	...RATED.map(([, result]) => FAMILY.narrate(RATING, result)),
@@ -189,14 +199,12 @@ describe('FamilyNarrator', () => {
 			const program: ProgramDefinition = PROGRAM
 			const qualified: QualificationResult = requireValue(QUALIFIED[0])[1]
 			const rated: RatingResult = requireValue(RATED[0])[1]
-			const executed: ProgramResult = requireValue(EXECUTED[0])[1]
 			const definitions: readonly [FamilyQualification, FamilyRating, FamilyProgram] = [
 				qualification,
 				rating,
 				program,
 			]
-			const results: readonly [FamilyQualificationResult, FamilyRatingResult, FamilyProgramResult] =
-				[qualified, rated, executed]
+			const results: readonly [FamilyQualificationResult, FamilyRatingResult] = [qualified, rated]
 			expect(definitions.map((definition) => definition.id)).toEqual([
 				'qualification',
 				'rating',
@@ -208,52 +216,63 @@ describe('FamilyNarrator', () => {
 			expect(isFamilyProgram(program)).toBe(true)
 			for (const [, result] of QUALIFIED) expect(isFamilyQualificationResult(result)).toBe(true)
 			for (const [, result] of RATED) expect(isFamilyRatingResult(result)).toBe(true)
-			for (const [, result] of EXECUTED) expect(isFamilyProgramResult(result)).toBe(true)
+		})
+
+		it('admit a program’s own results, as the guard does', () => {
+			const admitted: readonly FamilyProgramResult[] = EXECUTED.map(([, result]) => result)
+			expect(admitted.filter((result) => !isFamilyProgramResult(result))).toEqual([])
 		})
 
 		it('admit each part of them', () => {
 			const ruling: Ruling = requireValue(QUALIFICATION.rulings?.[0])
 			const finding: Finding = requireValue(requireValue(QUALIFIED[1])[1].findings[0])
-			const premise: Premise = requireValue(finding.premises[0])
+			const slot: MessageSlot = { field: ['room'], actual: 'hall' }
+			const check: CheckResult = requireValue(finding.checks[0])
 			const derivation: Derivation = requireValue(requireValue(QUALIFIED[0])[1].derivations[0])
 			const line: LineDefinition = requireValue(RATING.lines[0])
 			const rated: LineResult = requireValue(requireValue(RATED[4])[1].lines[2])
 			const worksheet: Worksheet = rated.worksheet
 			const group: WorksheetGroup = requireValue(worksheet.groups[0])
 			const factor: WorksheetFactor = requireValue(group.factors[0])
-			const evidence: Evidence = requireValue(factor.evidence[0])
+			const gate: CheckResult = requireValue(factor.checks[0])
 			const notice: Notice = requireValue(PROGRAM.notices?.[0])
-			const determination: Determination = requireValue(
-				requireValue(EXECUTED[0])[1].determinations[0],
-			)
 			const parts: readonly [
 				FamilyRuling,
 				FamilyFinding,
-				FamilyPremise,
+				FamilySlot,
+				CheckResult,
 				FamilyDerivation,
 				FamilyLine,
 				FamilyLineResult,
 				FamilyWorksheet,
 				FamilyWorksheetGroup,
 				FamilyWorksheetFactor,
-				FamilyPremise,
+				CheckResult,
 				FamilyNotice,
-				FamilyFinding,
 			] = [
 				ruling,
 				finding,
-				premise,
+				slot,
+				check,
 				derivation,
 				line,
 				rated,
 				worksheet,
 				group,
 				factor,
-				evidence,
+				gate,
 				notice,
-				determination,
 			]
 			expect(parts.length).toBe(12)
+			expect([check, gate].every((read) => isAccountResult(read))).toBe(true)
+		})
+
+		it('admit a determination', () => {
+			const determination: Determination = requireValue(
+				requireValue(EXECUTED[0])[1].determinations[0],
+			)
+			const finding: FamilyFinding = determination
+			expect(isFamilyFinding(finding)).toBe(true)
 		})
 	})
 
@@ -322,7 +341,7 @@ describe('FamilyNarrator', () => {
 				...requireValue(QUALIFIED[1])[1],
 				eligibility: 'waived',
 				findings: [
-					{ ...requireValue(second), state: 'met', effect: 'waiver', message: 'Waived.' },
+					{ ...requireValue(second), state: 'met', effect: 'waiver', message: ['Waived.'] },
 					requireValue(first),
 				],
 			}
@@ -427,12 +446,13 @@ describe('FamilyNarrator', () => {
 				'Room rent: $120.00',
 				'  Hire: $120.00',
 				'    Room rate: $120.00',
-				'      looked up by room',
+				'      looked up by room: room is hall',
 				'  Total: $120.00',
 				'Guest fee: $100.00',
 				'  Heads: $100.00',
 				'    Per guest: $100.00',
-				'      taken from guest count',
+				'      guest count is 50',
+				'      changes: times 2, then plus 10',
 				'      bounds: $20.00 to $100.00',
 				'  Total: $100.00',
 				'Deposit: $50.00',
@@ -447,18 +467,75 @@ describe('FamilyNarrator', () => {
 			const rated = requireValue(RATED.find(([name]) => name === 'costly'))[1]
 			const account = FAMILY.narrate(RATING, rated)
 			expect(renderAccount(account, { detail: 'line' })).toBe(
-				'Booking rating gave no answer, because Deposit gave no answer',
+				'Booking rating gave no answer, because Deposit, Hold: Deposit had to apply and did not',
 			)
 			expect(renderAccount(account).split('\n').slice(-3)).toEqual([
 				'Deposit gave no answer',
-				'  Deposit did not apply',
+				'  Hold: Deposit had to apply and did not',
 				'    cost is $2,000.00, which is more than $1,250.00',
+			])
+			// The line states its own refusal, so the rating's verdict does not print it again.
+			expect(account.lines[0]?.lines).toEqual([])
+		})
+
+		it('states a refusal of the rating’s own beneath its verdict, and a lookup’s with its value', () => {
+			const overflowing = createRater({ total: () => Number.POSITIVE_INFINITY })
+			const summed = FAMILY.narrate(RATING, overflowing.rate(RATING, FAMILY_BASE))
+			expect(summed.lines[0]?.summary).toBe(
+				'Booking rating gave no answer, because the run did not give a finite number',
+			)
+			expect(summed.lines[1]?.text).toBe('Room rent: $80.00')
+			expect(summed.lines[0]?.lines.map((line) => line.text)).toEqual([
+				'the run did not give a finite number',
+			])
+			const missed = buildRatingDefinition('rating', 'Rating', [
+				buildLineDefinition(
+					'line',
+					'Rent',
+					createQuantitativeDefinition('rate', 'Rate', [
+						createFactorGroup(
+							'g',
+							'sum',
+							[createLookupFactor('a', 'room', { hall: 120 }, { name: 'Room rate' })],
+							{ name: 'Hire' },
+						),
+					]),
+				),
+			])
+			const account = FAMILY.narrate(missed, RATER.rate(missed, FAMILY_BASE))
+			expect(renderAccount(account, { detail: 'full' }).split('\n')).toEqual([
+				'Rating gave no answer',
+				'Rent gave no answer',
+				'  Hire: Room rate has no entry for the value it read (room: studio)',
+				'  Hire did not apply',
+				'    Room rate found no value to use',
+			])
+			expect(account.lines[0]?.summary).toBe(
+				'Rating gave no answer, because Rent, Hire: Room rate has no entry for the value it read (room: studio)',
+			)
+		})
+
+		it('names an injected engine’s silence and its contradictions', () => {
+			const rating = buildRatingDefinition('rating', 'Booking rating', [
+				requireValue(RATING.lines[0]),
+			])
+			const texts = [
+				{ success: false, refusals: [], faults: [] },
+				{ success: true, value: Number.NaN, refusals: [], faults: [] },
+			].map((answer) => {
+				const reasoner = createAnsweringReasoner(createQuantitativeReasoner(), answer)
+				const rater = createRater({ engine: createReason({ reasoners: [reasoner] }) })
+				return FAMILY.narrate(rating, rater.rate(rating, FAMILY_BASE)).lines[0]?.summary
+			})
+			expect(texts).toEqual([
+				'Booking rating gave no answer, because Room rent failed and gave no reason',
+				'Booking rating gave no answer, because Room rent rests on a result that cannot be used',
 			])
 		})
 
 		it('refuses a subject its door refused with the fields, and no line', () => {
 			const faults = [{ reason: 'missing', path: 'room', expected: 'string' }] as const
-			const account = FAMILY.narrate(RATING, { lines: [], success: false, faults })
+			const account = FAMILY.narrate(RATING, { lines: [], success: false, refusals: [], faults })
 			expect(renderAccount(account).split('\n')).toEqual([
 				'Booking rating gave no answer',
 				'  room is not known, and must be text',
@@ -501,7 +578,7 @@ describe('FamilyNarrator', () => {
 					})),
 				},
 			}
-			const refused = { lines: [unreached], success: false, faults: [] }
+			const refused = { lines: [unreached], success: false, refusals: [], faults: [] }
 			expect(renderAccount(FAMILY.narrate(definition, refused), { detail: 'full' })).toBe(
 				['Booking rating gave no answer', 'Room rent gave no answer'].join('\n'),
 			)
@@ -530,7 +607,7 @@ describe('FamilyNarrator', () => {
 	})
 
 	describe('a program’s result', () => {
-		it('states the status, the decision, the notices, and the two results', () => {
+		it('states the status, the disposition, the notices, and the two results', () => {
 			const late = requireValue(EXECUTED.find(([name]) => name === 'late'))[1]
 			const account = FAMILY.narrate(PROGRAM, late)
 			expect(renderAccount(account, { detail: 'line' })).toBe(
@@ -550,7 +627,7 @@ describe('FamilyNarrator', () => {
 			])
 		})
 
-		it('states a limit with the checks that fixed it, and no decision where the result holds none', () => {
+		it('states a limit with the checks that fixed it, and no disposition where the result holds none', () => {
 			const heavy = requireValue(EXECUTED.find(([name]) => name === 'heavy'))[1]
 			const lines = renderAccount(FAMILY.narrate(PROGRAM, heavy)).split('\n')
 			expect(lines.slice(3, 6)).toEqual([
@@ -562,7 +639,7 @@ describe('FamilyNarrator', () => {
 		})
 
 		it.each(Object.entries(FAMILY_PROGRAMS))(
-			'states the status and the decision the engine gave for %s',
+			'states the status and the disposition the engine gave for %s',
 			(name, expected) => {
 				const result = requireValue(EXECUTED.find(([entry]) => entry === name))[1]
 				const account = FAMILY.narrate(PROGRAM, result)
@@ -572,9 +649,9 @@ describe('FamilyNarrator', () => {
 				expect(
 					account.lines.map((line) => line.text).filter((text) => text.startsWith('Decision')),
 				).toEqual(
-					expected.decision === undefined
+					expected.disposition === undefined
 						? []
-						: [`Decision: ${DEFAULT_LEXICON.decisions[expected.decision]}`],
+						: [`Decision: ${DEFAULT_LEXICON.dispositions[expected.disposition]}`],
 				)
 				for (const { effect, message } of expected.determinations) {
 					expect(account.lines.map((line) => line.text).join('\n')).toContain(
@@ -601,7 +678,8 @@ describe('FamilyNarrator', () => {
 					'Booking program: referred for review, because Deposit: A person must review the deposit.',
 				loud: 'Booking program: eligible with conditions, because Room rent: Neighbours must be told.',
 				late: 'Booking program: eligible with conditions, because Room rent: The room cannot be rented after 18:00.',
-				costly: 'Booking program: not fully rated, because Deposit gave no answer',
+				costly:
+					'Booking program: not fully rated, because Deposit, Hold: Deposit had to apply and did not',
 				unread:
 					'Booking program: incomplete, because noise level is not known, and must be a number',
 				heavy: 'Booking program: eligible',
@@ -736,18 +814,13 @@ describe('FamilyNarrator', () => {
 
 	describe('T19: a message prints only for a finding whose state is met', () => {
 		it.each(QUALIFIED)('holds through the real qualifier for %s', (name, result) => {
-			const account = FAMILY.narrate(QUALIFICATION, result)
-			const texts: string[] = []
-			JSON.stringify(account, (key, value: unknown) => {
-				if ((key === 'text' || key === 'summary') && isString(value)) texts.push(value)
-				return value
-			})
-			const written = texts.join('\n')
+			const written = collectWrittenTexts(FAMILY.narrate(QUALIFICATION, result)).join('\n')
 			const { messages, states } = requireValue(FAMILY_SUBJECTS[name])
 			expect(result.findings.filter((finding) => finding.state !== 'met').length).toBeGreaterThan(6)
 			for (const finding of result.findings) {
 				if (finding.message === undefined) continue
-				expect(written.includes(finding.message)).toBe(states[finding.id] === 'met')
+				const message = renderFamilyMessage(finding.message)
+				expect(written.includes(message)).toBe(states[finding.id] === 'met')
 			}
 			for (const message of Object.values(messages)) expect(written).toContain(message)
 		})
@@ -760,27 +833,119 @@ describe('FamilyNarrator', () => {
 			}))
 			const account = FAMILY.narrate(PROGRAM, { ...heavy, determinations })
 			const full = renderAccount(account, { detail: 'full' })
-			for (const { message } of heavy.determinations) expect(full).not.toContain(message)
+			const messages = heavy.determinations.map(({ message }) => renderFamilyMessage(message ?? []))
+			expect(messages).not.toContain('')
+			for (const message of messages) expect(full).not.toContain(message)
 			expect(full).toContain('Limit: Heavy booking cannot be decided')
 		})
 
-		it('prints the rule’s name where a message is blank', () => {
+		it('prints the rule’s name where a message is blank, or holds no part', () => {
 			const restricted = requireValue(QUALIFIED[1])[1]
-			const findings = restricted.findings.map((finding) => ({ ...finding, message: ' ' }))
-			expect(
-				FAMILY.narrate(QUALIFICATION, { ...restricted, findings }).lines.map((line) => line.text),
-			).toContain('Restriction: Restricted activity applies')
+			for (const message of [[' '], ['', '\n'], []]) {
+				const findings = restricted.findings.map((finding) => ({ ...finding, message }))
+				expect(
+					FAMILY.narrate(QUALIFICATION, { ...restricted, findings }).lines.map((line) => line.text),
+				).toContain('Restriction: Restricted activity applies')
+			}
 		})
 
-		it('fills nothing in a message', () => {
+		it('prints each text of a message as it stands, and fills nothing in it', () => {
 			const restricted = requireValue(QUALIFIED[1])[1]
 			const findings = restricted.findings.map((finding) => ({
 				...finding,
-				message: 'Held for {{effect}}.',
+				message: ['Held for {{effect}}', '.'],
 			}))
 			expect(
 				FAMILY.narrate(QUALIFICATION, { ...restricted, findings }).lines.map((line) => line.text),
 			).toContain('Restriction: Held for {{effect}}.')
+		})
+	})
+
+	// The message is authored over four fields, each formatted as its own field is, and the last is
+	// one nobody gave.
+	describe('T26: a slot prints the value its finding carries, in its field’s unit', () => {
+		const gates = createLogicalDefinition('gates', 'Gates', [
+			createRule('loud', [createAtom('noise', 'above', 40)], createAtom('loud', 'equals', true), {
+				name: 'Loud booking',
+			}),
+			createRule('quiet', [createAtom('noise', 'to', 40)], createAtom('quiet', 'equals', true), {
+				name: 'Quiet booking',
+			}),
+		])
+		const authored =
+			'Costs {{cost}} at {{ noise }} in {{room}}, tools {{tools}}, held by {{keeper.name}}.'
+		const definition = createQualificationDefinition('q', 'Q', [gates], {
+			rulings: [
+				createRuling('loud', 'gates', 'loud', 'condition', { message: authored }),
+				createRuling('quiet', 'gates', 'quiet', 'condition', { message: authored }),
+			],
+		})
+		const result = QUALIFIER.qualify({ ...FAMILY_BASE, cost: 1250.5, noise: 55.25 }, definition)
+		const written = 'Costs $1,250.50 at 55.3 in studio, tools true, held by not known.'
+
+		it('through the real qualifier, and only for a met finding', () => {
+			expect(result.findings.map((finding) => [finding.id, finding.state])).toEqual([
+				['loud', 'met'],
+				['quiet', 'unmet'],
+			])
+			const account = FAMILY.narrate(definition, result)
+			expect(account.lines.map((line) => line.text)).toContain(`Condition: ${written}`)
+			const texts = collectWrittenTexts(account)
+			expect(texts.filter((text) => text.includes('Costs'))).not.toEqual([])
+			expect(texts.filter((text) => text.includes('Quiet') && text.includes('Costs'))).toEqual([])
+			expect(texts.filter((text) => text.includes('{{'))).toEqual([])
+			// The one word asked is the label of no slot: the keeper is not a field a check reads.
+			expect(account.lines.flatMap((line) => line.gaps)).toEqual([])
+			const loud = requireValue(result.findings[0])
+			for (const state of ['unmet', 'unread'] as const) {
+				const findings = [{ ...loud, state }]
+				const unmet = collectWrittenTexts(FAMILY.narrate(definition, { ...result, findings }))
+				expect(unmet.filter((text) => text.includes('Costs'))).toEqual([])
+			}
+		})
+
+		it('changing one value changes its slot alone', () => {
+			const loud = requireValue(result.findings[0])
+			const message = requireValue(loud.message)
+			const changes = [
+				['cost', 2000, written.replace('$1,250.50', '$2,000.00')],
+				['noise', 41, written.replace('55.3', '41')],
+				['room', 'hall, or loft', written.replace('studio', 'hall, or loft')],
+				['tools', null, written.replace('tools true', 'tools none')],
+				['keeper.name', 'Ada', written.replace('not known', 'Ada')],
+			] as const
+			for (const [field, actual, text] of changes) {
+				const altered = message.map((part) =>
+					!isString(part) && formatField(part.field) === field ? { ...part, actual } : part,
+				)
+				const findings = [{ ...loud, message: altered }]
+				expect(FAMILY.narrate(definition, { ...result, findings }).lines[1]?.text).toBe(
+					`Condition: ${text}`,
+				)
+			}
+		})
+
+		it('carries the gap of a slot whose number has no unit, and asks nothing for a message', () => {
+			const glossary: Glossary = {
+				...GLOSSARY,
+				units: { noise: 'decibel', cost: 'ingot' },
+			}
+			const family = new FamilyNarrator(new Narrator({ glossary }), { glossary, units: UNITS })
+			const gauged = createQualificationDefinition('q', 'Q', [gates], {
+				rulings: [
+					createRuling('loud', 'gates', 'loud', 'condition', { message: '{{cost}} {{staff}}' }),
+				],
+			})
+			const account = family.narrate(
+				gauged,
+				QUALIFIER.qualify({ ...FAMILY_BASE, noise: 55 }, gauged),
+			)
+			expect(account.lines[1]?.text).toBe('Condition: 1000 2')
+			expect(account.lines[1]?.gaps).toEqual([
+				{ word: 'format', unit: 'ingot' },
+				{ word: 'unit', field: ['staff'] },
+			])
+			expect(family.audit([gauged])).toEqual([])
 		})
 	})
 
@@ -801,7 +966,7 @@ describe('FamilyNarrator', () => {
 					findings: [finding],
 					derivations: [],
 					success: true,
-					errors: [],
+					refusals: [],
 					faults: [],
 				}
 				const account = FAMILY.narrate(definition, result)
@@ -861,38 +1026,34 @@ describe('FamilyNarrator', () => {
 			expect(open).toEqual([])
 		})
 
-		it('gives no reason for a premise list that does not line up', () => {
+		it('gives no reason for a list of checks that does not line up, or is empty', () => {
 			const untrained = requireValue(QUALIFIED.find(([name]) => name === 'untrained'))[1]
 			const finding = requireValue(untrained.findings.find((entry) => entry.id === 'untrained'))
-			const [first, second] = finding.premises
+			const [first, second] = finding.checks
+			const one = requireValue(first)
+			const two = requireValue(second)
 			const misaligned: ReadonlyArray<readonly [string, FamilyFinding]> = [
-				['a premise short', { ...finding, premises: [requireValue(first)] }],
-				['a premise over', { ...finding, premises: [...finding.premises, requireValue(second)] }],
-				['out of order', { ...finding, premises: [requireValue(second), requireValue(first)] }],
+				['a rule that never ran', { ...finding, checks: [] }],
+				['a check short', { ...finding, checks: [one] }],
+				['a check over', { ...finding, checks: [...finding.checks, two] }],
+				['out of order', { ...finding, checks: [two, one] }],
 				[
 					'another field',
-					{
-						...finding,
-						premises: [{ ...requireValue(first), field: 'room' }, requireValue(second)],
-					},
+					{ ...finding, checks: [{ ...one, check: { ...one.check, field: 'room' } }, two] },
 				],
 				[
-					'a premise over that was never checked',
-					{ ...finding, premises: [...finding.premises, { field: 'room' }] },
+					'another comparison',
+					{ ...finding, checks: [{ ...one, check: { ...one.check, operator: 'not' } }, two] },
 				],
-				['no field', { ...finding, premises: [{ state: 'unmet' }, requireValue(second)] }],
-				['no state', { ...finding, premises: [{ field: 'trained' }, requireValue(second)] }],
+				[
+					'another value',
+					{ ...finding, checks: [{ ...one, check: { ...one.check, value: 'yes' } }, two] },
+				],
 				['another state', { ...finding, state: 'unread' }],
-				[
-					'another check',
-					{
-						...finding,
-						premises: [{ ...requireValue(first), state: 'met' }, requireValue(second)],
-					},
-				],
+				['another reading', { ...finding, checks: [{ ...one, state: 'met' }, two] }],
 				['a rule the pass lacks', { ...finding, rule: 'lost' }],
 				['a pass the definition lacks', { ...finding, pass: 'lost' }],
-				['no pass', { id: 'x', effect: 'referral', state: 'met', premises: finding.premises }],
+				['no pass', { id: 'x', effect: 'referral', state: 'met', checks: finding.checks }],
 			]
 			const aligned = FAMILY.narrate(QUALIFICATION, { ...untrained, findings: [finding] })
 			expect(aligned.lines[1]?.lines[0]?.lines.length).toBe(2)
@@ -985,7 +1146,7 @@ describe('FamilyNarrator', () => {
 				rule: 'loop',
 				effect: 'restriction',
 				state: 'met',
-				premises: [{ field: 'loop', actual: true, state: 'met' }],
+				checks: [{ check: createCheck('loop', 'equals', true), actual: true, state: 'met' }],
 			}
 			const account = FAMILY.narrate(definition, {
 				...requireValue(QUALIFIED[0])[1],
@@ -1024,12 +1185,31 @@ describe('FamilyNarrator', () => {
 			},
 		)
 
-		it('states no eligibility of a qualification whose errors outnumber its faults, and nothing it found', () => {
-			expect(REFUSED.errors.length).toBeGreaterThan(REFUSED.faults.length)
+		it('states no eligibility of a qualification that holds a refusal, and its causes alone', () => {
+			const cause = 'Room size, Sizes: Room has no entry for the value it read (room: attic)'
+			expect(REFUSED.refusals).toEqual([
+				{
+					cause: 'source',
+					path: ['size'],
+					group: 'sizes',
+					factor: 'room',
+					field: 'room',
+					actual: 'attic',
+				},
+			])
 			expect(REFUSED.eligibility).toBe('referral')
-			expect(renderAccount(FAMILY.narrate(MISSED, REFUSED), { detail: 'full' })).toBe(
-				'Missed booking gave no answer',
+			const refused = FAMILY.narrate(MISSED, REFUSED)
+			expect(renderAccount(refused, { detail: 'full' })).toBe(
+				`Missed booking gave no answer\n  ${cause}`,
 			)
+			expect(renderAccount(refused, { detail: 'line' })).toBe(
+				`Missed booking gave no answer, because ${cause}`,
+			)
+			expect(refused.lines[0]?.lines[0]?.source).toEqual({
+				group: 'sizes',
+				factor: 'room',
+				refusal: REFUSED.refusals[0],
+			})
 			const both = QUALIFIER.qualify(
 				{ room: 'attic' },
 				{
@@ -1043,10 +1223,44 @@ describe('FamilyNarrator', () => {
 				},
 			)
 			expect(both.faults.length).toBe(1)
-			expect(both.errors.length).toBe(2)
+			expect(both.refusals.length).toBe(1)
 			expect(renderAccount(FAMILY.narrate(MISSED, both), { detail: 'full' }).split('\n')).toEqual([
 				'Missed booking gave no answer',
+				`  ${cause}`,
 				'  guest count is not known, and must be a number',
+			])
+		})
+
+		it('names each cause a qualification’s pass can give, with the pass it stands in', () => {
+			const rule = createRule(
+				'late',
+				[createAtom('start', 'above', 18)],
+				createAtom('late', 'equals', true),
+				{ name: 'After hours' },
+			)
+			const ruled = createQualificationDefinition(
+				'q',
+				'Q',
+				[createLogicalDefinition('gates', 'Gates', [rule])],
+				{ rulings: [createRuling('late', 'gates', 'late', 'restriction')] },
+			)
+			const texts = [
+				{ start: 20, late: true },
+				{ success: false, refusals: [], faults: [] },
+				{ success: true, rules: [] },
+			].map((change) => {
+				const reasoner =
+					'start' in change
+						? createLogicalReasoner()
+						: createAnsweringReasoner(createLogicalReasoner(), change)
+				const qualifier = createQualifier({ engine: createReason({ reasoners: [reasoner] }) })
+				const subject = 'start' in change ? change : { start: 20 }
+				return FAMILY.narrate(ruled, qualifier.qualify(subject, ruled)).lines[0]?.summary
+			})
+			expect(texts).toEqual([
+				'Q gave no answer, because Gates was given a value that only its rules can set (late)',
+				'Q gave no answer, because Gates failed and gave no reason',
+				'Q gave no answer, because Gates: After hours rests on a result that cannot be used',
 			])
 		})
 
@@ -1082,13 +1296,20 @@ describe('FamilyNarrator', () => {
 
 		it('states `unrated` of a rating that failed with no fault', () => {
 			const costly = requireValue(EXECUTED.find(([name]) => name === 'costly'))[1]
-			expect(costly.errors.length).toBeGreaterThan(costly.faults.length)
-			expect(FAMILY.narrate(PROGRAM, costly).lines[0]?.text).toBe(
-				'Booking program: not fully rated',
-			)
+			expect(costly.faults).toEqual([])
+			expect(costly.refusals.map((refusal) => [refusal.cause, refusal.path])).toEqual([
+				['required', ['rating', 'deposit']],
+				['unread', ['authority']],
+			])
+			const verdict = FAMILY.narrate(PROGRAM, costly).lines[0]
+			expect(verdict?.text).toBe('Booking program: not fully rated')
+			// The rating's own refusal prints in its section, and the authority's beneath the verdict.
+			expect(verdict?.lines.map((line) => line.text)).toEqual([
+				'Booking authority: Heavy booking could not read a value that the run itself supplies (rated total)',
+			])
 		})
 
-		it('states the status of a program whose authority read a total no rating gave, and no limit', () => {
+		it('states the status of a program whose authority read a total no rating gave, its cause, and no limit', () => {
 			const definition = buildProgramDefinition(
 				'program',
 				'Booking program',
@@ -1116,28 +1337,127 @@ describe('FamilyNarrator', () => {
 				...FAMILY_BASE,
 				activity: 'torch welding',
 			})
-			expect(result.errors.length).toBeGreaterThan(result.faults.length)
+			expect(result.refusals.map((refusal) => [refusal.cause, refusal.path])).toEqual([
+				['unread', ['authority']],
+			])
 			expect(result.determinations.map((entry) => entry.effect)).toEqual(['notice', 'limit'])
-			expect(renderAccount(FAMILY.narrate(definition, result)).split('\n').slice(0, 4)).toEqual([
+			const account = FAMILY.narrate(definition, result)
+			expect(renderAccount(account).split('\n').slice(0, 5)).toEqual([
 				'Booking program: not eligible',
+				'  Booking authority: Large total could not read a value that the run itself supplies (rated total)',
 				'Notice: The workshop closes at 18:00.',
 				'Booking qualification: not eligible',
 				'  Restriction: The workshop does not lend a room for torch welding.',
 			])
+			// Without that refusal, the limit prints as any other does.
+			const read = FAMILY.narrate(definition, { ...result, refusals: [] })
+			expect(read.lines.map((line) => line.text)).toContain('Limit: The booking was turned down.')
+			const rated = result.refusals.map((refusal) => ({ ...refusal, path: ['rating'] }))
+			const other = FAMILY.narrate(definition, { ...result, refusals: rated })
+			expect(other.lines.map((line) => line.text)).toContain('Limit: The booking was turned down.')
 		})
 
-		it('states no status of a program whose qualification’s errors outnumber its faults', () => {
+		it('states no status of a program whose qualification holds a refusal, and each cause once', () => {
 			const definition = buildProgramDefinition('program', 'Booking program', MISSED, RATING)
 			const result = createProgram(definition).execute({ ...FAMILY_BASE, room: 'attic' })
 			expect(result.status).toBe('referral')
-			expect(
-				renderAccount(FAMILY.narrate(definition, result), { detail: 'full' }).split('\n'),
-			).toEqual(['Booking program gave no answer', 'Missed booking gave no answer'])
+			const account = FAMILY.narrate(definition, result)
+			expect(renderAccount(account, { detail: 'full' }).split('\n')).toEqual([
+				'Booking program gave no answer',
+				'Missed booking gave no answer',
+				'  Room size, Sizes: Room has no entry for the value it read (room: attic)',
+			])
+			expect(account.lines[0]?.summary).toBe(
+				'Booking program gave no answer, because Missed booking, Room size, Sizes: Room has no entry for the value it read (room: attic)',
+			)
+		})
+
+		it('states once the field a section could not read and only a batch supplies, and what it fixed', () => {
+			const gates = createLogicalDefinition('gates', 'Gates', [
+				createRule(
+					'busy',
+					[createAtom(['aggregate', 'count'], 'above', 3)],
+					createAtom('busy', 'equals', true),
+					{ name: 'Busy day' },
+				),
+			])
+			const qualification = createQualificationDefinition('entry', 'Entry check', [gates], {
+				rulings: [createRuling('busy', 'gates', 'busy', 'restriction')],
+			})
+			const gated = buildProgramDefinition('program', 'Booking program', qualification)
+			const referred = createProgram(gated).execute(FAMILY_BASE)
+			expect(referred.faults).toEqual([])
+			expect(referred.refusals.map((refusal) => [refusal.cause, refusal.path])).toEqual([
+				['unread', ['qualification', 'gates']],
+			])
+			const held = FAMILY.narrate(gated, referred).lines[0]
+			expect(held?.text).toBe('Booking program: referred for review')
+			expect(held?.summary).toBe(
+				'Booking program: referred for review, because aggregate.count is not known, and must be a number',
+			)
+			expect(held?.lines).toEqual([])
+
+			const rating = buildRatingDefinition('rating', 'Booking rating', [
+				buildLineDefinition(
+					'share',
+					'Share',
+					createQuantitativeDefinition('rate', 'Rate', [
+						createFactorGroup('g', 'sum', [
+							createFieldFactor('count', ['aggregate', 'count'], { name: 'Count' }),
+						]),
+					]),
+				),
+			])
+			const open = createQualificationDefinition('open', 'Open check', [
+				createLogicalDefinition('gates', 'Gates', [
+					createRule(
+						'noisy',
+						[createAtom('noise', 'above', 40)],
+						createAtom('noisy', 'equals', true),
+					),
+				]),
+			])
+			const priced = buildProgramDefinition('program', 'Booking program', open, rating)
+			const unrated = createProgram(priced).execute(FAMILY_BASE)
+			expect(unrated.refusals.map((refusal) => [refusal.cause, refusal.path])).toEqual([
+				['unread', ['rating', 'share']],
+			])
+			const missed = FAMILY.narrate(priced, unrated).lines[0]
+			expect(missed?.text).toBe('Booking program: not fully rated')
+			expect(missed?.summary).toBe(
+				'Booking program: not fully rated, because aggregate.count is not known, and must be a number',
+			)
+			expect(missed?.lines).toEqual([])
+		})
+
+		it('prints a limit’s slot in the unit of the projection’s path it names', () => {
+			const heavy = createLogicalDefinition('authority', 'Booking authority', [
+				createRule(
+					'heavy',
+					[createAtom(['outcome', 'total'], 'above', 200)],
+					createAtom('limited', 'equals', true),
+					{ name: 'Heavy booking', description: 'A total of {{outcome.total}} needs a person.' },
+				),
+			])
+			const definition = buildProgramDefinition('p', 'Program', QUALIFICATION, RATING, {
+				authority: heavy,
+			})
+			const subject = requireValue(FAMILY_PROGRAMS.heavy).subject
+			const account = FAMILY.narrate(definition, createProgram(definition).execute(subject))
+			expect(account.lines.map((line) => line.text)).toContain(
+				'Limit: A total of $270.00 needs a person.',
+			)
+			expect(account.lines.flatMap((line) => line.gaps)).toEqual([])
+			expect(renderAccount(FAMILY.describe(definition), { detail: 'full' })).not.toContain('{{')
 		})
 
 		it('prints an engine’s word the lexicon lacks, and quotes a blank one', () => {
 			const standing = requireValue(EXECUTED[0])[1]
-			const account = FAMILY.narrate(PROGRAM, { ...standing, status: 'paused', decision: 'held' })
+			const account = FAMILY.narrate(PROGRAM, {
+				...standing,
+				status: 'paused',
+				disposition: 'held',
+			})
 			expect(account.lines.slice(0, 2).map((line) => line.text)).toEqual([
 				'Booking program: paused',
 				'Decision: held',
@@ -1194,6 +1514,38 @@ describe('FamilyNarrator', () => {
 			}
 			const refused = FAMILY.narrate(RATING, { ...standing, lines: [unsettled] })
 			expect(refused.lines[1]?.text).toBe('Room rent gave no answer')
+			// A rating that holds no refusal and no fault still says which line gave no answer.
+			const silent = FAMILY.narrate(RATING, {
+				...standing,
+				lines: [unsettled],
+				total: null,
+				success: false,
+			})
+			expect(silent.lines[0]?.summary).toBe(
+				`${RATING.name} gave no answer, because Room rent gave no answer`,
+			)
+		})
+
+		it('states no number of a group whose result holds no value', () => {
+			const standing = requireValue(RATED[0])[1]
+			const rent = requireValue(standing.lines[0])
+			const groups = rent.worksheet.groups.map(({ value: _value, ...group }) => group)
+			for (const held of [groups, groups.map((group) => ({ ...group, value: null }))]) {
+				const line = { ...rent, worksheet: { ...rent.worksheet, groups: held } }
+				expect(isFamilyLineResult(line)).toBe(true)
+				const named = requireValue(RATING.lines[0]).rate.groups[0]?.name
+				const account = FAMILY.narrate(RATING, { ...standing, lines: [line] })
+				expect(account.lines[1]?.lines[0]?.text).toBe(`${named ?? ''} applied`)
+			}
+			// A disabled group, and one that never ran, print no line.
+			const skipped = groups.map((group) => ({
+				...group,
+				applied: false,
+				factors: group.factors.map(({ value: _value, ...factor }) => factor),
+			}))
+			const worksheet = { ...rent.worksheet, groups: skipped }
+			const account = FAMILY.narrate(RATING, { ...standing, lines: [{ ...rent, worksheet }] })
+			expect(account.lines[1]?.lines.map((line) => line.source.group)).toEqual([undefined])
 		})
 
 		it('names no entry over a fallback of the same value, through the real rater', () => {
@@ -1207,16 +1559,16 @@ describe('FamilyNarrator', () => {
 				]),
 			)
 			expect(Object.fromEntries(lines)).toEqual({
-				standing: 'looked up by room, or its fallback',
-				attic: 'looked up by room, or its fallback',
-				hall: 'looked up by room',
-				small: 'looked up by room',
-				costly: 'looked up by room, or its fallback',
+				standing: 'looked up by room: room is studio',
+				attic: 'its fallback, because no entry matches room: room is attic',
+				hall: 'looked up by room: room is hall',
+				small: 'looked up by room: room is loft',
+				costly: 'looked up by room: room is studio',
 				noroom: undefined,
 			})
 		})
 
-		it('says either of a lookup or a range with a fallback whose value was changed, and no raw number', () => {
+		it('says which gave a changed number, an entry or the fallback, and the number before its changes', () => {
 			const transforms = [{ operation: 'multiply', operand: 2 }] as const
 			const bounds = { minimum: 0, maximum: 1000 }
 			const ranges = [{ bounds: { maximum: 10 }, value: 5 }]
@@ -1237,28 +1589,37 @@ describe('FamilyNarrator', () => {
 					createQuantitativeDefinition('rate', 'Rate', [createFactorGroup('g', 'sum', factors)]),
 				),
 			])
-			for (const subject of [FAMILY_BASE, { ...FAMILY_BASE, room: 'hall', guests: 20 }]) {
+			const texts = [FAMILY_BASE, { ...FAMILY_BASE, room: 'hall', guests: 20 }].map((subject) => {
 				const result = RATER.rate(definition, subject)
 				expect(result.success).toBe(true)
-				const account = FAMILY.narrate(definition, result)
-				const group = requireValue(account.lines[1]?.lines[0])
-				expect(
-					group.lines.map((line) => line.lines[0]?.text.replace(/ first| the first/, '')),
-				).toEqual([
-					'looked up by room, or its fallback',
-					'looked up by room, or its fallback',
-					'looked up by guest count, or its fallback',
-					'looked up by guest count, or its fallback',
-					'looked up by room',
-					group.lines[5]?.lines[0]?.text.replace(/ first| the first/, ''),
-					'taken from guest count',
-					'fixed at 5',
-				])
-				expect(group.lines[5]?.lines[0]?.text).toMatch(
-					/^set by the (first )?range guest count falls in$/,
-				)
-				expect(renderAccount(account, { detail: 'full' })).not.toContain('before its changes')
-			}
+				const group = requireValue(FAMILY.narrate(definition, result).lines[1]?.lines[0])
+				return group.lines.map((line) => line.lines.slice(0, 2).map(({ text }) => text))
+			})
+			const missed = 'its fallback, because no entry matches room: room is studio'
+			const few = 'set by the first range guest count falls in: guest count is 8'
+			const many = 'its fallback, because no entry matches guest count: guest count is 20'
+			expect(texts).toEqual([
+				[
+					[missed, 'before its changes: 80'],
+					[missed, 'bounds: 0 to 1000'],
+					[few, 'before its changes: 5'],
+					[few, 'bounds: 0 to 1000'],
+					['looked up by room: room is studio', 'before its changes: 80'],
+					[few, 'before its changes: 5'],
+					['guest count is 8', 'changes: times 2'],
+					['fixed at 5', 'changes: times 2'],
+				],
+				[
+					['looked up by room: room is hall', 'before its changes: 120'],
+					['looked up by room: room is hall', 'bounds: 0 to 1000'],
+					[many, 'before its changes: 7'],
+					[many, 'bounds: 0 to 1000'],
+					['looked up by room: room is hall', 'before its changes: 120'],
+					[few.replace('is 8', 'is 20'), 'before its changes: 5'],
+					['guest count is 20', 'changes: times 2'],
+					['fixed at 5', 'changes: times 2'],
+				],
+			])
 		})
 
 		it('names the fallback where its value is no entry’s and nothing changed it', () => {
@@ -1275,10 +1636,10 @@ describe('FamilyNarrator', () => {
 			])
 			expect(
 				renderAccount(FAMILY.narrate(definition, RATER.rate(definition, FAMILY_BASE))),
-			).toContain('its fallback, because no entry matches room')
+			).toContain('its fallback, because no entry matches room: room is studio')
 		})
 
-		it('says a factor found no value, and names no missed entry', () => {
+		it('names the entry a factor missed, and the number one could not use came from', () => {
 			const definition = buildRatingDefinition('rating', 'Rating', [
 				buildLineDefinition(
 					'line',
@@ -1305,14 +1666,40 @@ describe('FamilyNarrator', () => {
 			const result = RATER.rate(definition, FAMILY_BASE)
 			expect(result.success).toBe(false)
 			const full = renderAccount(FAMILY.narrate(definition, result), { detail: 'full' })
-			expect(full).toContain('Room found no value to use')
-			expect(full).toContain('Guests found no value to use')
-			expect(full).not.toContain('no entry matches')
-			expect(full).not.toContain('looked up by')
-			expect(full).not.toContain('set by')
+			expect(full.split('\n')).toEqual([
+				'Rating gave no answer',
+				'Line gave no answer',
+				'  Group: Room has no entry for the value it read (room: studio)',
+				'  Group: Guests has no entry for the value it read (guest count: 8)',
+				'  Group: Cost did not give a finite number',
+				'    cost is $1,000.00',
+				'  Group did not apply',
+				'    Room found no value to use',
+				'    Guests found no value to use',
+				'    Cost did not apply',
+			])
 		})
 
-		it('gives a gated factor no reason where its evidence does not line up', () => {
+		it('reads a factor with no checks, or none that answers it, as found with no value', () => {
+			const costly = requireValue(RATED.find(([name]) => name === 'costly'))[1]
+			const deposit = requireValue(costly.lines[2])
+			const emptied = {
+				...deposit,
+				worksheet: {
+					...deposit.worksheet,
+					refusals: [],
+					groups: deposit.worksheet.groups.map((group) => ({
+						...group,
+						factors: group.factors.map((factor) => ({ ...factor, checks: [] })),
+					})),
+				},
+			}
+			const account = FAMILY.narrate(RATING, { ...costly, lines: [emptied] })
+			expect(renderAccount(account, { detail: 'full' })).toContain('Deposit found no value to use')
+			expect(renderAccount(account, { detail: 'full' })).not.toContain('cost is')
+		})
+
+		it('gives a gated factor no reason where its checks do not line up', () => {
 			const costly = requireValue(RATED.find(([name]) => name === 'costly'))[1]
 			const deposit = requireValue(costly.lines[2])
 			const lines = [
@@ -1324,15 +1711,15 @@ describe('FamilyNarrator', () => {
 							...group,
 							factors: group.factors.map((factor) => ({
 								...factor,
-								evidence: [...factor.evidence, { field: 'cost' }],
+								checks: [...factor.checks, ...factor.checks],
 							})),
 						})),
 					},
 				},
 			]
 			const account = FAMILY.narrate(RATING, { ...costly, lines })
-			expect(renderAccount(account)).not.toContain('cost is')
-			expect(renderAccount(account)).toContain('Deposit did not apply')
+			expect(renderAccount(account, { detail: 'full' })).not.toContain('cost is')
+			expect(renderAccount(account, { detail: 'full' })).toContain('Deposit did not apply')
 		})
 	})
 
@@ -1361,20 +1748,46 @@ describe('FamilyNarrator', () => {
 			}
 		})
 
-		it('an account does not move when a premise’s comparison, expected value, or description does', () => {
+		it('an account does not move when a result holds the worded members the packages gave up', () => {
+			const premises = [{ field: 'activity', label: 'x', description: 'another sentence' }]
 			const restricted = requireValue(QUALIFIED[1])[1]
-			const findings = restricted.findings.map((finding) => ({
-				...finding,
-				premises: finding.premises.map((premise) => ({
-					...premise,
-					comparison: 'not' as const,
-					expected: SECRET,
-					description: 'another sentence',
-				})),
-			}))
-			expect(FAMILY.narrate(QUALIFICATION, { ...restricted, findings })).toEqual(
+			const stale = {
+				...restricted,
+				errors: ['another text'],
+				findings: restricted.findings.map((finding) => ({ ...finding, premises })),
+			}
+			expect(FAMILY.narrate(QUALIFICATION, stale)).toEqual(
 				FAMILY.narrate(QUALIFICATION, restricted),
 			)
+			const costly = requireValue(RATED.find(([name]) => name === 'costly'))[1]
+			const lines = costly.lines.map((line) => ({
+				...line,
+				worksheet: {
+					...line.worksheet,
+					errors: ['another text'],
+					groups: line.worksheet.groups.map((group) => ({
+						...group,
+						factors: group.factors.map((factor) => ({ ...factor, evidence: premises })),
+					})),
+				},
+			}))
+			expect(FAMILY.narrate(RATING, { ...costly, lines })).toEqual(FAMILY.narrate(RATING, costly))
+		})
+
+		it('a thrown error’s message is the one text of a refusal that prints, and it prints quoted', () => {
+			const evaluator = createAnsweringEvaluator(() => {
+				throw new Error('clock stopped')
+			})
+			const engine = createReason({ reasoners: [createQuantitativeReasoner({ evaluator })] })
+			const rating = buildRatingDefinition('rating', 'Booking rating', [
+				requireValue(RATING.lines[2]),
+			])
+			const result = createRater({ engine }).rate(rating, FAMILY_BASE)
+			const account = FAMILY.narrate(rating, result)
+			expect(account.lines[0]?.summary).toBe(
+				'Booking rating gave no answer, because Deposit, Hold: Deposit failed while it ran ("clock stopped")',
+			)
+			expect(FAMILY.narrate(rating, FAMILY_WORDED.rating(result))).toEqual(account)
 		})
 	})
 
@@ -1429,11 +1842,7 @@ describe('FamilyNarrator', () => {
 					}),
 				})
 				for (const definition of [qualification, rating, program]) {
-					const texts: string[] = []
-					JSON.stringify(FAMILY.describe(definition), (key, value: unknown) => {
-						if ((key === 'text' || key === 'summary') && isString(value)) texts.push(value)
-						return value
-					})
+					const texts = collectWrittenTexts(FAMILY.describe(definition))
 					expect(texts.filter((entry) => entry.includes('{{') || entry.includes('}}'))).toEqual([])
 				}
 				expect(renderAccount(FAMILY.describe(program), { detail: 'full' })).toContain(
@@ -1490,9 +1899,11 @@ describe('FamilyNarrator', () => {
 
 		it('T1: a derivation that failed states no number', () => {
 			const standing = requireValue(QUALIFIED[0])[1]
+			const clean = { refusals: [], faults: [] }
 			for (const derivation of [
-				{ id: 'load', value: SECRET, success: false },
-				{ id: 'load', value: Number.POSITIVE_INFINITY, success: true },
+				{ id: 'load', value: SECRET, success: false, ...clean },
+				{ id: 'load', value: Number.POSITIVE_INFINITY, success: true, ...clean },
+				{ id: 'load', value: null, success: true, ...clean },
 			]) {
 				const account = FAMILY.narrate(QUALIFICATION, { ...standing, derivations: [derivation] })
 				const full = renderAccount(account, { detail: 'full' })
@@ -1502,22 +1913,56 @@ describe('FamilyNarrator', () => {
 			}
 		})
 
+		it('T1: a derivation that failed names its cause', () => {
+			const refused = requireValue(QUALIFIED.find(([name]) => name === 'refused'))[1]
+			const account = FAMILY.narrate(QUALIFICATION, refused)
+			expect(account.lines.find((line) => line.source.pass === 'load')?.summary).toBe(
+				'Booking load gave no answer, because guest count is not known, and must be a number',
+			)
+			const derivation = {
+				...requireValue(refused.derivations[0]),
+				faults: [],
+				refusals: [{ cause: 'value', group: 'amount', factor: 'guests' }] as const,
+			}
+			expect(
+				FAMILY.narrate(QUALIFICATION, { ...refused, derivations: [derivation] }).lines.find(
+					(line) => line.source.pass === 'load',
+				)?.summary,
+			).toBe('Booking load gave no answer, because Amount: Guests did not give a finite number')
+		})
+
 		it('T5: no text is blank, holds a line break, or prints a value no one gave', () => {
 			const bare = new FamilyNarrator(new Narrator())
 			const tricky = { id: '', name: ' \n', effect: '', message: 'one\ntwo' }
+			const said = { ...tricky, message: ['one\n', { field: '', actual: Number.NaN }] }
 			const odd: FamilyQualificationResult = {
 				...requireValue(QUALIFIED[0])[1],
 				eligibility: '',
 				scopes: { '': '', toString: 'eligible' },
 				findings: [
-					{ ...tricky, state: 'met', premises: [] },
-					{ ...tricky, state: 'unread', premises: [{}], scope: '__proto__', rule: '' },
+					{ ...said, state: 'met', checks: [] },
+					{ ...said, state: 'unread', checks: [], scope: '__proto__', rule: '' },
 				],
-				derivations: [{ id: '', value: Number.NaN, success: true }],
+				derivations: [{ id: '', value: Number.NaN, success: true, refusals: [], faults: [] }],
 			}
+			const refusals: readonly ReasonRefusal[] = [
+				...REASON_REFUSAL_CAUSES.map((cause) => ({
+					cause,
+					path: ['', 'a\nb'],
+					actual: Number.NaN,
+				})),
+				{ cause: 'thrown', message: '' },
+				{ cause: 'operator', operator: '\n', key: '', index: Number.NaN },
+				{ cause: 'depth', depth: Number.POSITIVE_INFINITY, group: '', factor: ' ' },
+			]
 			const accounts = [
 				...ACCOUNTS,
 				bare.narrate({ id: '', name: '', passes: [] }, odd),
+				bare.narrate({ id: '', name: '', passes: [] }, { ...odd, refusals }),
+				bare.narrate(
+					{ id: '', name: '', lines: [] },
+					{ lines: [], success: false, refusals, faults: [] },
+				),
 				bare.describe({
 					id: '',
 					name: '',
@@ -1539,31 +1984,39 @@ describe('FamilyNarrator', () => {
 											id: '',
 											applied: true,
 											value: Number.NaN,
-											factors: [{ id: '', applied: true, value: Number.NaN, evidence: [] }],
+											factors: [
+												{
+													id: '',
+													applied: true,
+													value: Number.NaN,
+													raw: null,
+													fallback: true,
+													checks: [],
+												},
+											],
 										},
 									],
 									success: true,
-									errors: [],
+									refusals: [],
 									faults: [],
 								},
 							},
 						],
 						total: Number.NaN,
 						success: true,
+						refusals: [],
 						faults: [],
 					},
 				),
 			]
 			for (const account of accounts) {
-				const texts: string[] = []
-				JSON.stringify(account, (key, value: unknown) => {
-					if ((key === 'text' || key === 'summary') && isString(value)) texts.push(value)
-					return value
-				})
+				const texts = collectWrittenTexts(account)
 				expect(texts.length).toBeGreaterThan(0)
 				expect(
 					texts.filter(
-						(text) => text.trim() === '' || /undefined|NaN|\n|\{\{|:\s*$|^\s*:/.test(text),
+						(text) =>
+							text.trim() === '' ||
+							/undefined|NaN|\n|\{\{|possible|supported through|:\s*$|^\s*:/.test(text),
 					),
 				).toEqual([])
 			}
@@ -1747,7 +2200,6 @@ describe('FamilyNarrator', () => {
 		const interpret = new Interpret({ narrator: { glossary: GLOSSARY } })
 		const qualified = requireValue(QUALIFIED[4])[1]
 		const rated = requireValue(RATED[4])[1]
-		const executed = requireValue(EXECUTED[5])[1]
 		const loan = createLogicalDefinition('loan', 'Loan', [
 			createRule('adult', [createAtom('age', 'from', 18)], createAtom('adult', 'equals', true)),
 		])
@@ -1761,6 +2213,7 @@ describe('FamilyNarrator', () => {
 		})
 
 		it('narrate writes the same account', () => {
+			const executed = requireValue(EXECUTED[5])[1]
 			for (const writer of [narrator, interpret]) {
 				expect(writer.narrate(QUALIFICATION, qualified)).toEqual(
 					FAMILY.narrate(QUALIFICATION, qualified),
@@ -1785,6 +2238,7 @@ describe('FamilyNarrator', () => {
 			const area = buildWorkshopArea()
 			const score = buildWorkshopScore()
 			const facts = { ...buildWorkshopFacts(), depth: 10 }
+			const executed = requireValue(EXECUTED[5])[1]
 			const answers: ReadonlyArray<readonly [AccountDefinition, ReasonResult | FamilyResult]> = [
 				[loan, createLogicalReasoner().reason({ age: 30 }, loan)],
 				[
@@ -1792,7 +2246,7 @@ describe('FamilyNarrator', () => {
 					createQuantitativeReasoner().reason({ cost: 100, member: 'gold', room: 'hall' }, score),
 				],
 				[area, createSymbolicReasoner().reason({ width: 4, depth: 5 }, area)],
-				[facts, createInferentialReasoner().reason({}, facts)],
+				[facts, createDeductiveReasoner().reason({}, facts)],
 				[QUALIFICATION, qualified],
 				[RATING, requireValue(RATED[0])[1]],
 				[PROGRAM, executed],
@@ -1855,7 +2309,7 @@ describe('FamilyNarrator', () => {
 		})
 
 		it('a refusal that read a field keeps its state', () => {
-			expect(REFUSED.errors.length).toBeGreaterThan(REFUSED.faults.length)
+			expect(REFUSED.refusals.length).toBe(1)
 			expect(narrator.narrate(MISSED, REFUSED).lines[0]?.state).toBe('unread')
 			expect(interpret.narrate(MISSED, REFUSED).lines[0]?.state).toBe('unread')
 		})
@@ -1898,19 +2352,27 @@ describe('FamilyNarrator', () => {
 
 	describe('what an account owns', () => {
 		it('shares no object with its definition or its result', () => {
-			for (const [, result] of EXECUTED) {
+			const answers: ReadonlyArray<readonly [FamilyDefinition, FamilyResult]> = [
+				...QUALIFIED.map(([, result]) => [QUALIFICATION, result] as const),
+				...RATED.map(([, result]) => [RATING, result] as const),
+				...EXECUTED.map(([, result]) => [PROGRAM, result] as const),
+				[MISSED, REFUSED],
+			]
+			for (const [definition, result] of answers) {
 				const before = structuredClone(result)
-				const account = FAMILY.narrate(PROGRAM, result)
+				const account = FAMILY.narrate(definition, result)
 				const copy = structuredClone(account)
 				const pending: AccountLine[] = [...account.lines]
 				for (const line of pending) pending.push(...line.lines)
 				for (const { source } of pending) {
 					if (source.check !== undefined) Reflect.set(source.check, 'value', SECRET)
 					if (source.result !== undefined) Reflect.set(source.result, 'actual', SECRET)
+					if (source.result !== undefined) Reflect.set(source.result.check, 'value', SECRET)
 					if (source.fault !== undefined) Reflect.set(source.fault, 'path', 'other')
+					if (source.refusal !== undefined) Reflect.set(source.refusal, 'cause', 'silent')
 				}
 				expect(result).toEqual(before)
-				expect(FAMILY.narrate(PROGRAM, result)).toEqual(copy)
+				expect(FAMILY.narrate(definition, result)).toEqual(copy)
 			}
 		})
 
@@ -1936,7 +2398,7 @@ describe('FamilyNarrator', () => {
 						rule: 'deep',
 						effect: 'referral',
 						state: 'met',
-						premises: [{ field: 'a', actual: 1, state: 'met' }],
+						checks: [{ check: createCheck('a', 'equals', 1), actual: 1, state: 'met' }],
 					},
 				],
 			})

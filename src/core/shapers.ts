@@ -15,10 +15,10 @@ import {
 import {
 	CHECK_STATES,
 	checkResultShape,
-	COMPARISONS,
 	createDefinitionShape,
 	createSymbolicExpressionShape,
 	fieldPathShape,
+	reasonRefusalShape,
 } from '@orkestrel/reason'
 import {
 	ACCOUNT_ROLES,
@@ -183,16 +183,16 @@ export const glossaryGapShape: ContractShape = objectShape({
  * Describes an `AccountSource` in its JSON projection.
  *
  * @remarks
- * A check's `value` and a result's `actual` are arbitrary data, so each is what
- * `projectAccount` projects of it: a non-finite number as `null`, and a value with no JSON form
- * absent.
+ * A check's `value` and an `actual` are arbitrary data, so each is what `projectAccount` projects
+ * of it: a non-finite number as `null`, and a value with no JSON form absent. A check's `operator`
+ * is any string, because a run that refuses an unknown one carries it as authored.
  */
 export const accountSourceShape: ContractShape = objectShape({
 	rule: optionalShape(stringShape()),
 	group: optionalShape(stringShape()),
 	factor: optionalShape(stringShape()),
 	equation: optionalShape(stringShape()),
-	inference: optionalShape(stringShape()),
+	deduction: optionalShape(stringShape()),
 	fact: optionalShape(stringShape()),
 	finding: optionalShape(stringShape()),
 	scope: optionalShape(stringShape()),
@@ -201,12 +201,13 @@ export const accountSourceShape: ContractShape = objectShape({
 	check: optionalShape(
 		objectShape({
 			field: fieldPathShape,
-			operator: literalShape(COMPARISONS),
+			operator: stringShape(),
 			value: optionalShape(jsonShape()),
 		}),
 	),
 	result: optionalShape(checkResultShape),
 	fault: optionalShape(auditFaultShape()),
+	refusal: optionalShape(reasonRefusalShape),
 })
 
 /**

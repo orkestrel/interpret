@@ -7,7 +7,8 @@ import {
 	stringShape,
 } from '@orkestrel/contract'
 import { createConstant, createOperation, createVariable } from '@orkestrel/reason'
-import { buildSubject, Clarifier, Narrator } from '@src/core'
+import { buildSubject, Clarifier, isInterpretError, Narrator } from '@src/core'
+import { captureError } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import {
 	buildCarriedEntity,
@@ -17,6 +18,7 @@ import {
 	buildStatedEntity,
 	buildSuppliedEntity,
 	seedInterpretContext,
+	UNCOMPILABLE_SHAPE,
 } from '../../../setup.js'
 
 // The `Clarifier` stage — carry-over, the door's defaults, computed fields (topological,
@@ -45,6 +47,18 @@ describe('Clarifier', () => {
 		expect(result.ambiguities.flatMap((ambiguity) => ambiguity.candidates)).toEqual(
 			asks ? ['99'] : [],
 		)
+	})
+	it('throws the recipe’s error, with its refusals, for a shape that admits no subject', () => {
+		const recipe = buildInterpretRecipe({
+			id: 'shapeless',
+			mappings: [],
+			shape: UNCOMPILABLE_SHAPE,
+		})
+		const error = captureError(() => new Clarifier().clarify([], recipe, undefined, intent))
+		if (!isInterpretError(error)) throw new Error('Expected an interpret error')
+		expect(error.code).toBe('DEFINITION')
+		expect(error.message).toMatch(/^The shape of recipe "shapeless" admits no subject: ./)
+		expect(error.context).toMatchObject({ refusals: [{ cause: 'thrown' }] })
 	})
 	it('passes through fresh entities untouched when nothing else applies', () => {
 		const clarifier = new Clarifier()

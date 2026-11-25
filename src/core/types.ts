@@ -18,6 +18,8 @@ import type {
 	LogicalDefinition,
 	MathOperation,
 	QuantitativeDefinition,
+	ReasonRefusal,
+	ReasonRefusalCause,
 	ReasonResult,
 	Rule,
 	RuleResult,
@@ -131,7 +133,7 @@ export interface EntityMapping {
  *
  * @remarks
  * Named `ComputedField` rather than a rule: `@orkestrel/reason` already owns
- * `Inference` for fact derivation, a different concept. `expression` is a
+ * `Deduction` for fact derivation, a different concept. `expression` is a
  * reasons {@link SymbolicExpression} tree (pure JSON `Variable` / `Constant`
  * / `Operation`), evaluated by the pure `resolveExpression` helper rather
  * than a closure, so a `Recipe` stays JSON-serializable end to end. A
@@ -773,8 +775,9 @@ export interface ComparisonPhrase {
  *
  * @remarks
  * `fact.*`, `fault.*`, `value.*`, `condition.*`, `reason.*`, `rule.*`, `result.*`,
- * `finding.*`, `worksheet.*`, `source.*`, `group.*`, `equation.*`, and `inference.*` frame the
- * account, and `refusal.*` a number refusal. `subject.*`, `prompt.*`, and `ambiguity.*` frame the
+ * `finding.*`, `worksheet.*`, `source.*`, `group.*`, `equation.*`, and `deduction.*` frame the
+ * account, `proof.*` a proof's steps, `cause.*` why a run refused, and `refusal.*` a number
+ * refusal. `subject.*`, `prompt.*`, and `ambiguity.*` frame the
  * forward direction.
  * `FRAME_SLOTS` lists the slots each frame offers.
  */
@@ -785,15 +788,19 @@ export type FrameName =
 	| 'fact.unread'
 	| 'fact.stated'
 	| 'fact.confidence'
-	| 'fact.some'
-	| 'fact.possible'
-	| 'fact.proved'
 	| 'fault.type'
 	| 'fault.missing'
 	| 'fault.constraint'
 	| 'fault.length'
 	| 'refusal.unreadable'
 	| 'refusal.field'
+	| 'cause.run'
+	| 'cause.part'
+	| 'cause.entry'
+	| 'cause.path'
+	| 'cause.value'
+	| 'cause.depth'
+	| 'proof.step'
 	| 'value.range'
 	| 'value.minimum'
 	| 'value.maximum'
@@ -821,7 +828,7 @@ export type FrameName =
 	| 'result.facts'
 	| 'result.outcome'
 	| 'result.decided'
-	| 'result.decision'
+	| 'result.disposition'
 	| 'finding.effect'
 	| 'finding.scope'
 	| 'worksheet.group'
@@ -848,13 +855,13 @@ export type FrameName =
 	| 'source.band'
 	| 'source.missed'
 	| 'source.fallback'
-	| 'source.either'
+	| 'source.read'
 	| 'group.aggregation'
 	| 'equation.target'
 	| 'equation.form'
 	| 'equation.group'
-	| 'inference.rule'
-	| 'inference.confidence'
+	| 'deduction.rule'
+	| 'deduction.confidence'
 	| 'subject.fields'
 	| 'subject.empty'
 	| 'prompt.base'
@@ -886,8 +893,8 @@ export type StatusKey =
 	| 'unrated'
 	| 'eligible'
 
-/** Names a decision a {@link Lexicon} words, mirroring `Decision` of `@orkestrel/program`. */
-export type DecisionKey = 'approved' | 'denied' | 'submitted'
+/** Names a disposition a {@link Lexicon} words, mirroring `Disposition` of `@orkestrel/program`. */
+export type DispositionKey = 'approved' | 'denied' | 'submitted'
 
 /**
  * Represents the general words of one language, complete.
@@ -898,10 +905,12 @@ export type DecisionKey = 'approved' | 'denied' | 'submitted'
  * `expected` words the kind of value a fault needed, `received` a value it got that has no text of
  * its own, `constraints` a bound on a value, and `lengths` a bound on a length. `operations` words
  * an equation's operation over its operands, and `transforms` a factor's. `refusals` words why a
- * number in a text was not taken, and `unreadables` why it could not be read exactly.
- * `eligibilities`, `effects`, `statuses`, and `decisions` word what other packages decide; `phrase`
+ * number in a text was not taken, `unreadables` why it could not be read exactly, and `causes` why a
+ * part of a run refused.
+ * `eligibilities`, `effects`, `statuses`, and `dispositions` word what other packages decide; `phrase`
  * reads them. `joins.reasons` stands between reasons, `joins.last` before the last one,
- * `joins.steps` between a factor's steps, and `joins.terms` between a fact's terms. `frames` are
+ * `joins.steps` between a factor's steps, and `joins.terms` between a fact's terms and between the
+ * parts a refusal stands in. `frames` are
  * `@orkestrel/template` templates whose slots `FRAME_SLOTS` lists, and `WORD_SLOTS` lists those of
  * `operations`, `transforms`, `constraints`, `lengths`, and `refusals`. `limits.list` is the longest
  * list a fact prints in full, a longer one being counted, and `limits.reasons` the most reasons,
@@ -923,10 +932,11 @@ export interface Lexicon {
 	readonly transforms: Readonly<Record<MathOperation, string>>
 	readonly refusals: Readonly<Record<NumberRefusalReason, string>>
 	readonly unreadables: Readonly<Record<NumberUnreadable, string>>
+	readonly causes: Readonly<Record<ReasonRefusalCause, string>>
 	readonly eligibilities: Readonly<Record<EligibilityKey, string>>
 	readonly effects: Readonly<Record<EffectKey, string>>
 	readonly statuses: Readonly<Record<StatusKey, string>>
-	readonly decisions: Readonly<Record<DecisionKey, string>>
+	readonly dispositions: Readonly<Record<DispositionKey, string>>
 	readonly values: { readonly true: string; readonly false: string; readonly null: string }
 	readonly joins: Readonly<Record<'reasons' | 'last' | 'steps' | 'terms', string>>
 	readonly frames: Readonly<Record<FrameName, string>>
@@ -950,10 +960,11 @@ export interface LexiconInput {
 	readonly transforms?: Readonly<Partial<Lexicon['transforms']>>
 	readonly refusals?: Readonly<Partial<Lexicon['refusals']>>
 	readonly unreadables?: Readonly<Partial<Lexicon['unreadables']>>
+	readonly causes?: Readonly<Partial<Lexicon['causes']>>
 	readonly eligibilities?: Readonly<Partial<Lexicon['eligibilities']>>
 	readonly effects?: Readonly<Partial<Lexicon['effects']>>
 	readonly statuses?: Readonly<Partial<Lexicon['statuses']>>
-	readonly decisions?: Readonly<Partial<Lexicon['decisions']>>
+	readonly dispositions?: Readonly<Partial<Lexicon['dispositions']>>
 	readonly values?: Readonly<Partial<Lexicon['values']>>
 	readonly joins?: Readonly<Partial<Lexicon['joins']>>
 	readonly frames?: Readonly<Partial<Lexicon['frames']>>
@@ -1002,7 +1013,7 @@ export interface GlossaryGap {
 		| 'group'
 		| 'factor'
 		| 'equation'
-		| 'inference'
+		| 'deduction'
 		| 'pass'
 		| 'line'
 		| 'scope'
@@ -1037,14 +1048,29 @@ export interface AccountContext {
 }
 
 /**
- * Represents what one worksheet reads: the definition's groups by id, the fields left unread,
- * whether the run answered, so that its numbers print, and the unit those numbers are in.
+ * Represents what one worksheet reads: the definition's groups by id, the fields left unread, why
+ * its parts refused, whether the run answered, so that its numbers print, and the unit those numbers
+ * are in.
  */
 export interface WorksheetContext {
 	readonly groups: ReadonlyMap<string, FactorGroup>
 	readonly faults: readonly AuditFault[]
+	readonly refusals: readonly ReasonRefusal[]
 	readonly stated: boolean
 	readonly unit: string | undefined
+}
+
+/**
+ * Represents one part a refusal stands in: what it is, its id, and the name its definition gives it.
+ *
+ * @remarks
+ * `name` is the id where no definition names the part, and `part` is absent where only its id is
+ * known.
+ */
+export interface RefusedPart {
+	readonly part?: NonNullable<GlossaryGap['part']>
+	readonly id: string
+	readonly name: string
 }
 
 /** Represents a worded part of an account's line, with the domain words it needed and lacked. */
@@ -1069,7 +1095,7 @@ export type AccountDetail = 'line' | 'reasons' | 'full'
  *
  * @remarks
  * `rule` is present exactly when the line states a rule's state or names a rule. Each string is
- * an id: of a rule, a group, a factor, an equation, an inference, a fact, a finding, a scope, a
+ * an id: of a rule, a group, a factor, an equation, a deduction, a fact, a finding, a scope, a
  * rating line, or a pass.
  */
 export interface AccountSource {
@@ -1077,7 +1103,7 @@ export interface AccountSource {
 	readonly group?: string
 	readonly factor?: string
 	readonly equation?: string
-	readonly inference?: string
+	readonly deduction?: string
 	readonly fact?: string
 	readonly finding?: string
 	readonly scope?: string
@@ -1086,6 +1112,7 @@ export interface AccountSource {
 	readonly check?: Check
 	readonly result?: CheckResult
 	readonly fault?: AuditFault
+	readonly refusal?: ReasonRefusal
 }
 
 /**
@@ -1159,19 +1186,26 @@ export interface NarratorOptions {
 
 // === The family's definitions and results, as an account reads them
 
+// A number is `null` in a result's JSON projection where it is not finite.
+
 /**
- * Represents one check as a family result holds it, mirroring `Premise` of `@orkestrel/qualifier`
- * and `Evidence` of `@orkestrel/rater`.
+ * Represents one slot of a message: the field its token names and the value read there, mirroring
+ * `MessageSlot` of `@orkestrel/qualifier`.
+ *
+ * @remarks
+ * `actual` is absent for a value nobody gave, and for one with no JSON form in a JSON projection.
  */
-export interface FamilyPremise {
-	readonly field?: FieldPath
+export interface FamilySlot {
+	readonly field: FieldPath
 	readonly actual?: unknown
-	readonly state?: CheckState
 }
 
 /**
  * Represents a finding of `@orkestrel/qualifier` or a determination of `@orkestrel/program`, as an
  * account reads it.
+ *
+ * @remarks
+ * `message` is the authored text split at its slots. `checks` is empty for a rule that never ran.
  */
 export interface FamilyFinding {
 	readonly id: string
@@ -1180,8 +1214,8 @@ export interface FamilyFinding {
 	readonly pass?: string
 	readonly rule?: string
 	readonly scope?: string
-	readonly message?: string
-	readonly premises: readonly FamilyPremise[]
+	readonly message?: ReadonlyArray<string | FamilySlot>
+	readonly checks: readonly CheckResult[]
 }
 
 /** Represents what one rule of a qualification's pass means, as an account reads it. */
@@ -1206,15 +1240,17 @@ export interface FamilyQualification {
 /** Represents one number a qualification derived in a pass, as an account reads it. */
 export interface FamilyDerivation {
 	readonly id: string
-	readonly value: number
+	readonly value: number | null
 	readonly success: boolean
+	readonly refusals: readonly ReasonRefusal[]
+	readonly faults: readonly AuditFault[]
 }
 
 /**
  * Represents a qualification's result, as an account reads it.
  *
  * @remarks
- * `errors` is counted and never read.
+ * A pass's refusal opens its `path` with the pass's id.
  */
 export interface FamilyQualificationResult {
 	readonly id: string
@@ -1224,7 +1260,7 @@ export interface FamilyQualificationResult {
 	readonly findings: readonly FamilyFinding[]
 	readonly derivations: readonly FamilyDerivation[]
 	readonly success: boolean
-	readonly errors: readonly string[]
+	readonly refusals: readonly ReasonRefusal[]
 	readonly faults: readonly AuditFault[]
 }
 
@@ -1244,33 +1280,41 @@ export interface FamilyRating {
 	readonly lines: readonly FamilyLine[]
 }
 
-/** Represents one factor of a rating's worksheet, as an account reads it. */
+/**
+ * Represents one factor of a rating's worksheet, as an account reads it.
+ *
+ * @remarks
+ * `checks` is empty for a factor that never ran, and one that declares none.
+ */
 export interface FamilyWorksheetFactor {
 	readonly id: string
 	readonly applied: boolean
-	readonly value?: number
-	readonly evidence: readonly FamilyPremise[]
-}
-
-/** Represents one group of a rating's worksheet, as an account reads it. */
-export interface FamilyWorksheetGroup {
-	readonly id: string
-	readonly applied: boolean
-	readonly value: number
-	readonly factors: readonly FamilyWorksheetFactor[]
+	readonly value?: number | null
+	readonly raw?: number | null
+	readonly actual?: unknown
+	readonly fallback: boolean
+	readonly checks: readonly CheckResult[]
 }
 
 /**
- * Represents the worksheet of one rating line, as an account reads it.
+ * Represents one group of a rating's worksheet, as an account reads it.
  *
  * @remarks
- * `errors` is counted and never read.
+ * `value` is absent for a disabled group, and for one that never ran.
  */
+export interface FamilyWorksheetGroup {
+	readonly id: string
+	readonly applied: boolean
+	readonly value?: number | null
+	readonly factors: readonly FamilyWorksheetFactor[]
+}
+
+/** Represents the worksheet of one rating line, as an account reads it. */
 export interface FamilyWorksheet {
-	readonly value: number
+	readonly value: number | null
 	readonly groups: readonly FamilyWorksheetGroup[]
 	readonly success: boolean
-	readonly errors: readonly string[]
+	readonly refusals: readonly ReasonRefusal[]
 	readonly faults: readonly AuditFault[]
 }
 
@@ -1278,15 +1322,21 @@ export interface FamilyWorksheet {
 export interface FamilyLineResult {
 	readonly id: string
 	readonly name: string
-	readonly amount?: number
+	readonly amount?: number | null
 	readonly worksheet: FamilyWorksheet
 }
 
-/** Represents a rating's result, as an account reads it. */
+/**
+ * Represents a rating's result, as an account reads it.
+ *
+ * @remarks
+ * A line's refusal opens its `path` with the line's id, and the total's has no `path`.
+ */
 export interface FamilyRatingResult {
 	readonly lines: readonly FamilyLineResult[]
-	readonly total?: number
+	readonly total?: number | null
 	readonly success: boolean
+	readonly refusals: readonly ReasonRefusal[]
 	readonly faults: readonly AuditFault[]
 }
 
@@ -1312,19 +1362,19 @@ export interface FamilyProgram {
  * Represents a program's result, as an account reads it.
  *
  * @remarks
- * `errors` is counted and never read.
+ * A refusal opens its `path` with the part it stands in: `qualification`, `rating`, or `authority`.
  */
 export interface FamilyProgramResult {
 	readonly id: string
 	readonly name: string
 	readonly eligibility: string
 	readonly status: string
-	readonly decision?: string
+	readonly disposition?: string
 	readonly qualification: FamilyQualificationResult
 	readonly rating?: FamilyRatingResult
 	readonly determinations: readonly FamilyFinding[]
 	readonly success: boolean
-	readonly errors: readonly string[]
+	readonly refusals: readonly ReasonRefusal[]
 	readonly faults: readonly AuditFault[]
 }
 
@@ -1767,7 +1817,7 @@ export interface NarratorInterface {
 	 * @remarks
 	 * A lookup's entries, a range's bands, and each base, bound, change, weight, fallback, and
 	 * precision a number is set by print at `full` detail alone. An equation prints its own text, and
-	 * an inference its conclusion and its premises.
+	 * a deduction its conclusion and its premises.
 	 *
 	 * @param definition - The definition to describe
 	 * @returns The guide's account, with no `success`
@@ -1780,17 +1830,17 @@ export interface NarratorInterface {
 	 * A logical result's verdict is its goal rule's outcome, as `findGoalRule` finds it, and a
 	 * definition without a goal counts the rules that apply. A quantitative result is written as a
 	 * worksheet of its groups and factors, with an authored precision that moved its value, and a
-	 * symbolic one as each solution with the last equation of its target. An inferential result states
-	 * each fact it derived, with a confidence below 1. One with a proof states its conclusion, as
-	 * possible where an inference supports it and plainly where a known fact is the proof. A result
-	 * whose `success` is false states no value, count, fact, or solution: its verdict names each field that
-	 * was not read and each factor that found no value. A refused logical result whose `errors`
-	 * outnumber its `faults` states its faults alone, and no rule.
+	 * symbolic one as each solution with the last equation of its target. A deductive result states
+	 * each fact it derived, with a confidence below 1. One with a proof states the fact it proved and
+	 * the proof's steps. A result whose `success` is false states no value, count, fact, or solution:
+	 * its verdict names each field that was not read and the cause of each refusal. A logical result
+	 * that holds a refusal states its causes alone, and no rule, and so does a refused result of a
+	 * definition `isDefinition` does not admit.
 	 *
 	 * A qualification's verdict is its eligibility, a rating's its total, and a program's its status.
-	 * A qualification whose `errors` outnumber its `faults` states its faults alone, and a program
-	 * over such a qualification states no status. A finding's message prints only where the finding
-	 * is met.
+	 * A qualification that holds a refusal states its causes alone, and a program over such a
+	 * qualification states no status. A finding's message prints only where the finding is met, each
+	 * slot as its field's value, and a program's limits only where no refusal stands in its authority.
 	 *
 	 * @param definition - The definition the result answers
 	 * @param result - The result to narrate
@@ -1806,11 +1856,13 @@ export interface NarratorInterface {
 	// Any pair, where a result of another kind reads as no answer.
 	narrate(definition: AccountDefinition, result: ReasonResult | FamilyResult): Account
 	/**
-	 * Writes why one value was not taken, as one line.
+	 * Writes why one value was not taken, or why one part of a run refused, as one line.
 	 *
 	 * @remarks
-	 * A fault reads as it does on an account's line. A record that is neither a fault nor a number
-	 * refusal, as `isAuditFault` and `isNumberRefusal` admit them, reads as the `missing` word.
+	 * A fault reads as it does on an account's line, and a run's refusal does with each part named by
+	 * its id, because no definition names it here. A record that is no fault, number refusal, or run's
+	 * refusal, as `isAuditFault`, `isNumberRefusal`, and the `isReasonRefusal` guard of
+	 * `@orkestrel/reason` admit them, reads as the `missing` word.
 	 *
 	 * @param fault - The fault a subject door or a reasoner reported
 	 * @returns The sentence
@@ -1818,6 +1870,8 @@ export interface NarratorInterface {
 	explain(fault: AuditFault): string
 	// A number refusal, as `Interpretation.refusals` holds one.
 	explain(refusal: NumberRefusal): string
+	// A run's refusal, as a result's `refusals` holds one.
+	explain(refusal: ReasonRefusal): string
 	/**
 	 * Lists every domain word the definitions need and the supplied words lack.
 	 *

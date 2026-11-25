@@ -119,7 +119,13 @@ export class Clarifier implements ClarifierInterface {
 		const admission = this.#door.admit(subject, recipe.shape)
 		// A refusal with no fault names nothing to ask, so it is the recipe's error, not a question.
 		if (admission.subject === undefined && admission.faults.length === 0) {
-			throw new InterpretError('DEFINITION', admission.errors.join(', '))
+			const { refusals } = admission
+			const causes = refusals.map(({ cause, message }) => message ?? cause).join(', ')
+			throw new InterpretError(
+				'DEFINITION',
+				`The shape of recipe "${recipe.id}" admits no subject: ${causes}`,
+				{ refusals },
+			)
 		}
 		const settled = settleEntities(resolved, recipe.mappings, admission)
 

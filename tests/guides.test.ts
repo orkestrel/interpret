@@ -58,9 +58,9 @@ await new GuideCommand({
 		createFact,
 		createFactorGroup,
 		createFieldFactor,
-		createInference,
-		createInferentialDefinition,
-		createInferentialReasoner,
+		createDeduction,
+		createDeductiveDefinition,
+		createDeductiveReasoner,
 		createLogicalDefinition,
 		createLogicalReasoner,
 		createLookupFactor,
@@ -74,10 +74,13 @@ await new GuideCommand({
 		createSymbolicDefinition,
 		createSymbolicReasoner,
 		createVariable,
+		REASON_REFUSAL_CAUSES,
 	} = await import('@orkestrel/reason')
 	const {
 		applyReplacements,
 		assignEntities,
+		collectRefusalGaps,
+		collectRefusedParts,
 		compileEntities,
 		scanNumbers,
 		canonicalize,
@@ -111,6 +114,7 @@ await new GuideCommand({
 		extractNumbers,
 		FamilyNarrator,
 		findGoalRule,
+		findRefusedValue,
 		FRAME_SLOTS,
 		InterpretError,
 		isAccount,
@@ -129,6 +133,7 @@ await new GuideCommand({
 		isStageFailure,
 		isStageRecord,
 		isRecipe,
+		matchesNestedRefusal,
 		matchRecipe,
 		mergeGlossary,
 		projectAccount,
@@ -136,7 +141,9 @@ await new GuideCommand({
 		NUMBER_PATTERN,
 		parseRecipe,
 		RecordManager,
+		refusalToSource,
 		renderAccount,
+		renderRefusal,
 		renderSubject,
 		resolveExpression,
 		scoreRecipe,
@@ -729,15 +736,19 @@ await new GuideCommand({
 				'Known applies when membership is one of a, b, c, d, or sailor',
 			)
 
-			// A cause only `errors` words is no text of the account, and its faults still are.
+			// A logical result that holds a refusal states its causes and its faults alone, and no rule.
 			const unread = createLogicalDefinition('unread', 'Unread', [known, read, size])
 			const refused = reasoner.reason({ membership: 'sailor' }, unread)
-			expect(refused.errors.length).toBeGreaterThan(refused.faults.length)
-			expect(renderAccount(narrator.narrate(unread, refused), { detail: 'full' })).toBe(
-				'Unread gave no answer\n  length is not known, and must be a number',
-			)
+			expect(refused.refusals.length).toBe(1)
+			expect(
+				renderAccount(narrator.narrate(unread, refused), { detail: 'full' }).split('\n'),
+			).toEqual([
+				'Unread gave no answer',
+				'  Read compares what a rule decides in a way that cannot be answered (tier: gold)',
+				'  length is not known, and must be a number',
+			])
 
-			// A lookup's line names its field and not the value read, and a gate that passed prints no check.
+			// A lookup's line names the value read, and a gate that passed prints no check.
 			const priced = createQuantitativeDefinition('rate', 'Rate', [
 				createFactorGroup('rates', 'sum', [
 					createLookupFactor(
@@ -753,7 +764,7 @@ await new GuideCommand({
 				createQuantitativeReasoner().reason(subject, priced),
 			)
 			expect(renderAccount(worksheet, { detail: 'full' })).toBe(
-				'Rate: 3\nrates: 3\n  tier: 3\n    looked up by membership\nTotal: 3',
+				'Rate: 3\nrates: 3\n  tier: 3\n    looked up by membership: membership is sailor\nTotal: 3',
 			)
 		})
 
@@ -973,15 +984,25 @@ await new GuideCommand({
 				'Mooring price: $41.20',
 				'Per night: $41.20',
 				'  Pier rate: $20.00',
-				'    its fallback, because no entry matches pier',
+				'    its fallback, because no entry matches pier: pier is east',
 				'  Length charge: $16.20',
-				'    set by the first range boat length falls in',
+				'    set by the first range boat length falls in: boat length is 9 m',
 				'    before its changes: 18',
 				'    changes: 90% of it',
 				'    bounds: $10.00 to $30.00',
 				'  Key deposit: $5.00',
 				'    fixed at $5.00',
 				'Total: $41.20',
+			])
+			const refused = createQuantitativeReasoner().reason(
+				{ pier: 'north', length: 22, insured: false },
+				definition,
+			)
+			expect(renderAccount(narrator.narrate(definition, refused)).split('\n')).toEqual([
+				'Mooring price gave no answer',
+				'  Per night: Length charge has no entry for the value it read (boat length: 22 m)',
+				'  Per night: Key deposit had to apply and did not',
+				'    insurance on file is false',
 			])
 		})
 
@@ -1026,8 +1047,8 @@ await new GuideCommand({
 		})
 
 		it('Write facts: a predicate’s sentence, its fallback with its gap, and a backward run', () => {
-			const inferences = [
-				createInference(
+			const deductions = [
+				createDeduction(
 					'change',
 					[createFact('first', 'sails', ['?x', '?y']), createFact('second', 'sails', ['?y', '?z'])],
 					createFact('reached', 'reaches', ['?x', '?z']),
@@ -1038,8 +1059,8 @@ await new GuideCommand({
 				createFact('a', 'sails', ['Oban', 'Mull']),
 				createFact('b', 'sails', ['Mull', 'Iona']),
 			]
-			const definition = createInferentialDefinition('ferries', 'Ferry links', facts, inferences)
-			const reasoner = createInferentialReasoner()
+			const definition = createDeductiveDefinition('ferries', 'Ferry links', facts, deductions)
+			const reasoner = createDeductiveReasoner()
 			const result = reasoner.reason({}, definition)
 			const worded = createNarrator({
 				glossary: {
@@ -1070,14 +1091,29 @@ await new GuideCommand({
 				{ word: 'predicate', id: 'reaches' },
 			])
 
-			const backward = createInferentialDefinition('ferries', 'Ferry links', facts, inferences, {
+			const backward = createDeductiveDefinition('ferries', 'Ferry links', facts, deductions, {
 				strategy: 'backward',
 			})
 			const proved = worded.narrate(backward, reasoner.reason({}, backward))
 			expect(renderAccount(proved).split('\n')).toEqual([
-				'possible: ?x reaches ?z, its values left open (confidence 90%)',
-				'  supported through One change',
+				'Oban reaches Iona (confidence 90%)',
+				'  Oban reaches Iona (confidence 90%), through One change',
 			])
+			const unproved = createDeductiveDefinition('ferries', 'Ferry links', [], deductions, {
+				strategy: 'backward',
+			})
+			expect(renderAccount(worded.narrate(unproved, reasoner.reason({}, unproved)))).toBe(
+				'Facts derived: 0',
+			)
+			const named = createDeductiveDefinition(
+				'ferries',
+				'Ferry links',
+				[createFact('a', 'sails', ['?x', 'Mull']), createFact('b', 'sails', ['Mull', 'Iona'])],
+				deductions,
+			)
+			expect(renderAccount(worded.narrate(named, reasoner.reason({}, named)))).toBe(
+				'Facts derived: 1\n?x reaches Iona (confidence 90%)',
+			)
 		})
 
 		it('Write a program: the account, the guide, and the qualification alone', () => {
@@ -1266,6 +1302,35 @@ await new GuideCommand({
 				'"2" was not taken, because it is part of a range or a choice (considered for nights)',
 				'"3" was not taken, because it could not be tied to a value',
 			])
+			const definition = createLogicalDefinition('berth', 'Berth request', [
+				createRule(
+					'long',
+					[createAtom('nights', 'above', 7)],
+					createAtom('length', 'equals', 'long'),
+					{ name: 'Long stay' },
+				),
+				createRule(
+					'deep',
+					[createAtom('length', 'above', 12)],
+					createAtom('deep', 'equals', true),
+					{
+						name: 'Deep berth',
+					},
+				),
+			])
+			const run = createLogicalReasoner().reason({ nights: 9 }, definition)
+			expect(run.refusals.map((refusal) => narrator.explain(refusal))).toEqual([
+				'deep compares what a rule decides in a way that cannot be answered (boat length: long)',
+			])
+			expect(narrator.narrate(definition, run).lines[0]?.summary).toBe(
+				'Berth request gave no answer, because Deep berth compares what a rule decides in a way that cannot be answered (boat length: long)',
+			)
+			expect(Object.keys(DEFAULT_LEXICON.causes).toSorted()).toEqual(
+				[...REASON_REFUSAL_CAUSES].toSorted(),
+			)
+			expect(narrator.explain({ cause: 'thrown', message: 'no tide' })).toBe(
+				'the run failed while it ran ("no tide")',
+			)
 			expect(invokeUnchecked<string>(narrator, narrator.explain, [{}])).toBe('not known')
 		})
 
@@ -1401,21 +1466,25 @@ await new GuideCommand({
 				],
 			}
 
-			// Errors that outnumber the faults leave no answer, and none of the program over it.
+			// A refusal leaves no answer, and none of the program over it, and each cause prints once.
 			const missed = createProgram({
 				id: 'stay',
 				name: 'Stay',
 				qualification: { id: 'entry', name: 'Entry', passes: [sized, gates], rulings },
 			})
 			const unanswered = missed.execute({ pier: 'south', arrival: 21 })
-			expect(unanswered.qualification.errors.length).toBeGreaterThan(
-				unanswered.qualification.faults.length,
-			)
+			expect(unanswered.qualification.refusals.map(({ cause }) => cause)).toEqual(['source'])
 			expect(
-				renderAccount(narrator.narrate(missed.definition, unanswered), { detail: 'full' }),
-			).toBe('Stay gave no answer\nEntry gave no answer')
+				renderAccount(narrator.narrate(missed.definition, unanswered), {
+					detail: 'full',
+				}).split('\n'),
+			).toEqual([
+				'Stay gave no answer',
+				'Entry gave no answer',
+				'  Size, sizes: Pier has no entry for the value it read (pier: south)',
+			])
 
-			// A program's own errors take its limit and not its status.
+			// A refusal of the authority takes its limit and not its status.
 			const limited = createProgram({
 				id: 'stay',
 				name: 'Stay',
@@ -1438,9 +1507,12 @@ await new GuideCommand({
 			})
 			const denied = limited.execute({ pier: 'north', socket: 'one', arrival: 21 })
 			expect(denied.determinations.length).toBe(1)
-			expect(denied.errors.length).toBeGreaterThan(denied.faults.length)
+			expect(denied.refusals.map(({ cause, path }) => [cause, path])).toEqual([
+				['unread', ['authority']],
+			])
 			expect(renderAccount(narrator.narrate(limited.definition, denied)).split('\n')).toEqual([
 				'Stay: not eligible',
+				'  Authority: Large total could not read a value that the run itself supplies (outcome.total)',
 				'Entry: not eligible',
 				'  Restriction: Closed at 21.',
 				'    arrival is 21, which is more than 20',
@@ -1451,19 +1523,21 @@ await new GuideCommand({
 			const account = narrator.narrate(limited.definition, priced)
 			expect(renderAccount(account).split('\n')).toEqual([
 				'Stay: not fully rated',
+				'  Authority: Large total could not read a value that the run itself supplies (outcome.total)',
 				'Entry: eligible',
 				'Prices gave no answer',
 				'  Berth: 20',
 				'    fees: 20',
 				'      Pier: 20',
-				'        looked up by pier, or its fallback',
+				'        looked up by pier: pier is north',
+				'        before its changes: 10',
+				'        changes: times 2',
 				'    Total: 20',
 				'  Power gave no answer',
-				'    Socket found no value to use',
+				'    fees: Socket has no entry for the value it read (socket: two)',
 			])
 			const reworded = {
 				...priced,
-				errors: priced.errors.map(() => 'another text'),
 				trace: ['another text'],
 			}
 			expect(narrator.narrate(limited.definition, reworded)).toEqual(account)
@@ -1631,6 +1705,7 @@ await new GuideCommand({
 			const refused = {
 				lines: [],
 				success: false,
+				refusals: [],
 				faults: [{ reason: 'missing', path: 'fee', expected: 'number' }] as const,
 			}
 			expect(renderAccount(family.narrate(rating, refused), { detail: 'line' })).toBe(
@@ -1643,7 +1718,10 @@ await new GuideCommand({
 				isFamilyNotice({ id: 'close', message: 'The workshop closes at 18:00.', metadata: 1 }),
 			).toBe(true)
 			expect(isFamilyQualification({ id: 'booking', name: 'Booking', passes: [] })).toBe(true)
-			expect(isFamilyRatingResult({ lines: [], success: true })).toBe(false)
+			expect(
+				isFamilyRatingResult({ lines: [], total: null, success: true, refusals: [], faults: [] }),
+			).toBe(true)
+			expect(isFamilyRatingResult({ lines: [], success: true, faults: [] })).toBe(false)
 		})
 
 		it('Validators: every guard accepts the record the fence hands it', () => {
@@ -1728,6 +1806,29 @@ await new GuideCommand({
 			)
 			expect(assigned.find((entity) => entity.name === 'age')?.value).toBe(25)
 			expect(assigned.find((entity) => entity.name === 'score')?.value).toBe(720)
+		})
+
+		it('Helpers: the refusal leaves return the fence values', () => {
+			const definition = createQuantitativeDefinition('stay', 'Stay price', [
+				createFactorGroup('nights', 'sum', [], { name: 'Per night' }),
+			])
+			const refusal = { cause: 'source', group: 'nights', field: 'pier', actual: 'east' } as const
+			const parts = collectRefusedParts(refusal, definition)
+			expect(parts).toEqual([{ part: 'group', id: 'nights', name: 'Per night' }])
+			expect(findRefusedValue(refusal)).toBe('east')
+			expect(refusalToSource(refusal).group).toBe('nights')
+			expect(collectRefusalGaps(refusal, { labels: {} }, new Set())).toEqual([
+				{ word: 'label', field: 'pier' },
+			])
+			expect(
+				renderRefusal(
+					refusal,
+					parts.map((part) => part.name),
+					createNarrator(),
+					new Intl.NumberFormat('en-US'),
+				),
+			).toBe('Per night has no entry for the value it read (pier: east)')
+			expect(matchesNestedRefusal({ ...refusal, path: ['rating'] }, 'rating', [refusal])).toBe(true)
 		})
 
 		it('Helpers: the digest, recipe, and reverse leaves return the fence values', () => {

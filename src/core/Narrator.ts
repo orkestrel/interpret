@@ -3,7 +3,6 @@ import type {
 	Aggregation,
 	AggregatorInterface,
 	Bounds,
-	ChainStrategy,
 	Check,
 	CheckState,
 	Definition,
@@ -15,14 +14,15 @@ import type {
 	FactorRange,
 	FactorResult,
 	GroupResult,
-	Inference,
-	InferentialDefinition,
-	InferentialResult,
+	Deduction,
+	DeductiveDefinition,
+	DeductiveResult,
+	DeductiveStep,
 	LogicalDefinition,
 	LogicalResult,
-	ProofNode,
 	QuantitativeDefinition,
 	QuantitativeResult,
+	ReasonRefusal,
 	ReasonResult,
 	Rule,
 	RuleResult,
@@ -79,6 +79,8 @@ import {
 	createAggregator,
 	DEFAULT_BASE,
 	formatField,
+	isDefinition,
+	isReasonRefusal,
 	readClosedState,
 	readExpectedKind,
 	resolveOperand,
@@ -97,6 +99,8 @@ import {
 	collectNameGaps,
 	collectQuoteMarks,
 	collectReasons,
+	collectRefusalGaps,
+	collectRefusedParts,
 	collectSlots,
 	collectUnitGaps,
 	filterUniqueGaps,
@@ -109,16 +113,18 @@ import {
 	findSubjectKey,
 	findWord,
 	matchesChangedFactor,
+	matchesChecks,
 	matchesNumericCheck,
 	matchesQuotedMember,
 	matchesReceivedValue,
 	matchesSubjectKeys,
-	matchesUnboundFact,
 	normalizeLine,
 	readNarratorOption,
+	refusalToSource,
 	renderCitedReasons,
 	renderName,
 	renderQuoted,
+	renderRefusal,
 	resolveFormatters,
 	resolveGlossary,
 	resolveLexicon,
@@ -258,10 +264,12 @@ export class Narrator implements NarratorInterface {
 
 	explain(fault: AuditFault): string
 	explain(refusal: NumberRefusal): string
-	// A record neither guard admits, and one that throws as it is read, reads as a value nobody read.
-	explain(record: AuditFault | NumberRefusal): string {
+	explain(refusal: ReasonRefusal): string
+	// A record no guard admits, and one that throws as it is read, reads as a value nobody read.
+	explain(record: AuditFault | NumberRefusal | ReasonRefusal): string {
 		const written = attempt(() => {
 			if (isNumberRefusal(record)) return this.#writeRefusal(record)
+			if (isReasonRefusal(record)) return this.#writeRefused(record).text
 			return isAuditFault(record) ? this.#writeFault(record).text : ''
 		})
 		const text = isSuccess(written) ? normalizeLine(written.value) : ''
@@ -305,10 +313,11 @@ export class Narrator implements NarratorInterface {
 			case 'transforms':
 			case 'refusals':
 			case 'unreadables':
+			case 'causes':
 			case 'eligibilities':
 			case 'effects':
 			case 'statuses':
-			case 'decisions':
+			case 'dispositions':
 			case 'values':
 			case 'joins':
 			case 'frames':
@@ -391,7 +400,12 @@ export class Narrator implements NarratorInterface {
 		return this.line('reason.more', { count: this.#plain.format(count) })
 	}
 
+	// A run can refuse for a definition no guard admits, and nothing of such a definition is read.
 	#resultLines(definition: Definition, result: ReasonResult): readonly AccountLine[] {
+		const authored: unknown = definition
+		if (result.refusals.length > 0 && !isDefinition(authored)) {
+			return [this.#causesLine(definition, result)]
+		}
 		switch (result.reasoning) {
 			case 'logical':
 				return this.#logicalLines(definition, result)
@@ -399,16 +413,14 @@ export class Narrator implements NarratorInterface {
 				return this.#worksheetLines(definition, result)
 			default: {
 				const answered = result.success ? this.#answerLines(definition, result) : []
-				if (answered.length > 0) return answered
-				const lines = result.faults.map((fault) => this.#faultLine(fault))
-				return [this.#refusedLine(definition, lines, lines)]
+				return answered.length > 0 ? answered : [this.#causesLine(definition, result, definition)]
 			}
 		}
 	}
 
 	#answerLines(
 		definition: Definition,
-		result: SymbolicResult | InferentialResult,
+		result: SymbolicResult | DeductiveResult,
 	): readonly AccountLine[] {
 		return result.reasoning === 'symbolic'
 			? this.#solutionLines(definition, result)
@@ -434,20 +446,19 @@ export class Narrator implements NarratorInterface {
 		})
 	}
 
-	// A proof stands for the one conclusion it proved, and any other run counts what it derived.
-	#derivedLines(definition: Definition, result: InferentialResult): readonly AccountLine[] {
-		const authored = definition.reasoning === 'inferential' ? definition : undefined
+	// A proof stands for the one fact it proved, and any other run counts what it derived.
+	#derivedLines(definition: Definition, result: DeductiveResult): readonly AccountLine[] {
+		const authored = definition.reasoning === 'deductive' ? definition : undefined
 		const keyed = authored !== undefined && matchesSubjectKeys(authored, this.#glossary)
 		const { derived, proof } = result
 		const proved = proof !== undefined && derived.length === 1
-		const inference = proved ? proof.inference : undefined
 		const facts = derived.map((fact) =>
 			buildAccountLine({
 				role: proved ? 'verdict' : 'step',
 				decisive: true,
-				...this.#writeDerived(fact, keyed, proved ? proof : undefined),
+				...this.#writeDerived(fact, keyed),
 				source: { fact: fact.id },
-				lines: inference === undefined ? [] : [this.#provedLine(inference, authored)],
+				lines: proved ? proof.map((step) => this.#proofLine(step, keyed, authored)) : [],
 			}),
 		)
 		if (proved) return facts
@@ -465,38 +476,43 @@ export class Narrator implements NarratorInterface {
 		return [verdict, ...facts]
 	}
 
-	#provedLine(inference: string, definition: InferentialDefinition | undefined): AccountLine {
+	// A step of a proof: the fact it derived, and the deduction it derived it through.
+	#proofLine(
+		{ fact, deduction }: DeductiveStep,
+		keyed: boolean,
+		definition: DeductiveDefinition | undefined,
+	): AccountLine {
+		const derived = this.#writeDerived(fact, keyed)
 		const named = this.#writeName(
-			'inference',
-			definition?.inferences.find((entry) => entry.id === inference && entry.enabled !== false) ?? {
-				id: inference,
-				name: inference,
+			'deduction',
+			definition?.deductions.find((entry) => entry.id === deduction && entry.enabled !== false) ?? {
+				id: deduction,
+				name: deduction,
 			},
 		)
 		return buildAccountLine({
 			role: 'reason',
 			decisive: true,
-			text: this.line('fact.proved', { name: named.text }),
-			source: { inference },
-			gaps: named.gaps,
+			text: this.line('proof.step', { fact: derived.text, name: named.text }),
+			source: { deduction, fact: fact.id },
+			gaps: [...derived.gaps, ...named.gaps],
 		})
 	}
 
-	// A proof binds no variable of its conclusion, so a conclusion that holds one is no claim of every
-	// value. One that is no known fact was reached premise by premise with no binding carried between
-	// them, so it is possible and not settled.
-	#writeDerived(fact: Fact, keyed: boolean, proof: ProofNode | undefined): AccountText {
-		const { text, gaps } = this.#writeStatement(fact, keyed)
-		const open = proof !== undefined && matchesUnboundFact(fact)
-		const some = open ? this.line('fact.some', { fact: text }) : text
-		const stated =
-			proof?.inference === undefined ? some : this.line('fact.possible', { fact: some })
+	// A variable is read in a pattern alone, and every term of a fact is a constant.
+	#writePattern(pattern: Fact, keyed: boolean): AccountText {
+		return this.#writeStatement(pattern, keyed ? findSubjectKey(pattern, true) : undefined)
+	}
+
+	#writeDerived(fact: Fact, keyed: boolean): AccountText {
+		const { text, gaps } = this.#writeStatement(
+			fact,
+			keyed ? findSubjectKey(fact, false) : undefined,
+		)
 		const confidence = this.#writeConfidence(fact.confidence)
 		return {
 			text:
-				confidence === undefined
-					? stated
-					: this.line('fact.confidence', { fact: stated, confidence }),
+				confidence === undefined ? text : this.line('fact.confidence', { fact: text, confidence }),
 			gaps,
 		}
 	}
@@ -510,9 +526,8 @@ export class Narrator implements NarratorInterface {
 	}
 
 	// States a fact as its predicate's sentence, as its subject's field, or as it is authored.
-	#writeStatement(fact: Fact, keyed: boolean): AccountText {
-		const gaps = collectFactGaps(fact, keyed, this.#glossary, this.#units)
-		const key = keyed ? findSubjectKey(fact) : undefined
+	#writeStatement(fact: Fact, key: string | undefined): AccountText {
+		const gaps = collectFactGaps(fact, key, this.#glossary, this.#units)
 		if (key !== undefined) {
 			const actual = this.value(key, fact.terms[1])
 			return { text: this.line('fact.equal', { label: this.label(key), actual }), gaps }
@@ -601,6 +616,49 @@ export class Narrator implements NarratorInterface {
 			gaps: [...named.gaps, ...cited.gaps],
 			lines,
 		})
+	}
+
+	// A refused run's causes: each refusal under the names its definition gives, and each fault.
+	#causesLine(
+		definition: AccountDefinition,
+		result: ReasonResult,
+		authored?: Definition,
+	): AccountLine {
+		const lines = [
+			...result.refusals.map((refusal) => this.#refusalLine(refusal, authored, [])),
+			...result.faults.map((fault) => this.#faultLine(fault)),
+		]
+		return this.#refusedLine(definition, lines, lines)
+	}
+
+	#refusalLine(
+		refusal: ReasonRefusal,
+		definition: Definition | undefined,
+		lines: readonly AccountLine[],
+	): AccountLine {
+		return buildAccountLine({
+			role: 'reason',
+			decisive: true,
+			...this.#writeRefused(refusal, definition),
+			source: refusalToSource(refusal),
+			lines,
+		})
+	}
+
+	#writeRefused(refusal: ReasonRefusal, definition?: Definition): AccountText {
+		const frame = this.#lexicon.frames['value.quoted']
+		const parts = collectRefusedParts(refusal, definition).map((named) => ({
+			text: renderName(named, frame),
+			gaps: named.part === undefined ? [] : collectNameGaps(named.part, named),
+		}))
+		const names = parts.map((part) => part.text)
+		return {
+			text: renderRefusal(refusal, names, this, this.#plain),
+			gaps: [
+				...parts.flatMap((part) => part.gaps),
+				...collectRefusalGaps(refusal, this.#glossary, this.#units),
+			],
+		}
 	}
 
 	#faultLine(fault: AuditFault, source: AccountSource = {}, kind?: FaultKind): AccountLine {
@@ -722,13 +780,10 @@ export class Narrator implements NarratorInterface {
 			: this.line('refusal.field', { refusal, label: this.label(field) })
 	}
 
-	// A refused run derives nothing it can't vouch for: an error that is no fault's leaves every state
-	// in doubt, where a rule settled beside a missing input stays settled whatever the input is.
+	// A refused run derives nothing it can't vouch for: a refusal leaves every state in doubt, where a
+	// rule settled beside a missing input stays settled whatever the input is.
 	#logicalLines(definition: Definition, result: LogicalResult): readonly AccountLine[] {
-		if (!result.success && result.errors.length > result.faults.length) {
-			const faults = result.faults.map((fault) => this.#faultLine(fault))
-			return [this.#refusedLine(definition, faults, faults)]
-		}
+		if (result.refusals.length > 0) return [this.#causesLine(definition, result, definition)]
 		const context = this.#readContext(definition, result)
 		const seen = new Set<string>()
 		const goal = this.#findGoal(definition, result, context)
@@ -1013,11 +1068,15 @@ export class Narrator implements NarratorInterface {
 		const { field, operator } = check
 		if (result.state === 'unread') {
 			const fault = this.#findFault(reason, faults)
-			return fault === undefined
-				? this.#writeUnread(field)
-				: this.#writeFault(fault, readExpectedKind(check))
+			if (fault !== undefined) return this.#writeFault(fault, readExpectedKind(check))
+			if (result.actual === undefined) return this.#writeUnread(field)
 		}
 		const actual = this.value(field, result.actual)
+		// A value that was read and fits no comparison prints alone, because nothing settled it.
+		if (result.state === 'unread') {
+			const text = this.line('fact.equal', { label: this.label(field), actual })
+			return { text, gaps: this.#collectCheckGaps(check) }
+		}
 		const holds = result.state === 'met'
 		// A boolean's value says both what it is and what it is not.
 		const said = isBoolean(result.actual) || holds === (operator === 'equals')
@@ -1090,6 +1149,7 @@ export class Narrator implements NarratorInterface {
 		const context: WorksheetContext = {
 			groups: new Map((authored?.groups ?? []).map((group) => [group.id, group])),
 			faults: result.faults,
+			refusals: result.refusals,
 			stated: result.success && isFiniteNumber(result.value),
 			unit: authored === undefined ? unit : this.#findValueUnit(authored),
 		}
@@ -1233,17 +1293,22 @@ export class Narrator implements NarratorInterface {
 		]
 	}
 
-	// The refusal names each factor the run could not go without, and each field left unread.
+	// The refusal names each part that refused, each factor left unread, and each field left unread.
 	#causeLine(
 		definition: Definition,
 		result: QuantitativeResult,
 		context: WorksheetContext,
 	): AccountLine {
-		const causes = result.groups.flatMap((group) =>
-			group.factors
-				.filter((factor) => this.#matchesCause(group, factor, context))
-				.map((factor) => this.#factorLine(group, factor, context, true)),
-		)
+		const causes = [
+			...result.refusals.map((refusal) =>
+				this.#refusalLine(refusal, definition, this.#refusedEvidence(refusal, result, context)),
+			),
+			...result.groups.flatMap((group) =>
+				group.factors
+					.filter((factor) => this.#matchesUnread(group, factor, context))
+					.map((factor) => this.#factorLine(group, factor, context, true)),
+			),
+		]
 		const named = collectFaultFields(causes)
 		const rest = result.faults
 			.filter((fault) => !named.has(formatField(fault.path)))
@@ -1255,14 +1320,43 @@ export class Narrator implements NarratorInterface {
 		)
 	}
 
-	#matchesCause(group: GroupResult, factor: FactorResult, context: WorksheetContext): boolean {
-		if (factor.applied) return false
-		if (factor.checks === undefined) return true
-		const gate = combineStates(
-			'and',
-			factor.checks.map((check) => check.state),
+	// A refusal's own words say why its factor failed, beside the checks a required one needed and the
+	// number an unusable one came from.
+	#refusedEvidence(
+		refusal: ReasonRefusal,
+		result: QuantitativeResult,
+		context: WorksheetContext,
+	): readonly AccountLine[] {
+		const group = result.groups.find((entry) => entry.id === refusal.group)
+		const factor = group?.factors.find((entry) => entry.id === refusal.factor)
+		if (group === undefined || factor === undefined) return []
+		const authored = this.#findFactor(group, factor, context)
+		if (authored === undefined) return []
+		return refusal.cause === 'required' || factor.raw !== undefined
+			? this.#evidenceLines(authored, factor, context, { group: group.id, factor: factor.id })
+			: []
+	}
+
+	// A factor whose gate or whose source could not be read, which no refusal names.
+	#matchesUnread(group: GroupResult, factor: FactorResult, context: WorksheetContext): boolean {
+		if (factor.applied || this.#findRefusals(group, factor, context).length > 0) return false
+		const states = (factor.checks ?? []).map((check) => check.state)
+		return states.length === 0 || combineStates('and', states) !== 'unmet'
+	}
+
+	#findRefusals(
+		group: GroupResult,
+		factor: FactorResult,
+		context: WorksheetContext,
+	): readonly ReasonRefusal[] {
+		return context.refusals.filter(
+			(refusal) => refusal.group === group.id && refusal.factor === factor.id,
 		)
-		return gate === 'unread' || this.#findFactor(group, factor, context)?.required === true
+	}
+
+	// A factor that did not apply was gated out where one of its checks is not met.
+	#matchesGated(factor: FactorResult): boolean {
+		return !factor.applied && (factor.checks ?? []).some((check) => check.state !== 'met')
 	}
 
 	#writeCause(line: AccountLine): AccountText {
@@ -1365,8 +1459,11 @@ export class Narrator implements NarratorInterface {
 		}
 		const name = named.text
 		const cited = renderCitedReasons(lines, this.#lexicon, (count) => this.#writeMore(count))
-		const gated = factor.checks !== undefined
-		const text = gated ? step.text : this.line('worksheet.empty', { name })
+		const gated = this.#matchesGated(factor)
+		const refused = this.#findRefusals(group, factor, context).some(
+			(refusal) => refusal.cause !== 'source',
+		)
+		const text = gated || refused ? step.text : this.line('worksheet.empty', { name })
 		const summary = gated
 			? this.line('worksheet.blocked', { name, reasons: cited.text })
 			: this.line('reason.step', { outcome: text, reasons: cited.text })
@@ -1389,15 +1486,10 @@ export class Narrator implements NarratorInterface {
 		context: WorksheetContext,
 		source: AccountSource,
 	): readonly AccountLine[] {
-		if (result.checks !== undefined) {
-			const checks = factor.checks ?? []
-			const reasons = result.checks.flatMap((read, index) => {
-				const check = checks[index]
-				return check !== undefined && formatField(check.field) === formatField(read.field)
-					? [{ check, result: read }]
-					: []
-			})
-			if (reasons.length !== checks.length) return []
+		if (this.#matchesGated(result)) {
+			const read = result.checks ?? []
+			if (!matchesChecks(factor.checks ?? [], read)) return []
+			const reasons = read.map((entry) => ({ check: entry.check, result: entry }))
 			const states = reasons.map((reason) => reason.result.state)
 			return findDecidingOperands('and', states).flatMap((index) => {
 				const reason = reasons[index]
@@ -1413,17 +1505,18 @@ export class Narrator implements NarratorInterface {
 		if (fault !== undefined) return [this.#faultLine(fault, source, kind)]
 		// A factor with no value says where it looked and what it missed, and no number of its own.
 		if (!result.applied && origin.origin === 'static') return []
-		const missed = !result.applied && result.raw === undefined
-		if (missed && (origin.origin === 'lookup' || origin.origin === 'range')) {
-			return [
-				buildAccountLine({
-					role: 'reason',
-					decisive: true,
-					text: this.line('source.missed', { label: this.label(origin.field) }),
-					source,
-					gaps: this.#collectLabelGaps(origin.field),
-				}),
-			]
+		if (!result.applied && result.raw === undefined) {
+			const missed = origin.origin === 'lookup' || origin.origin === 'range'
+			return missed && result.actual !== undefined
+				? [
+						buildAccountLine({
+							role: 'reason',
+							decisive: true,
+							...this.#writeRead('source.missed', origin.field, result.actual),
+							source,
+						}),
+					]
+				: []
 		}
 		return this.#writeSource(factor, context.unit, result).map((entry) =>
 			buildAccountLine({ role: 'reason', decisive: true, ...entry, source }),
@@ -1457,21 +1550,26 @@ export class Narrator implements NarratorInterface {
 				},
 			]
 		}
-		const entries =
-			source.origin === 'lookup'
-				? Object.values(source.table)
-				: source.ranges.map((range) => range.value)
-		// A result does not say whether an entry or the fallback gave a value that both hold.
-		const fallback = raw !== undefined && raw === factor.fallback
-		const either = fallback && entries.includes(raw)
-		const missed: FrameName = either ? 'source.either' : 'source.fallback'
-		const frame: FrameName = fallback ? missed : `source.${source.origin}`
-		const chosen = { text: this.line(frame, { label }), gaps }
+		const frame: FrameName =
+			result?.fallback === true ? 'source.fallback' : `source.${source.origin}`
+		const chosen = this.#writeRead(frame, source.field, result?.actual)
 		const authored = (factor.transforms ?? []).length > 0
 		const kept = raw === result?.value && !authored
 		if (result?.applied !== true || kept || !isFiniteNumber(raw)) return [chosen]
 		const value = this.#writeNumber(undefined, raw)
 		return [chosen, { text: this.line('worksheet.raw', { value }), gaps: [] }]
+	}
+
+	// States where a lookup or a range looked, with the value it read where its result holds one.
+	#writeRead(frame: FrameName, field: FieldPath, actual: unknown): AccountText {
+		const label = this.label(field)
+		const text = this.line(frame, { label })
+		if (actual === undefined) return { text, gaps: this.#collectLabelGaps(field) }
+		const fact = this.line('fact.equal', { label, actual: this.value(field, actual) })
+		return {
+			text: this.line('source.read', { source: text, fact }),
+			gaps: collectFieldGaps(field, isNumber(actual), this.#glossary, this.#units),
+		}
 	}
 
 	#partLines(definition: Definition): readonly AccountLine[] {
@@ -1484,11 +1582,11 @@ export class Narrator implements NarratorInterface {
 					.map((group) => this.#groupGuide(group, definition))
 			case 'symbolic':
 				return definition.equations.map((equation) => this.#equationGuide(equation))
-			case 'inferential': {
+			case 'deductive': {
 				const keyed = matchesSubjectKeys(definition, this.#glossary)
-				return definition.inferences
-					.filter((inference) => inference.enabled !== false)
-					.map((inference) => this.#inferenceGuide(inference, definition.strategy, keyed))
+				return definition.deductions
+					.filter((deduction) => deduction.enabled !== false)
+					.map((deduction) => this.#deductionGuide(deduction, keyed))
 			}
 		}
 	}
@@ -1530,36 +1628,34 @@ export class Narrator implements NarratorInterface {
 		])
 	}
 
-	// A forward run skips an inference with no premises, so it concludes nothing there.
-	#inferenceGuide(inference: Inference, strategy: ChainStrategy, keyed: boolean): AccountLine {
-		const source = { inference: inference.id }
-		const conclusion = this.#writeStatement(inference.conclusion, keyed)
-		const premises = inference.premises.map((premise) => this.#writeStatement(premise, keyed))
-		const rule = this.line('inference.rule', {
-			conclusion: conclusion.text,
-			premises: this.#every.format(premises.map((premise) => premise.text)),
-		})
-		const confidence = this.#writeConfidence(inference.confidence)
-		const stated = premises.length > 0 || strategy === 'backward'
-		return this.#partLine(this.#writeName('inference', inference), source, inference.description, [
-			...(stated
-				? [
+	// A deduction with no premises refuses its run, so it concludes nothing.
+	#deductionGuide(deduction: Deduction, keyed: boolean): AccountLine {
+		const source = { deduction: deduction.id }
+		const conclusion = this.#writePattern(deduction.conclusion, keyed)
+		const premises = deduction.premises.map((premise) => this.#writePattern(premise, keyed))
+		const confidence = this.#writeConfidence(deduction.confidence)
+		return this.#partLine(this.#writeName('deduction', deduction), source, deduction.description, [
+			...(premises.length === 0
+				? []
+				: [
 						buildAccountLine({
 							role: 'condition',
 							decisive: true,
-							text: premises.length === 0 ? conclusion.text : rule,
+							text: this.line('deduction.rule', {
+								conclusion: conclusion.text,
+								premises: this.#every.format(premises.map((premise) => premise.text)),
+							}),
 							source,
 							gaps: [...conclusion.gaps, ...premises.flatMap((premise) => premise.gaps)],
 						}),
-					]
-				: []),
+					]),
 			...(confidence === undefined
 				? []
 				: [
 						buildAccountLine({
 							role: 'condition',
 							decisive: true,
-							text: this.line('inference.confidence', { confidence }),
+							text: this.line('deduction.confidence', { confidence }),
 							source,
 						}),
 					]),

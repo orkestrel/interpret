@@ -1,3 +1,4 @@
+import type { Check, CheckResult } from '@orkestrel/reason'
 import type {
 	Account,
 	AccountLine,
@@ -13,7 +14,7 @@ import type {
 	FamilyLine,
 	FamilyLineResult,
 	FamilyNotice,
-	FamilyPremise,
+	FamilySlot,
 	FamilyProgram,
 	FamilyProgramResult,
 	FamilyQualification,
@@ -50,18 +51,19 @@ import {
 	whereOf,
 	isString,
 	literalOf,
+	nullableOf,
 	objectOf,
 	recordOf,
 	unionOf,
 } from '@orkestrel/contract'
 import {
 	isCheckState,
-	isComparison,
 	isContractShape,
 	isDefinition,
 	isFieldPath,
 	isLogicalDefinition,
 	isQuantitativeDefinition,
+	isReasonRefusal,
 	isSymbolicExpression,
 } from '@orkestrel/reason'
 import {
@@ -564,11 +566,52 @@ export function isGlossaryGap(value: unknown): value is GlossaryGap {
 }
 
 /**
- * Determines whether a value is an open {@link AccountSource} record.
+ * Determines whether a value is an open check record, in memory or in its JSON projection.
  *
  * @remarks
- * A check's `value` and a result's `actual` are not checked because their published type is
- * `unknown`, and an absent one passes, because a value with no JSON form is omitted from JSON.
+ * `operator` is any string, because a run that refuses an unknown one carries it as authored.
+ * `value` is not checked, because its published type is `unknown`, and an absent one passes, because
+ * a value with no JSON form is omitted from JSON.
+ *
+ * @param value - The value to test
+ * @returns True if the field and the operator conform; false otherwise
+ *
+ * @example
+ * ```ts
+ * import { isAccountCheck } from '@orkestrel/interpret'
+ *
+ * isAccountCheck({ field: 'age', operator: 'from', value: 18 }) // true
+ * isAccountCheck({ field: 'age' }) // false
+ * ```
+ */
+export function isAccountCheck(value: unknown): value is Check {
+	return objectOf({ field: isFieldPath, operator: isString })(value)
+}
+
+/**
+ * Determines whether a value is an open check result, in memory or in its JSON projection.
+ *
+ * @remarks
+ * Unlike the `isCheckResult` guard of `@orkestrel/reason`, it admits an absent `actual`, because a
+ * value with no JSON form is omitted from JSON.
+ *
+ * @param value - The value to test
+ * @returns True if the check and the state conform; false otherwise
+ *
+ * @example
+ * ```ts
+ * import { isAccountResult } from '@orkestrel/interpret'
+ *
+ * isAccountResult({ check: { field: 'age', operator: 'from', value: 18 }, state: 'unread' }) // true
+ * isAccountResult({ check: { field: 'age', operator: 'from', value: 18 } }) // false
+ * ```
+ */
+export function isAccountResult(value: unknown): value is CheckResult {
+	return objectOf({ check: isAccountCheck, state: isCheckState })(value)
+}
+
+/**
+ * Determines whether a value is an open {@link AccountSource} record.
  *
  * @param value - The value to test
  * @returns True if every checked source member conforms; false otherwise
@@ -588,22 +631,23 @@ export function isAccountSource(value: unknown): value is AccountSource {
 			group: isString,
 			factor: isString,
 			equation: isString,
-			inference: isString,
+			deduction: isString,
 			fact: isString,
 			finding: isString,
 			scope: isString,
 			line: isString,
 			pass: isString,
-			check: objectOf({ field: isFieldPath, operator: isComparison }),
-			result: objectOf({ field: isFieldPath, state: isCheckState, error: isString }, ['error']),
+			check: isAccountCheck,
+			result: isAccountResult,
 			fault: isAuditFault,
+			refusal: isReasonRefusal,
 		},
 		[
 			'rule',
 			'group',
 			'factor',
 			'equation',
-			'inference',
+			'deduction',
 			'fact',
 			'finding',
 			'scope',
@@ -612,6 +656,7 @@ export function isAccountSource(value: unknown): value is AccountSource {
 			'check',
 			'result',
 			'fault',
+			'refusal',
 		],
 	)(value)
 }
@@ -705,21 +750,24 @@ export function isAmendment(value: unknown): value is Amendment {
 // rate, and an authority are definitions of `@orkestrel/reason`, so its guards admit them.
 
 /**
- * Determines whether a value is a {@link FamilyPremise}, whatever other members it holds.
+ * Determines whether a value is a {@link FamilySlot}, whatever other members it holds.
+ *
+ * @remarks
+ * `actual` is not checked, because its published type is `unknown`, and an absent one passes.
  *
  * @param value - The value to test
  * @returns True if every member an account reads conforms; false otherwise
  *
  * @example
  * ```ts
- * import { isFamilyPremise } from '@orkestrel/interpret'
+ * import { isFamilySlot } from '@orkestrel/interpret'
  *
- * isFamilyPremise({ field: 'guests', actual: 8, state: 'met', comparison: 'to' }) // true
- * isFamilyPremise({ field: 'guests', state: 'open' }) // false
+ * isFamilySlot({ field: ['outcome', 'total'], actual: 250 }) // true
+ * isFamilySlot({ actual: 250 }) // false
  * ```
  */
-export function isFamilyPremise(value: unknown): value is FamilyPremise {
-	return objectOf({ field: isFieldPath, state: isCheckState }, ['field', 'state'])(value)
+export function isFamilySlot(value: unknown): value is FamilySlot {
+	return objectOf({ field: isFieldPath })(value)
 }
 
 /**
@@ -732,7 +780,7 @@ export function isFamilyPremise(value: unknown): value is FamilyPremise {
  * ```ts
  * import { isFamilyFinding } from '@orkestrel/interpret'
  *
- * isFamilyFinding({ id: 'noisy', effect: 'condition', state: 'met', premises: [] }) // true
+ * isFamilyFinding({ id: 'noisy', effect: 'condition', state: 'met', checks: [] }) // true
  * isFamilyFinding({ id: 'noisy', effect: 'condition', state: 'met' }) // false
  * ```
  */
@@ -745,8 +793,8 @@ export function isFamilyFinding(value: unknown): value is FamilyFinding {
 			pass: isString,
 			rule: isString,
 			scope: isString,
-			message: isString,
-			premises: arrayOf(isFamilyPremise),
+			message: arrayOf(unionOf(isString, isFamilySlot)),
+			checks: arrayOf(isAccountResult),
 		},
 		['pass', 'rule', 'scope', 'message'],
 	)(value)
@@ -821,12 +869,18 @@ export function isFamilyQualification(value: unknown): value is FamilyQualificat
  * ```ts
  * import { isFamilyDerivation } from '@orkestrel/interpret'
  *
- * isFamilyDerivation({ id: 'load', value: 4, success: true }) // true
+ * isFamilyDerivation({ id: 'load', value: 4, success: true, refusals: [], faults: [] }) // true
  * isFamilyDerivation({ id: 'load', success: true }) // false
  * ```
  */
 export function isFamilyDerivation(value: unknown): value is FamilyDerivation {
-	return objectOf({ id: isString, value: isNumber, success: isBoolean })(value)
+	return objectOf({
+		id: isString,
+		value: nullableOf(isNumber),
+		success: isBoolean,
+		refusals: arrayOf(isReasonRefusal),
+		faults: arrayOf(isAuditFault),
+	})(value)
 }
 
 /**
@@ -848,7 +902,7 @@ export function isFamilyDerivation(value: unknown): value is FamilyDerivation {
  * 	findings: [],
  * 	derivations: [],
  * 	success: true,
- * 	errors: [],
+ * 	refusals: [],
  * 	faults: [],
  * }) // true
  * isFamilyQualificationResult({ id: 'q' }) // false
@@ -865,7 +919,7 @@ export function isFamilyQualificationResult(value: unknown): value is FamilyQual
 		findings: arrayOf(isFamilyFinding),
 		derivations: arrayOf(isFamilyDerivation),
 		success: isBoolean,
-		errors: arrayOf(isString),
+		refusals: arrayOf(isReasonRefusal),
 		faults: arrayOf(isAuditFault),
 	})(value)
 }
@@ -926,14 +980,21 @@ export function isFamilyRating(value: unknown): value is FamilyRating {
  * ```ts
  * import { isFamilyWorksheetFactor } from '@orkestrel/interpret'
  *
- * isFamilyWorksheetFactor({ id: 'room', applied: true, value: 80, evidence: [] }) // true
+ * isFamilyWorksheetFactor({ id: 'room', applied: true, value: 80, fallback: false, checks: [] }) // true
  * isFamilyWorksheetFactor({ id: 'room', applied: true }) // false
  * ```
  */
 export function isFamilyWorksheetFactor(value: unknown): value is FamilyWorksheetFactor {
 	return objectOf(
-		{ id: isString, applied: isBoolean, value: isNumber, evidence: arrayOf(isFamilyPremise) },
-		['value'],
+		{
+			id: isString,
+			applied: isBoolean,
+			value: nullableOf(isNumber),
+			raw: nullableOf(isNumber),
+			fallback: isBoolean,
+			checks: arrayOf(isAccountResult),
+		},
+		['value', 'raw'],
 	)(value)
 }
 
@@ -952,12 +1013,15 @@ export function isFamilyWorksheetFactor(value: unknown): value is FamilyWorkshee
  * ```
  */
 export function isFamilyWorksheetGroup(value: unknown): value is FamilyWorksheetGroup {
-	return objectOf({
-		id: isString,
-		applied: isBoolean,
-		value: isNumber,
-		factors: arrayOf(isFamilyWorksheetFactor),
-	})(value)
+	return objectOf(
+		{
+			id: isString,
+			applied: isBoolean,
+			value: nullableOf(isNumber),
+			factors: arrayOf(isFamilyWorksheetFactor),
+		},
+		['value'],
+	)(value)
 }
 
 /**
@@ -970,16 +1034,16 @@ export function isFamilyWorksheetGroup(value: unknown): value is FamilyWorksheet
  * ```ts
  * import { isFamilyWorksheet } from '@orkestrel/interpret'
  *
- * isFamilyWorksheet({ value: 80, groups: [], success: true, errors: [], faults: [] }) // true
+ * isFamilyWorksheet({ value: 80, groups: [], success: true, refusals: [], faults: [] }) // true
  * isFamilyWorksheet({ value: 80, groups: [], success: true }) // false
  * ```
  */
 export function isFamilyWorksheet(value: unknown): value is FamilyWorksheet {
 	return objectOf({
-		value: isNumber,
+		value: nullableOf(isNumber),
 		groups: arrayOf(isFamilyWorksheetGroup),
 		success: isBoolean,
-		errors: arrayOf(isString),
+		refusals: arrayOf(isReasonRefusal),
 		faults: arrayOf(isAuditFault),
 	})(value)
 }
@@ -994,14 +1058,14 @@ export function isFamilyWorksheet(value: unknown): value is FamilyWorksheet {
  * ```ts
  * import { isFamilyLineResult } from '@orkestrel/interpret'
  *
- * const worksheet = { value: 80, groups: [], success: true, errors: [], faults: [] }
+ * const worksheet = { value: 80, groups: [], success: true, refusals: [], faults: [] }
  * isFamilyLineResult({ id: 'rent', name: 'Rent', amount: 80, worksheet }) // true
  * isFamilyLineResult({ id: 'rent', name: 'Rent', amount: '80', worksheet }) // false
  * ```
  */
 export function isFamilyLineResult(value: unknown): value is FamilyLineResult {
 	return objectOf(
-		{ id: isString, name: isString, amount: isNumber, worksheet: isFamilyWorksheet },
+		{ id: isString, name: isString, amount: nullableOf(isNumber), worksheet: isFamilyWorksheet },
 		['amount'],
 	)(value)
 }
@@ -1016,7 +1080,7 @@ export function isFamilyLineResult(value: unknown): value is FamilyLineResult {
  * ```ts
  * import { isFamilyRatingResult } from '@orkestrel/interpret'
  *
- * isFamilyRatingResult({ lines: [], success: true, faults: [], errors: [] }) // true
+ * isFamilyRatingResult({ lines: [], success: true, refusals: [], faults: [] }) // true
  * isFamilyRatingResult({ lines: [], success: true }) // false
  * ```
  */
@@ -1024,8 +1088,9 @@ export function isFamilyRatingResult(value: unknown): value is FamilyRatingResul
 	return objectOf(
 		{
 			lines: arrayOf(isFamilyLineResult),
-			total: isNumber,
+			total: nullableOf(isNumber),
 			success: isBoolean,
+			refusals: arrayOf(isReasonRefusal),
 			faults: arrayOf(isAuditFault),
 		},
 		['total'],
@@ -1106,12 +1171,12 @@ export function isFamilyProgram(value: unknown): value is FamilyProgram {
  * 		findings: [],
  * 		derivations: [],
  * 		success: true,
- * 		errors: [],
+ * 		refusals: [],
  * 		faults: [],
  * 	},
  * 	determinations: [],
  * 	success: true,
- * 	errors: [],
+ * 	refusals: [],
  * 	faults: [],
  * }) // true
  * isFamilyProgramResult({ id: 'p' }) // false
@@ -1124,14 +1189,14 @@ export function isFamilyProgramResult(value: unknown): value is FamilyProgramRes
 			name: isString,
 			eligibility: isString,
 			status: isString,
-			decision: isString,
+			disposition: isString,
 			qualification: isFamilyQualificationResult,
 			rating: isFamilyRatingResult,
 			determinations: arrayOf(isFamilyFinding),
 			success: isBoolean,
-			errors: arrayOf(isString),
+			refusals: arrayOf(isReasonRefusal),
 			faults: arrayOf(isAuditFault),
 		},
-		['decision', 'rating'],
+		['disposition', 'rating'],
 	)(value)
 }

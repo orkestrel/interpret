@@ -26,6 +26,7 @@ import {
 	buildInterpretContractCases,
 	buildRuleChain,
 	collectEvidenceAccounts,
+	collectFamilyAccounts,
 	collectFixtureAccounts,
 	measureLines,
 	REFUSAL_READINGS,
@@ -113,6 +114,17 @@ describe('standing guard contract table', () => {
 			}
 		},
 	)
+	it('T30: every family account passes its guard and its contract’s round trip', () => {
+		const family = collectFamilyAccounts()
+		expect(family.length + accounts.length).toBeGreaterThan(400)
+		for (const account of family) {
+			expect(isAccount(account)).toBe(true)
+			const read: unknown = JSON.parse(JSON.stringify(projectAccount(account)))
+			expect(accountContract.audit(read)).toEqual([])
+			expect(isAccount(read)).toBe(true)
+		}
+		expect(Math.max(...family.map((entry) => measureLines(entry.lines)))).toBe(ACCOUNT_SHAPE_DEPTH)
+	})
 	it('T30: the accounts read hold a line of every role', () => {
 		expect(accounts.length).toBeGreaterThan(300)
 		expect(new Set(accounts.flatMap((account) => account.lines.map((line) => line.role)))).toEqual(
@@ -129,8 +141,11 @@ describe('standing guard contract table', () => {
 			{ ...line, state: 'open' },
 			{ ...line, text: 5 },
 			{ ...line, source: { rule: 5 } },
-			{ ...line, source: { check: { field: 'n', operator: 'like' } } },
-			{ ...line, source: { result: { field: 'n', state: 'open' } } },
+			{ ...line, source: { check: { field: 'n', operator: 5 } } },
+			{ ...line, source: { result: { check: { field: 'n', operator: 'equals' }, state: 'open' } } },
+			{ ...line, source: { result: { state: 'met' } } },
+			{ ...line, source: { refusal: { cause: 'tired' } } },
+			{ ...line, source: { refusal: { cause: 'depth', depth: 'deep' } } },
 			{ ...line, source: { fault: { reason: 'invented', path: [] } } },
 			{ ...line, gaps: [{ word: 'plural' }] },
 			{ ...line, gaps: [{ word: 'name', part: 'chapter' }] },
@@ -147,7 +162,7 @@ describe('standing guard contract table', () => {
 		expect(accountContract.is({ ...projected, extra: 1 })).toBe(false)
 		expect(isAccount({ ...projected, extra: 1 })).toBe(true)
 	})
-	it('T30: spells out the lines of every family account, and any JSON under a deeper one', () => {
+	it('T30: spells out the lines of every account, and any JSON under a deeper one', () => {
 		const chain = buildRuleChain(40)
 		const account = createNarrator().narrate(
 			chain,
@@ -156,7 +171,8 @@ describe('standing guard contract table', () => {
 		expect(measureLines(account.lines)).toBe(41)
 		expect(accountContract.is(projectAccount(account))).toBe(true)
 		const written = accounts.filter((entry) => entry.id !== 'chain')
-		expect(Math.max(...written.map((entry) => measureLines(entry.lines)))).toBe(ACCOUNT_SHAPE_DEPTH)
+		const depth = Math.max(...written.map((entry) => measureLines(entry.lines)))
+		expect(depth).toBeLessThanOrEqual(ACCOUNT_SHAPE_DEPTH)
 		const one = createContract(createAccountLineShape(1))
 		const two = createContract(createAccountLineShape(2))
 		const line = projectAccountLine(

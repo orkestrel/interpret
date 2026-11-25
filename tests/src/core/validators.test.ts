@@ -29,7 +29,7 @@ import {
 	isFamilyLine,
 	isFamilyLineResult,
 	isFamilyNotice,
-	isFamilyPremise,
+	isFamilySlot,
 	isFamilyProgram,
 	isFamilyProgramResult,
 	isFamilyQualification,
@@ -62,6 +62,7 @@ import {
 	buildProposedEntity,
 	createCorpusExtractor,
 	FAMILY_BASE,
+	FAMILY_PARTS,
 	TRICKY_KEYS,
 	REFUSAL_RECORDS,
 } from '../../setup.js'
@@ -122,7 +123,11 @@ describe('the account boundary', () => {
 		source: {
 			rule: 'adult',
 			check: { field: ['person', 'age'], operator: 'from', value: 18 },
-			result: { field: ['person', 'age'], state: 'unmet', actual: 16 },
+			result: {
+				check: { field: ['person', 'age'], operator: 'from', value: 18 },
+				state: 'unmet',
+				actual: 16,
+			},
 		},
 		gaps: [{ word: 'label', field: ['person', 'age'] }],
 		lines: [buildAccountLine({ role: 'step', text: 'Adult' })],
@@ -164,7 +169,7 @@ describe('the account boundary', () => {
 		'group',
 		'factor',
 		'equation',
-		'inference',
+		'deduction',
 		'fact',
 		'finding',
 		'scope',
@@ -175,14 +180,20 @@ describe('the account boundary', () => {
 		expect(isAccountSource({ [key]: 5 })).toBe(false)
 	})
 
-	it('reads a source’s check, result, and fault, and leaves what they compared unread', () => {
-		expect(isAccountSource({ check: { field: 'n', operator: 'equals' } })).toBe(true)
-		expect(isAccountSource({ check: { field: 'n', operator: 'equals', value: 1n } })).toBe(true)
-		expect(isAccountSource({ check: { field: 'n', operator: 'like' } })).toBe(false)
+	it('reads a source’s check, result, fault, and refusal, and leaves what they compared unread', () => {
+		const check = { field: 'n', operator: 'like' }
+		expect(isAccountSource({ check })).toBe(true)
+		expect(isAccountSource({ check: { ...check, value: 1n } })).toBe(true)
+		expect(isAccountSource({ check: { field: 'n', operator: 5 } })).toBe(false)
 		expect(isAccountSource({ check: { operator: 'equals' } })).toBe(false)
-		expect(isAccountSource({ result: { field: 'n', state: 'met' } })).toBe(true)
-		expect(isAccountSource({ result: { field: 'n', state: 'met', error: 5 } })).toBe(false)
-		expect(isAccountSource({ result: { field: 'n', state: 'open' } })).toBe(false)
+		expect(isAccountSource({ result: { check, state: 'met' } })).toBe(true)
+		expect(isAccountSource({ result: { check, state: 'met', actual: 1n } })).toBe(true)
+		expect(isAccountSource({ result: { check, state: 'open' } })).toBe(false)
+		expect(isAccountSource({ result: { check: { field: 'n' }, state: 'met' } })).toBe(false)
+		expect(isAccountSource({ result: { field: 'n', state: 'met' } })).toBe(false)
+		expect(isAccountSource({ refusal: { cause: 'source', field: 'n', actual: 1n } })).toBe(true)
+		expect(isAccountSource({ refusal: { cause: 'tired' } })).toBe(false)
+		expect(isAccountSource({ refusal: { cause: 'depth', depth: '10' } })).toBe(false)
 		expect(isAccountSource({ fault: { reason: 'extra', path: ['n'] } })).toBe(true)
 		expect(isAccountSource({ fault: { reason: 'invented', path: ['n'] } })).toBe(false)
 	})
@@ -236,22 +247,12 @@ describe('the amendment boundary', () => {
 	})
 })
 
-// The family guards check what an account reads and admit the rest, over the real parts of the
-// invented workshop's program and of its result.
+// The family guards check what an account reads and admit the rest, over the parts of the invented
+// workshop's program, and over every part of a result as its package documents it.
 describe('the family boundary', () => {
 	const definition = buildFamilyProgram()
 	const rating = requireValue(definition.rating)
-	const result = createProgram(definition).execute({
-		...FAMILY_BASE,
-		room: 'hall',
-		guests: 50,
-		staff: 22,
-	})
-	const costly = createRater().rate(rating, { ...FAMILY_BASE, cost: 2000 })
-	const line = requireValue(costly.lines[2])
-	const group = requireValue(line.worksheet.groups[0])
-	const factor = requireValue(group.factors[0])
-	const finding = requireValue(result.qualification.findings[0])
+	const { result, rating: costly, line, group, factor, finding, slot } = FAMILY_PARTS
 
 	// Each guard, a real value it admits, and for each member it reads a value it refuses there.
 	const boundary: ReadonlyArray<{
@@ -262,17 +263,17 @@ describe('the family boundary', () => {
 		readonly refused: Readonly<Record<string, unknown>>
 	}> = [
 		{
-			name: 'isFamilyPremise',
-			guard: isFamilyPremise,
-			value: requireValue(finding.premises[0]),
-			required: [],
-			refused: { field: 5, state: 'open' },
+			name: 'isFamilySlot',
+			guard: isFamilySlot,
+			value: slot,
+			required: ['field'],
+			refused: { field: 5 },
 		},
 		{
 			name: 'isFamilyFinding',
 			guard: isFamilyFinding,
 			value: finding,
-			required: ['id', 'effect', 'state', 'premises'],
+			required: ['id', 'effect', 'state', 'checks'],
 			refused: {
 				id: 5,
 				effect: 5,
@@ -281,7 +282,7 @@ describe('the family boundary', () => {
 				rule: 5,
 				scope: 5,
 				message: 5,
-				premises: [{ state: 'open' }],
+				checks: [{ state: 'met' }],
 			},
 		},
 		{
@@ -308,8 +309,14 @@ describe('the family boundary', () => {
 			name: 'isFamilyDerivation',
 			guard: isFamilyDerivation,
 			value: requireValue(result.qualification.derivations[0]),
-			required: ['id', 'value', 'success'],
-			refused: { id: 5, value: '5', success: 'yes' },
+			required: ['id', 'value', 'success', 'refusals', 'faults'],
+			refused: {
+				id: 5,
+				value: '5',
+				success: 'yes',
+				refusals: [{ cause: 'tired' }],
+				faults: [{ reason: 'other' }],
+			},
 		},
 		{
 			name: 'isFamilyQualificationResult',
@@ -323,7 +330,7 @@ describe('the family boundary', () => {
 				'findings',
 				'derivations',
 				'success',
-				'errors',
+				'refusals',
 				'faults',
 			],
 			refused: {
@@ -334,7 +341,7 @@ describe('the family boundary', () => {
 				findings: [{ id: 'f' }],
 				derivations: [{ id: 'd' }],
 				success: 'yes',
-				errors: [5],
+				refusals: [{ cause: 'tired' }],
 				faults: [{ reason: 'other' }],
 			},
 		},
@@ -356,26 +363,33 @@ describe('the family boundary', () => {
 			name: 'isFamilyWorksheetFactor',
 			guard: isFamilyWorksheetFactor,
 			value: factor,
-			required: ['id', 'applied', 'evidence'],
-			refused: { id: 5, applied: 'yes', value: '5', evidence: [{ field: 5 }] },
+			required: ['id', 'applied', 'fallback', 'checks'],
+			refused: {
+				id: 5,
+				applied: 'yes',
+				value: '5',
+				raw: '5',
+				fallback: 'no',
+				checks: [{ state: 'met' }],
+			},
 		},
 		{
 			name: 'isFamilyWorksheetGroup',
 			guard: isFamilyWorksheetGroup,
 			value: group,
-			required: ['id', 'applied', 'value', 'factors'],
+			required: ['id', 'applied', 'factors'],
 			refused: { id: 5, applied: 'yes', value: '5', factors: [{ id: 'f' }] },
 		},
 		{
 			name: 'isFamilyWorksheet',
 			guard: isFamilyWorksheet,
 			value: line.worksheet,
-			required: ['value', 'groups', 'success', 'errors', 'faults'],
+			required: ['value', 'groups', 'success', 'refusals', 'faults'],
 			refused: {
 				value: '5',
 				groups: [{ id: 'g' }],
 				success: 'yes',
-				errors: [5],
+				refusals: [{ cause: 'tired' }],
 				faults: [{ reason: 'other' }],
 			},
 		},
@@ -390,8 +404,14 @@ describe('the family boundary', () => {
 			name: 'isFamilyRatingResult',
 			guard: isFamilyRatingResult,
 			value: costly,
-			required: ['lines', 'success', 'faults'],
-			refused: { lines: [{ id: 'l' }], total: '5', success: 'yes', faults: [{ reason: 'other' }] },
+			required: ['lines', 'success', 'refusals', 'faults'],
+			refused: {
+				lines: [{ id: 'l' }],
+				total: '5',
+				success: 'yes',
+				refusals: [{ cause: 'tired' }],
+				faults: [{ reason: 'other' }],
+			},
 		},
 		{
 			name: 'isFamilyNotice',
@@ -427,7 +447,7 @@ describe('the family boundary', () => {
 				'qualification',
 				'determinations',
 				'success',
-				'errors',
+				'refusals',
 				'faults',
 			],
 			refused: {
@@ -435,12 +455,12 @@ describe('the family boundary', () => {
 				name: 5,
 				eligibility: 5,
 				status: 5,
-				decision: 5,
+				disposition: 5,
 				qualification: {},
 				rating: {},
 				determinations: [{ id: 'd' }],
 				success: 'yes',
-				errors: [5],
+				refusals: [{ cause: 'tired' }],
 				faults: [{ reason: 'other' }],
 			},
 		},
@@ -481,6 +501,42 @@ describe('the family boundary', () => {
 			})
 			expect(guard(hostile)).toBe(false)
 		}
+	})
+
+	it('admits the parts of a real run', () => {
+		const run = createProgram(definition).execute({
+			...FAMILY_BASE,
+			room: 'hall',
+			guests: 50,
+			staff: 22,
+		})
+		expect(isFamilyProgramResult(run)).toBe(true)
+		expect(isFamilyQualificationResult(run.qualification)).toBe(true)
+		expect(isFamilyRatingResult(createRater().rate(rating, { ...FAMILY_BASE, cost: 2000 }))).toBe(
+			true,
+		)
+	})
+
+	it('admits a JSON projection: null where a number was, and no value with no JSON form', () => {
+		const derivation = requireValue(result.qualification.derivations[0])
+		const projected: ReadonlyArray<readonly [(value: unknown) => boolean, unknown]> = [
+			[isFamilySlot, { field: ['room'] }],
+			[isFamilyFinding, { ...finding, message: [{ field: ['room'] }] }],
+			[isFamilyDerivation, { ...derivation, value: null }],
+			[isFamilyWorksheetFactor, { ...factor, value: null, raw: null, actual: undefined }],
+			[isFamilyWorksheetGroup, { ...group, value: null }],
+			[isFamilyWorksheetGroup, { ...group, value: undefined }],
+			[isFamilyWorksheet, { ...line.worksheet, value: null }],
+			[isFamilyLineResult, { ...line, amount: null }],
+			[isFamilyRatingResult, { ...costly, total: null }],
+		]
+		for (const [guard, value] of projected) {
+			expect(guard(value)).toBe(true)
+			expect(guard(JSON.parse(JSON.stringify(value)))).toBe(true)
+		}
+		const unread = { check: { field: 'room', operator: 'equals' }, state: 'unread' }
+		expect(isFamilyFinding({ ...finding, checks: [unread] })).toBe(true)
+		expect(isFamilyProgramResult(JSON.parse(JSON.stringify(result)))).toBe(true)
 	})
 
 	it('leaves a scope record’s prototype and every key it names alone', () => {

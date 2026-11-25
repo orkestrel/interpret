@@ -13,7 +13,7 @@
 // What the package DOES with these fixtures is proved by the suites that consume them. This
 // file drives no stage, no manager, and no narrator: it asserts only what the fixtures are.
 
-import { collectShapeDefaults, Extractor } from '@src/core'
+import { buildAccountLine, collectShapeDefaults, Extractor, isGlossary } from '@src/core'
 import { createContract as contractOf, resolveField } from '@orkestrel/contract'
 import { createProgram, STATUSES } from '@orkestrel/program'
 import { createQualifier, findMessageTokens, findRule } from '@orkestrel/qualifier'
@@ -24,7 +24,7 @@ import {
 	createAtom,
 	createCompound,
 	createConstant,
-	createInferentialReasoner,
+	createDeductiveReasoner,
 	createLogicalDefinition,
 	createLogicalReasoner,
 	createOperation,
@@ -35,12 +35,14 @@ import {
 	createVariable,
 	extractAtoms,
 	formatField,
-	isInferentialResult,
+	isDefinition,
+	isDeductiveResult,
 	isLogicalResult,
 	isQuantitativeResult,
 	isSymbolicResult,
 	MATH_OPERATIONS,
 } from '@orkestrel/reason'
+import { requireValue } from '@orkestrel/test'
 import { describe, expect, it } from 'vitest'
 import {
 	AMENDED_TURNS,
@@ -53,7 +55,19 @@ import {
 	SUPPLIED_AMENDMENT,
 	SUPPLIED_TURNS,
 	buildTermsRecipe,
+	buildFamilyParts,
+	buildGatedQuote,
+	buildRefusedQuote,
+	buildRefusedRuns,
+	buildRefusedTier,
 	collectEvidenceAccounts,
+	buildFamilyWording,
+	collectWrittenTexts,
+	createAnsweringEvaluator,
+	createAnsweringReasoner,
+	renderFamilyMessage,
+	FAMILY_PARTS,
+	REFUSED_GLOSSARY,
 	collectFixtureAccounts,
 	composeInterpretation,
 	CONTINUED_TURNS,
@@ -87,8 +101,12 @@ import {
 	collectExpressionFields,
 	collectFamilyConnectives,
 	collectFamilyEffects,
+	collectFamilyAccounts,
+	collectFamilyExecuted,
 	collectFamilyFindings,
 	collectFamilyLeaves,
+	collectFamilyPairs,
+	collectFamilyQualified,
 	collectFamilySources,
 	collectFamilyUnique,
 	collectInterpretCorpusRecipes,
@@ -101,7 +119,6 @@ import {
 	FAMILY_PROGRAMS,
 	FAMILY_RATINGS,
 	FAMILY_SUBJECTS,
-	FAMILY_WORDED,
 	FAMILY_WORDED_PATH,
 	INTERPRET_ACTIONS,
 	INTERPRET_DOMAINS,
@@ -581,16 +598,8 @@ describe('WORKSHOP_SUBJECTS', () => {
 		if (!isLogicalResult(cost) || !isLogicalResult(noise))
 			throw new Error('Expected logical results')
 
-		expect([cost.success, cost.conclusion, cost.errors]).toEqual([
-			false,
-			'unread',
-			['cost: missing; expected number'],
-		])
-		expect([noise.success, noise.conclusion, noise.errors]).toEqual([
-			false,
-			'unread',
-			['noise: missing; expected number'],
-		])
+		expect([cost.success, cost.conclusion, cost.refusals]).toEqual([false, 'unread', []])
+		expect([noise.success, noise.conclusion, noise.refusals]).toEqual([false, 'unread', []])
 	})
 
 	it('carries a restricted subject whose activity is on the list and a held one whose is not', () => {
@@ -710,9 +719,9 @@ describe('buildWorkshopScore', () => {
 			.find((factor) => factor.id === 'discount')
 
 		expect(discount?.applied).toBe(false)
-		expect(discount?.checks?.map((check) => [formatField(check.field), check.state])).toEqual([
-			['member', 'unmet'],
-		])
+		expect(discount?.checks?.map((check) => [formatField(check.check.field), check.state])).toEqual(
+			[['member', 'unmet']],
+		)
 	})
 
 	it('refuses a missing `cost` on its field and a missing table entry on its room', () => {
@@ -725,7 +734,9 @@ describe('buildWorkshopScore', () => {
 
 		expect(cost.faults.map((fault) => formatField(fault.path))).toEqual(['cost'])
 		expect(room.faults).toEqual([])
-		expect(room.errors).toEqual(['Factor "room" has no value for "garage"'])
+		expect(room.refusals).toEqual([
+			{ cause: 'source', group: 'space', factor: 'room', field: 'room', actual: 'garage' },
+		])
 	})
 })
 
@@ -768,7 +779,7 @@ describe('buildWorkshopFees', () => {
 		const crowd = reasoner.reason(WORKSHOP_FEES.crowd?.subject ?? {}, buildWorkshopFees())
 
 		expect(costly.faults).toEqual([])
-		expect(costly.errors).toHaveLength(1)
+		expect(costly.refusals).toEqual([{ cause: 'required', group: 'hire', factor: 'deposit' }])
 		expect(crowd.faults.map((fault) => formatField(fault.path))).toEqual(['guests'])
 	})
 
@@ -821,11 +832,11 @@ describe('buildWorkshopArea', () => {
 })
 
 describe('buildWorkshopFacts', () => {
-	it('holds a chain of three inferences over a depth of 1', () => {
+	it('holds a chain of three deductions over a depth of 1', () => {
 		const definition = buildWorkshopFacts()
 
 		expect(definition.depth).toBe(1)
-		expect(definition.inferences.map((inference) => inference.name)).toEqual([
+		expect(definition.deductions.map((deduction) => deduction.name)).toEqual([
 			'Staffing',
 			'Cleaning',
 			'Closing',
@@ -833,17 +844,17 @@ describe('buildWorkshopFacts', () => {
 	})
 
 	it('derives the whole chain and still refuses at the cap', () => {
-		const result = createInferentialReasoner().reason({}, buildWorkshopFacts())
-		if (!isInferentialResult(result)) throw new Error('Expected an inferential result')
+		const result = createDeductiveReasoner().reason({}, buildWorkshopFacts())
+		if (!isDeductiveResult(result)) throw new Error('Expected a deductive result')
 
 		expect(result.derived.map((fact) => fact.predicate)).toEqual(['staffed', 'cleaned', 'closed'])
 		expect(result.success).toBe(false)
-		expect(result.errors).toEqual(['Forward chaining did not settle within depth 1'])
+		expect(result.refusals).toEqual([{ cause: 'depth', depth: 1 }])
 	})
 
 	it('settles the same chain once the depth allows it, so the cap is the only cause', () => {
-		const result = createInferentialReasoner().reason({}, { ...buildWorkshopFacts(), depth: 10 })
-		if (!isInferentialResult(result)) throw new Error('Expected an inferential result')
+		const result = createDeductiveReasoner().reason({}, { ...buildWorkshopFacts(), depth: 10 })
+		if (!isDeductiveResult(result)) throw new Error('Expected a deductive result')
 
 		expect(result.derived).toHaveLength(3)
 		expect(result.success).toBe(true)
@@ -927,10 +938,10 @@ describe('buildWorkshopCharge', () => {
 describe('buildWorkshopKin', () => {
 	it('derives each fact with the product of its confidences, going forward', () => {
 		const definition = buildWorkshopKin()
-		const result = createInferentialReasoner().reason({ member: 'gold' }, definition)
-		if (!isInferentialResult(result)) throw new Error('Expected an inferential result')
+		const result = createDeductiveReasoner().reason({ member: 'gold' }, definition)
+		if (!isDeductiveResult(result)) throw new Error('Expected a deductive result')
 
-		expect(createInferentialReasoner().validate(definition).valid).toBe(true)
+		expect(createDeductiveReasoner().validate(definition).valid).toBe(true)
 		expect(result.success).toBe(true)
 		expect(
 			result.derived.map(({ predicate, terms, confidence }) => [predicate, terms, confidence]),
@@ -940,15 +951,15 @@ describe('buildWorkshopKin', () => {
 		])
 	})
 
-	it('proves the first conclusion, its variables unbound and its confidence its own, going backward', () => {
-		const result = createInferentialReasoner().reason({}, buildWorkshopKin('backward'))
-		if (!isInferentialResult(result)) throw new Error('Expected an inferential result')
+	it('proves the fact forward derives first, with the facts its premises matched, going backward', () => {
+		const result = createDeductiveReasoner().reason({}, buildWorkshopKin('backward'))
+		if (!isDeductiveResult(result)) throw new Error('Expected a deductive result')
 
 		expect(
 			result.derived.map(({ predicate, terms, confidence }) => [predicate, terms, confidence]),
-		).toEqual([['grandparent', ['?x', '?z'], 0.95]])
-		expect(result.proof?.inference).toBe('grandparent')
-		expect(result.proof?.children?.map(({ fact }) => fact)).toEqual(['ab', 'ab'])
+		).toEqual([['grandparent', ['alice', 'cara'], 0.855]])
+		expect(result.proof?.map((step) => step.deduction)).toEqual(['grandparent'])
+		expect(result.proof?.[0]?.premises.map((fact) => fact.id)).toEqual(['ab', 'bc'])
 	})
 })
 
@@ -1170,10 +1181,10 @@ describe('WORKSHOP_GLOSSARY', () => {
 		expect(WORKSHOP_GLOSSARY.values).toEqual({ score: 'count', fees: 'money', quote: 'money' })
 	})
 
-	it('gives a sentence to every predicate the inferential definitions name, but the subject one', () => {
-		const named = [buildWorkshopFacts(), buildWorkshopKin()].flatMap(({ facts, inferences }) => [
+	it('gives a sentence to every predicate the deductive definitions name, but the subject one', () => {
+		const named = [buildWorkshopFacts(), buildWorkshopKin()].flatMap(({ facts, deductions }) => [
 			...facts,
-			...inferences.flatMap(({ premises, conclusion }) => [...premises, conclusion]),
+			...deductions.flatMap(({ premises, conclusion }) => [...premises, conclusion]),
 		])
 
 		expect(
@@ -1437,39 +1448,40 @@ describe('buildFamilyQualification', () => {
 describe('FAMILY_SUBJECTS', () => {
 	const qualifier = createQualifier()
 	const definition = buildFamilyQualification()
-	const results = Object.entries(FAMILY_SUBJECTS).map(
-		([name, expected]) =>
-			[name, expected, qualifier.qualify(expected.subject, definition)] as const,
+
+	it.each(Object.entries(FAMILY_SUBJECTS))(
+		'%s settles as the qualifier documents',
+		(_name, expected) => {
+			const result = qualifier.qualify(expected.subject, definition)
+			expect(result.eligibility).toBe(expected.eligibility)
+			expect(result.scopes).toEqual(expected.scopes)
+			expect(
+				Object.fromEntries(result.findings.map((finding) => [finding.id, finding.state])),
+			).toEqual(expected.states)
+			expect(
+				Object.fromEntries(
+					result.findings.flatMap((finding) =>
+						finding.state === 'met' && finding.message !== undefined
+							? [[finding.id, renderFamilyMessage(finding.message)]]
+							: [],
+					),
+				),
+			).toEqual(expected.messages)
+			expect(result.success).toBe(expected.success)
+			expect(result.refusals).toEqual([])
+			expect(result.faults.map((fault) => formatField(fault.path))).toEqual(expected.faults)
+			expect(
+				result.derivations.flatMap((entry) =>
+					entry.id === 'load' && entry.success ? [entry.value] : [],
+				),
+			).toEqual(expected.load === undefined ? [] : [expected.load])
+		},
 	)
 
-	it.each(results)('%s settles as the qualifier documents', (_name, expected, result) => {
-		expect(result.eligibility).toBe(expected.eligibility)
-		expect(result.scopes).toEqual(expected.scopes)
-		expect(
-			Object.fromEntries(result.findings.map((finding) => [finding.id, finding.state])),
-		).toEqual(expected.states)
-		expect(
-			Object.fromEntries(
-				result.findings.flatMap((finding) =>
-					finding.state === 'met' && finding.message !== undefined
-						? [[finding.id, finding.message]]
-						: [],
-				),
-			),
-		).toEqual(expected.messages)
-		expect(result.success).toBe(expected.success)
-		expect(result.errors.length === 0).toBe(expected.success)
-		expect(result.faults.map((fault) => formatField(fault.path))).toEqual(expected.faults)
-		expect(
-			result.derivations.flatMap((entry) =>
-				entry.id === 'load' && entry.success ? [entry.value] : [],
-			),
-		).toEqual(expected.load === undefined ? [] : [expected.load])
-	})
-
 	it('reaches every eligibility, effect, scope outcome, and finding state the definition names', () => {
-		const findings = results.flatMap(([, , result]) => result.findings)
-		expect(collectFamilyUnique(results.map(([, , result]) => result.eligibility))).toEqual([
+		const results = collectFamilyQualified()
+		const findings = results.flatMap(([, result]) => result.findings)
+		expect(collectFamilyUnique(results.map(([, result]) => result.eligibility))).toEqual([
 			'eligible',
 			'ineligible',
 			'referral',
@@ -1480,7 +1492,7 @@ describe('FAMILY_SUBJECTS', () => {
 			),
 		).toEqual(['condition', 'referral', 'restriction'])
 		expect(
-			collectFamilyUnique(results.flatMap(([, , result]) => Object.values(result.scopes))),
+			collectFamilyUnique(results.flatMap(([, result]) => Object.values(result.scopes))),
 		).toEqual(['eligible', 'ineligible', 'referral'])
 		expect(
 			collectFamilyUnique(
@@ -1501,21 +1513,50 @@ describe('FAMILY_SUBJECTS', () => {
 		}
 	})
 
-	it('fills each slot a met message holds', () => {
-		const messages = results.flatMap(([, , result]) =>
-			result.findings.flatMap((finding) => finding.message ?? []),
+	it('splits each message at its slots, each with the value its field holds', () => {
+		const messages = collectFamilyQualified().flatMap(([, result]) =>
+			result.findings.flatMap((finding) =>
+				finding.message === undefined ? [] : [finding.message],
+			),
 		)
 
-		expect(messages.filter((message) => message.includes('{{'))).toEqual([])
-		expect(messages).toContain('The workshop does not lend a room for torch welding.')
+		expect(
+			messages.flat().filter((part) => typeof part === 'string' && part.includes('{{')),
+		).toEqual([])
+		expect(messages).toContainEqual([
+			'The workshop does not lend a room for ',
+			{ field: ['activity'], actual: 'torch welding' },
+			'.',
+		])
+		expect(renderFamilyMessage(['a ', { field: 'b', actual: 5 }, '.'])).toBe('a 5.')
+	})
+
+	it('reads every text of an account, and answers as another reasoner does but where told', () => {
+		const line = buildAccountLine({ role: 'step', text: 'inner', summary: 'inner, whole' })
+		const lines = [buildAccountLine({ role: 'verdict', text: 'outer', lines: [line] })]
+		expect(collectWrittenTexts({ id: 'a', name: 'A', lines })).toEqual([
+			'outer',
+			'outer',
+			'inner',
+			'inner, whole',
+		])
+		const score = buildWorkshopScore()
+		const answering = createAnsweringReasoner(createQuantitativeReasoner(), { success: false })
+		expect(answering.supports(score)).toBe(true)
+		expect(answering.validate(score).valid).toBe(true)
+		expect(answering.reason(WORKSHOP_SCORES.gold?.subject ?? {}, score)).toEqual({
+			...createQuantitativeReasoner().reason(WORKSHOP_SCORES.gold?.subject ?? {}, score),
+			success: false,
+		})
 	})
 
 	it('refuses two runs and refers one finding to a person, and a clean run refuses none', () => {
-		const refused = results.filter(([, , result]) => !result.success).map(([name]) => name)
+		const results = collectFamilyQualified()
+		const refused = results.filter(([, result]) => !result.success).map(([name]) => name)
 
 		expect(refused).toEqual(['unread', 'refused'])
 		expect(
-			results.find(([name]) => name === 'refused')?.[2].derivations.map((entry) => entry.success),
+			results.find(([name]) => name === 'refused')?.[1].derivations.map((entry) => entry.success),
 		).toEqual([false])
 		qualifier.destroy()
 	})
@@ -1560,7 +1601,7 @@ describe('buildFamilyRating', () => {
 		expect(result.faults.map((fault) => formatField(fault.path))).toEqual(expected.faults)
 	})
 
-	it('cannot tell the fallback from the entry it equals, and fails the required line without a fault', () => {
+	it('tells the fallback from the entry it equals, and fails the required line without a fault', () => {
 		const rater = createRater()
 		const [studio, attic, costly] = ['standing', 'attic', 'costly'].map((name) =>
 			rater.rate(definition, FAMILY_RATINGS[name]?.subject ?? {}),
@@ -1570,7 +1611,15 @@ describe('buildFamilyRating', () => {
 		expect(studio?.lines[0]?.amount).toBe(80)
 		expect(attic?.lines[0]?.amount).toBe(studio?.lines[0]?.amount)
 		expect(costly?.lines[2]?.amount).toBeUndefined()
-		expect(costly?.lines[2]?.worksheet.errors).not.toEqual([])
+		expect(
+			[studio, attic].map((rated) => rated?.lines[0]?.worksheet.groups[0]?.factors[0]?.fallback),
+		).toEqual([false, true])
+		expect(costly?.lines[2]?.worksheet.refusals).toEqual([
+			{ cause: 'required', group: 'hold', factor: 'deposit' },
+		])
+		expect(costly?.refusals).toEqual([
+			{ cause: 'required', path: ['deposit'], group: 'hold', factor: 'deposit' },
+		])
 		expect(costly?.faults).toEqual([])
 		expect(costly?.total).toBeUndefined()
 	})
@@ -1579,9 +1628,6 @@ describe('buildFamilyRating', () => {
 describe('buildFamilyProgram', () => {
 	const definition = buildFamilyProgram()
 	const program = createProgram(definition)
-	const results = Object.entries(FAMILY_PROGRAMS).map(
-		([name, expected]) => [name, expected, program.execute(expected.subject)] as const,
-	)
 
 	it('is valid, and holds the family qualification and rating, two notices, and an authority', () => {
 		expect(program.validate().errors).toEqual([])
@@ -1598,44 +1644,49 @@ describe('buildFamilyProgram', () => {
 		expect(definition.authority?.rules.map((rule) => rule.id)).toEqual(['heavy'])
 	})
 
-	it.each(results)('%s executes as the program documents', (_name, expected, result) => {
-		expect(result.eligibility).toBe(expected.eligibility)
-		expect(result.status).toBe(expected.status)
-		expect(result.decision).toBe(expected.decision)
-		expect(
-			result.determinations.map((determination) => ({
-				id: determination.id,
-				effect: determination.effect,
-				...(determination.scope === undefined ? {} : { scope: determination.scope }),
-				message: determination.message,
-			})),
-		).toEqual(expected.determinations)
-		expect(result.determinations.filter((determination) => determination.state !== 'met')).toEqual(
-			[],
-		)
-		expect(result.success).toBe(expected.success)
-		expect(result.faults.map((fault) => formatField(fault.path))).toEqual(expected.faults)
-		expect(result.rating?.total).toBe(expected.total)
-	})
+	it.each(Object.entries(FAMILY_PROGRAMS))(
+		'%s executes as the program documents',
+		(_name, expected) => {
+			const result = program.execute(expected.subject)
+			expect(result.eligibility).toBe(expected.eligibility)
+			expect(result.status).toBe(expected.status)
+			expect(result.disposition).toBe(expected.disposition)
+			expect(
+				result.determinations.map((determination) => ({
+					id: determination.id,
+					effect: determination.effect,
+					...(determination.scope === undefined ? {} : { scope: determination.scope }),
+					message: renderFamilyMessage(determination.message ?? []),
+				})),
+			).toEqual(expected.determinations)
+			expect(
+				result.determinations.filter((determination) => determination.state !== 'met'),
+			).toEqual([])
+			expect(result.success).toBe(expected.success)
+			expect(result.faults.map((fault) => formatField(fault.path))).toEqual(expected.faults)
+			expect(result.rating?.total).toBe(expected.total)
+		},
+	)
 
-	it('reaches each of the six statuses, the three decisions and none, and a limit', () => {
-		expect(collectFamilyUnique(results.map(([, , result]) => result.status))).toEqual(
+	it('reaches each of the six statuses, the three dispositions and none, and a limit', () => {
+		const results = collectFamilyExecuted()
+		expect(collectFamilyUnique(results.map(([, result]) => result.status))).toEqual(
 			[...STATUSES].toSorted(),
 		)
-		expect(collectFamilyUnique(results.flatMap(([, , result]) => result.decision ?? []))).toEqual([
+		expect(collectFamilyUnique(results.flatMap(([, result]) => result.disposition ?? []))).toEqual([
 			'approved',
 			'denied',
 			'submitted',
 		])
 		expect(
-			results.filter(([, , result]) => result.decision === undefined).map(([name]) => name),
+			results.filter(([, result]) => result.disposition === undefined).map(([name]) => name),
 		).toEqual(['costly', 'unread', 'heavy'])
 		expect(
-			results.flatMap(([, , result]) =>
+			results.flatMap(([, result]) =>
 				result.determinations.filter((determination) => determination.effect === 'limit'),
 			),
 		).toHaveLength(1)
-		expect(results.filter(([, , result]) => !result.success).map(([name]) => name)).toEqual([
+		expect(results.filter(([, result]) => !result.success).map(([name]) => name)).toEqual([
 			'costly',
 			'unread',
 		])
@@ -1802,7 +1853,36 @@ describe('the continuation fixtures', () => {
 		expect(measureLines([])).toBe(0)
 	})
 
-	it('collects an account of every definition kind, the family’s included, and of each value', () => {
+	it('the refused runs each refuse, under a name of their own', () => {
+		const runs = buildRefusedRuns()
+		expect(new Set(runs.map((run) => run.name)).size).toBe(runs.length)
+		expect(runs.filter((run) => run.result.success).map((run) => run.name)).toEqual([])
+		expect(runs.filter((run) => run.result.faults.length > 0).map((run) => run.name)).toEqual([])
+		expect(runs.filter((run) => run.sentences.length !== run.result.refusals.length)).toEqual([])
+		expect(runs.filter((run) => isDefinition(run.definition) !== run.admitted)).toEqual([])
+		expect(isGlossary(REFUSED_GLOSSARY)).toBe(true)
+		expect(createAnsweringEvaluator(() => 5).batch([], {})).toBe(5)
+		expect(buildRefusedQuote([]).groups.map((group) => group.name)).toEqual(['Fees'])
+		expect(buildGatedQuote('from', true).groups[0]?.factors[0]?.required).toBe(true)
+		expect(buildRefusedTier('equals', 'group').rules).toHaveLength(2)
+	})
+
+	it('the family parts hold every member their guards read', () => {
+		const { result, rating, line, group, factor, finding, slot } = FAMILY_PARTS
+		expect(buildFamilyParts()).toEqual(FAMILY_PARTS)
+		expect(result.rating).toEqual(rating)
+		expect(rating.lines).toEqual([line])
+		expect(line.worksheet.groups).toEqual([group])
+		expect(group.factors).toEqual([factor])
+		expect(finding.message).toContainEqual(slot)
+	})
+
+	it('collects an account of every family definition', () => {
+		const ids = new Set(collectFamilyAccounts().map((account) => account.id))
+		expect([...ids].toSorted()).toEqual(['program', 'qualification', 'rating'])
+	})
+
+	it('collects an account of every definition kind, and of each value', () => {
 		const accounts = collectFixtureAccounts()
 		const ids = new Set(accounts.map((account) => account.id))
 		const definitions = [
@@ -1815,9 +1895,6 @@ describe('the continuation fixtures', () => {
 			buildWorkshopCharge(),
 			buildWorkshopFacts(),
 			buildWorkshopKin(),
-			buildFamilyQualification(),
-			buildFamilyRating(),
-			buildFamilyProgram(),
 		]
 		expect(definitions.map((definition) => definition.id).filter((id) => !ids.has(id))).toEqual([])
 		expect(new Set(accounts.map((account) => account.success))).toEqual(
@@ -1888,25 +1965,10 @@ describe('collectFamilyFindings', () => {
 })
 
 describe('FAMILY_WORDED', () => {
-	const qualifier = createQualifier({ labels: FAMILY_GLOSSARY.labels })
-	const rater = createRater({ labels: FAMILY_GLOSSARY.labels })
-	const program = createProgram(buildFamilyProgram(), { labels: FAMILY_GLOSSARY.labels })
-	const subject = FAMILY_PROGRAMS.costly?.subject ?? {}
-	const qualified = qualifier.qualify(
-		FAMILY_SUBJECTS.unread?.subject ?? {},
-		buildFamilyQualification(),
-	)
-	const rated = rater.rate(buildFamilyRating(), subject)
-	const executed = program.execute(subject)
-	const pairs = [
-		['qualification', qualified, FAMILY_WORDED.qualification(qualified)],
-		['rating', rated, FAMILY_WORDED.rating(rated)],
-		['program', executed, FAMILY_WORDED.program(executed)],
-	] as const
-
-	it.each(pairs)(
-		'rewords only worded members of the %s result, keeping its shape and count',
-		(_name, before, after) => {
+	it.each([0, 1, 2])(
+		'rewords only worded members of result %i, keeping its shape and count',
+		(position) => {
+			const [, before, after] = requireValue(collectFamilyPairs()[position])
 			const left = collectFamilyLeaves(before)
 			const right = collectFamilyLeaves(after)
 
@@ -1926,16 +1988,19 @@ describe('FAMILY_WORDED', () => {
 		},
 	)
 
-	it('reaches a label, an expression, a step, a trace, and an error entry among the results', () => {
+	it('reaches a step and a trace entry among the results, and no text the packages gave up', () => {
+		const pairs = collectFamilyPairs()
 		const paths = pairs.flatMap(([, before]) => collectFamilyLeaves(before).map(([path]) => path))
 
-		expect(paths.some((path) => /\.label$/.test(path))).toBe(true)
-		expect(paths.some((path) => /\.expression$/.test(path))).toBe(true)
 		expect(paths.some((path) => /\.steps\.\d+\.name$/.test(path))).toBe(true)
 		expect(paths.some((path) => /\.trace\.\d+$/.test(path))).toBe(true)
-		expect(paths.some((path) => /\.errors\.\d+$/.test(path))).toBe(true)
-		qualifier.destroy()
-		rater.destroy()
-		program.destroy()
+		expect(
+			paths.filter((path) => /\.(label|expression|description)$|\.errors\./.test(path)),
+		).toEqual([])
+		const thrown = { cause: 'thrown', message: 'clock stopped' }
+		expect(buildFamilyWording({ refusals: [thrown], trace: ['a'] })).toEqual({
+			refusals: [thrown],
+			trace: ['reworded .trace.0'],
+		})
 	})
 })

@@ -1,4 +1,4 @@
-import type { Check, Expression, Fact, Inference } from '@orkestrel/reason'
+import type { Check, Deduction, Expression, Fact, ReasonRefusal } from '@orkestrel/reason'
 import type {
 	Account,
 	AccountLine,
@@ -22,7 +22,7 @@ import {
 	optionalShape,
 	preview,
 } from '@orkestrel/contract'
-import { DECISIONS, PROGRAM_EFFECTS, STATUSES } from '@orkestrel/program'
+import { DISPOSITIONS, PROGRAM_EFFECTS, STATUSES } from '@orkestrel/program'
 import { ELIGIBILITIES, QUALIFICATION_EFFECTS } from '@orkestrel/qualifier'
 import {
 	AGGREGATIONS,
@@ -32,14 +32,15 @@ import {
 	combineStates,
 	COMPARISONS,
 	createAtom,
+	createCheck,
 	createCompound,
 	createConstant,
 	createEquation,
 	createFact,
 	createFactorGroup,
 	createFieldFactor,
-	createInference,
-	createInferentialDefinition,
+	createDeduction,
+	createDeductiveDefinition,
 	createLogicalDefinition,
 	createLogicalReasoner,
 	createLookupFactor,
@@ -53,6 +54,7 @@ import {
 	createVariable,
 	LOGICAL_OPERATORS,
 	MATH_OPERATIONS,
+	REASON_REFUSAL_CAUSES,
 	resolveOperand,
 } from '@orkestrel/reason'
 import { fillTemplate } from '@orkestrel/template'
@@ -78,9 +80,11 @@ import {
 	canonicalizeNode,
 	classifyIntent,
 	cloneAccountSource,
+	cloneCheck,
 	cloneEvidence,
 	cloneFieldPath,
 	cloneGlossaryGap,
+	cloneRefusal,
 	collapseWhitespace,
 	collectAccountText,
 	collectFactGaps,
@@ -92,6 +96,8 @@ import {
 	collectSlots,
 	collectNameGaps,
 	collectReasons,
+	collectRefusalGaps,
+	collectRefusedParts,
 	collectRequiredFields,
 	collectShapeDefaults,
 	collectUnitGaps,
@@ -111,6 +117,7 @@ import {
 	findFieldDescription,
 	findGoalRule,
 	findReceivedNumber,
+	findRefusedValue,
 	findSoleExpression,
 	findSubjectKey,
 	findUnclaimedNumbers,
@@ -119,13 +126,14 @@ import {
 	isFrameName,
 	matchesArrayField,
 	matchesChangedFactor,
+	matchesChecks,
 	matchesFilledField,
+	matchesNestedRefusal,
 	matchesNumericCheck,
 	matchesNumericSource,
 	matchesQuotedMember,
 	matchesReceivedValue,
 	matchesSubjectKeys,
-	matchesUnboundFact,
 	mergeLexicon,
 	isInterpretError,
 	matchRecipe,
@@ -133,11 +141,13 @@ import {
 	NUMBER_REFUSAL_REASONS,
 	NUMBER_UNREADABLE_REASONS,
 	readNarratorOption,
+	refusalToSource,
 	renderAccount,
 	renderName,
 	renderCitedReasons,
 	renderQuoted,
 	renderReasons,
+	renderRefusal,
 	renderSubject,
 	resolveExpression,
 	resolveFormatters,
@@ -174,6 +184,7 @@ import {
 	buildTermsRecipe,
 	buildWorkshopGates,
 	buildWorkshopRules,
+	collectFamilyAccounts,
 	collectFixtureAccounts,
 	EVIDENCE_VALUES,
 	EXTREME_NUMBERS,
@@ -1176,7 +1187,7 @@ describe('the words', () => {
 		[{ missing: 'a\nb' }, 'missing holds a line break'],
 		[
 			{ labels: { cost: 'Cost' } },
-			'labels is not one of comparisons, checks, rules, verdicts, aggregations, faults, expected, received, constraints, lengths, operations, transforms, refusals, unreadables, eligibilities, effects, statuses, decisions, values, joins, frames, limits, missing',
+			'labels is not one of comparisons, checks, rules, verdicts, aggregations, faults, expected, received, constraints, lengths, operations, transforms, refusals, unreadables, causes, eligibilities, effects, statuses, dispositions, values, joins, frames, limits, missing',
 		],
 		[{ expected: { text: 'x' } }, `expected.text is not one of ${FAULT_KINDS.join(', ')}`],
 		[{ received: { text: 'x' } }, 'received.text is not one of array, object, instance, function'],
@@ -1222,7 +1233,10 @@ describe('the words', () => {
 			{ statuses: { open: 'x' } },
 			'statuses.open is not one of ineligible, referral, incomplete, conditional, unrated, eligible',
 		],
-		[{ decisions: { held: 'x' } }, 'decisions.held is not one of approved, denied, submitted'],
+		[
+			{ dispositions: { held: 'x' } },
+			'dispositions.held is not one of approved, denied, submitted',
+		],
 	])('scanLexicon refuses %j', (input, finding) => {
 		expect(scanLexicon(input)).toEqual([finding])
 	})
@@ -1328,10 +1342,11 @@ describe('the words', () => {
 			transforms: { abs: 'made positive' },
 			refusals: { unanchored: '{{text}} stands alone' },
 			unreadables: { range: 'it is one of two' },
+			causes: { depth: 'ran out of passes' },
 			eligibilities: { referral: 'under review' },
 			effects: { limit: 'Cap' },
 			statuses: { unrated: 'no price' },
-			decisions: { submitted: 'sent on' },
+			dispositions: { submitted: 'sent on' },
 			joins: { steps: ' and then ' },
 		}
 		const merged = mergeLexicon(DEFAULT_LEXICON, input)
@@ -1344,10 +1359,11 @@ describe('the words', () => {
 			'transforms',
 			'refusals',
 			'unreadables',
+			'causes',
 			'eligibilities',
 			'effects',
 			'statuses',
-			'decisions',
+			'dispositions',
 			'joins',
 		] as const
 		expect(Object.keys(input)).toEqual(tables)
@@ -1413,15 +1429,12 @@ describe('the words', () => {
 			[
 				'fact.stated',
 				'fact.confidence',
-				'fact.some',
 				'result.facts',
 				'worksheet.base',
-				'fact.possible',
-				'fact.proved',
 				'value.any',
 				'result.outcome',
 				'result.decided',
-				'result.decision',
+				'result.disposition',
 				'finding.effect',
 				'finding.scope',
 				'worksheet.fallback',
@@ -1434,21 +1447,26 @@ describe('the words', () => {
 				'source.band',
 				'equation.form',
 				'equation.group',
-				'inference.rule',
-				'inference.confidence',
+				'deduction.rule',
+				'deduction.confidence',
+				'proof.step',
+				'cause.run',
+				'cause.part',
+				'cause.entry',
+				'cause.path',
+				'cause.value',
+				'cause.depth',
+				'source.read',
 			].map((id) => (isFrameName(id) ? DEFAULT_LEXICON.frames[id] : undefined)),
 		).toEqual([
 			'{{predicate}}({{terms}})',
 			'{{fact}} (confidence {{confidence}})',
-			'{{fact}}, its values left open',
 			'Facts derived: {{count}} ({{facts}})',
 			'base: {{value}}, added to the rest',
-			'possible: {{fact}}',
-			'supported through {{name}}',
 			'any value',
 			'{{name}}: {{outcome}}',
 			'{{name}}: {{outcome}}, because {{reasons}}',
-			'Decision: {{decision}}',
+			'Decision: {{disposition}}',
 			'{{effect}}: {{finding}}',
 			'{{scope}}: {{outcome}}',
 			'fallback: {{value}}',
@@ -1463,6 +1481,14 @@ describe('the words', () => {
 			'({{expression}})',
 			'{{conclusion}}, when {{premises}}',
 			'confidence: {{confidence}}',
+			'{{fact}}, through {{name}}',
+			'the run {{cause}}',
+			'{{part}} {{cause}}',
+			'entry {{entry}}',
+			'{{path}}: {{refusal}}',
+			'{{label}}: {{actual}}',
+			'passes allowed: {{depth}}',
+			'{{source}}: {{fact}}',
 		])
 	})
 
@@ -1492,12 +1518,13 @@ describe('the words', () => {
 				['type', 'missing', 'constraint', 'variant', 'oneOf', 'extra', 'hidden'],
 			],
 			['refusals', DEFAULT_LEXICON.refusals, NUMBER_REFUSAL_REASONS],
+			['causes', DEFAULT_LEXICON.causes, REASON_REFUSAL_CAUSES],
 			['unreadables', DEFAULT_LEXICON.unreadables, NUMBER_UNREADABLE_REASONS],
 			['frames', DEFAULT_LEXICON.frames, Object.keys(FRAME_SLOTS)],
 			['eligibilities', DEFAULT_LEXICON.eligibilities, ELIGIBILITIES],
 			['effects', DEFAULT_LEXICON.effects, [...QUALIFICATION_EFFECTS, ...PROGRAM_EFFECTS]],
 			['statuses', DEFAULT_LEXICON.statuses, STATUSES],
-			['decisions', DEFAULT_LEXICON.decisions, DECISIONS],
+			['dispositions', DEFAULT_LEXICON.dispositions, DISPOSITIONS],
 		]
 		for (const [table, words, members] of tables) {
 			expect([table, Object.keys(words).toSorted()]).toEqual([table, members.toSorted()])
@@ -1709,23 +1736,23 @@ describe('the gaps', () => {
 			{ word: 'label', field: 'n' },
 			{ word: 'unit', field: 'n' },
 		])
-		const inferential = createInferentialDefinition(
+		const deductive = createDeductiveDefinition(
 			'i',
 			'I',
 			[createFact('f', 'known', ['a'])],
 			[
-				createInference(
+				createDeduction(
 					'n',
 					[createFact('p', 'read', ['?x']), createFact('h', 'has', ['tier', 5])],
 					createFact('c', 'p', []),
 				),
-				createInference('off', [createFact('o', 'never', [])], createFact('q', 'never', []), {
+				createDeduction('off', [createFact('o', 'never', [])], createFact('q', 'never', []), {
 					enabled: false,
 				}),
 			],
 		)
-		expect(collectGaps([inferential], { labels: {} }, formats)).toEqual([
-			{ word: 'name', part: 'inference', id: 'n' },
+		expect(collectGaps([deductive], { labels: {} }, formats)).toEqual([
+			{ word: 'name', part: 'deduction', id: 'n' },
 			{ word: 'predicate', id: 'known' },
 			{ word: 'predicate', id: 'read' },
 			{ word: 'label', field: 'tier' },
@@ -1765,26 +1792,26 @@ describe('the gaps', () => {
 			createFact('f', 'has', ['tier', 'gold', 'since']),
 			createFact('f', 'owns', ['tier', 'gold']),
 		]
-		expect(facts.map(findSubjectKey)).toEqual([
+		const none = [undefined, undefined, undefined, undefined]
+		expect(facts.map((fact) => findSubjectKey(fact, true))).toEqual([
 			'tier',
 			'',
 			undefined,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
+			...none,
 		])
+		// A variable is read in a pattern alone, so a fact's `?` string is the key it states.
+		expect(facts.map((fact) => findSubjectKey(fact, false))).toEqual(['tier', '', '?key', ...none])
 	})
 
 	it('matchesSubjectKeys holds where only a subject states a has fact, and nothing words one', () => {
 		const pet = createFact('pet', 'has', ['alice', 'dog'])
-		const read = createInference('i', [pet], createFact('c', 'owner', ['alice']))
-		const concluded = createInference('i', [createFact('p', 'owner', ['?x'])], pet)
+		const read = createDeduction('i', [pet], createFact('c', 'owner', ['alice']))
+		const concluded = createDeduction('i', [createFact('p', 'owner', ['?x'])], pet)
 		const off = { ...concluded, enabled: false }
 		const sole = createFact('sole', 'has', ['alice'])
 		const worded = { has: '{{1}} has {{2}}' }
 		const cases: ReadonlyArray<
-			readonly [readonly Fact[], readonly Inference[], Glossary['predicates'], boolean]
+			readonly [readonly Fact[], readonly Deduction[], Glossary['predicates'], boolean]
 		> = [
 			[[], [read, off], {}, true],
 			[[sole], [read], {}, true],
@@ -1792,8 +1819,8 @@ describe('the gaps', () => {
 			[[], [concluded], {}, false],
 			[[], [read], worded, false],
 		]
-		for (const [facts, inferences, predicates = {}, matched] of cases) {
-			const definition = createInferentialDefinition('d', 'D', facts, inferences)
+		for (const [facts, deductions, predicates = {}, matched] of cases) {
+			const definition = createDeductiveDefinition('d', 'D', facts, deductions)
 			expect(matchesSubjectKeys(definition, { labels: {}, predicates })).toBe(matched)
 		}
 	})
@@ -1825,30 +1852,56 @@ describe('the gaps', () => {
 	it('collectFactGaps names a missing sentence, or the words of a field of the subject', () => {
 		const formats = new Set(['count'])
 		const glossary = { labels: { tier: 'Tier' }, predicates: { p: '{{1}} is here' } }
-		expect(collectFactGaps(createFact('f', 'p', ['a']), true, glossary, formats)).toEqual([])
-		expect(collectFactGaps(createFact('f', 'p', ['a', 'b']), true, glossary, formats)).toEqual([
+		const whole = createFact('f', 'p', ['a'])
+		expect(collectFactGaps(whole, undefined, glossary, formats)).toEqual([])
+		const partly = createFact('f', 'p', ['a', 'b'])
+		expect(collectFactGaps(partly, undefined, glossary, formats)).toEqual([
 			{ word: 'predicate', id: 'p' },
 		])
 		const has = createFact('f', 'has', ['tier', 5])
-		expect(collectFactGaps(has, true, glossary, formats)).toEqual([{ word: 'unit', field: 'tier' }])
-		expect(collectFactGaps(has, false, glossary, formats)).toEqual([
+		expect(collectFactGaps(has, 'tier', glossary, formats)).toEqual([
+			{ word: 'unit', field: 'tier' },
+		])
+		expect(collectFactGaps(has, undefined, glossary, formats)).toEqual([
 			{ word: 'predicate', id: 'has' },
 		])
-		expect(
-			collectFactGaps(createFact('f', 'has', ['tier', 'gold']), true, glossary, formats),
-		).toEqual([])
+		const gold = createFact('f', 'has', ['tier', 'gold'])
+		expect(collectFactGaps(gold, 'tier', glossary, formats)).toEqual([])
 	})
 })
 
 describe('the reasons', () => {
 	const a = createAtom('a', 'equals', 1)
 	const b = createAtom('b', 'equals', 1)
+	const one = createCheck('a', 'equals', 1)
+	const two = createCheck('b', 'equals', 1)
 	const checks = [
-		{ field: 'a', state: 'met', actual: 1 },
-		{ field: 'b', state: 'unmet', actual: 2 },
+		{ check: one, state: 'met', actual: 1 },
+		{ check: two, state: 'unmet', actual: 2 },
 	] as const
 
 	const held = { check: { field: 'a', operator: 'equals', value: 1 }, result: checks[0] }
+
+	it('matchesChecks reads one result of each check, in order, by its field, operator, and value', () => {
+		const nested = createCheck(['room', 'size'], 'any', [1, Number.NaN])
+		const result = { check: nested, state: 'met', actual: 1 } as const
+		expect(matchesChecks([], [])).toBe(true)
+		expect(matchesChecks([one, two], checks)).toBe(true)
+		expect(matchesChecks([nested], [result])).toBe(true)
+		expect(matchesChecks([nested], [{ ...result, check: { ...nested, field: 'room.size' } }])).toBe(
+			true,
+		)
+		expect(matchesChecks([nested], [{ ...result, check: { ...nested, value: [1, null] } }])).toBe(
+			true,
+		)
+		expect(matchesChecks([one], checks)).toBe(false)
+		expect(matchesChecks([one], [])).toBe(false)
+		expect(matchesChecks([two, one], checks)).toBe(false)
+		for (const changed of [{ field: 'c' }, { operator: 'not' }, { value: 2 }] as const) {
+			const check = { ...one, ...changed }
+			expect(matchesChecks([one], [{ check, state: 'met', actual: 1 }])).toBe(false)
+		}
+	})
 
 	it('settleOperands gives each operand the checks of its own atoms', () => {
 		const settled = settleOperands([createCompound('and', [a, b]), a], [...checks, checks[0]])
@@ -1952,34 +2005,55 @@ describe('the reasons', () => {
 		}
 	})
 
-	it('cloneAccountSource copies the check, its list, the result, and the fault', () => {
+	it('cloneAccountSource copies the check, its list, the result, the fault, and the refusal', () => {
 		const path = ['seat', 'kind']
 		const list = ['a', 'b']
 		const actual = { deep: [1] }
+		const parts = ['pass']
 		const fault = { reason: 'missing', path: ['seat', 'kind'], expected: 'number' } as const
+		const check = { field: path, operator: 'any', value: list } as const
 		const source = {
 			rule: 'r',
 			group: 'g',
 			factor: 'f',
-			check: { field: path, operator: 'any', value: list },
-			result: { field: path, state: 'unmet', actual },
+			check,
+			result: { check, state: 'unmet', actual },
 			fault,
+			refusal: { cause: 'source', path: parts, field: path, actual },
 		} as const
 		const copy = cloneAccountSource(source)
 		expect(copy).toEqual(source)
 		list.push('c')
 		path.push('later')
 		actual.deep.push(2)
+		parts.push('later')
+		const kept = { field: ['seat', 'kind'], operator: 'any', value: ['a', 'b'] }
 		expect(copy).toEqual({
 			rule: 'r',
 			group: 'g',
 			factor: 'f',
-			check: { field: ['seat', 'kind'], operator: 'any', value: ['a', 'b'] },
-			result: { field: ['seat', 'kind'], state: 'unmet', actual: { deep: [1] } },
+			check: kept,
+			result: { check: kept, state: 'unmet', actual: { deep: [1] } },
 			fault: { reason: 'missing', path: ['seat', 'kind'], expected: 'number' },
+			refusal: {
+				cause: 'source',
+				path: ['pass'],
+				field: ['seat', 'kind'],
+				actual: { deep: [1] },
+			},
 		})
 		expect(copy.fault).not.toBe(fault)
 		expect(cloneAccountSource({})).toEqual({})
+	})
+
+	it('cloneCheck and cloneRefusal copy what they hold, and add no member', () => {
+		const check = createCheck(['a', 'b'], 'any', [1])
+		expect(cloneCheck(check)).toEqual(check)
+		expect(cloneCheck(check).field).not.toBe(check.field)
+		expect(cloneCheck(check).value).not.toBe(check.value)
+		expect(Object.keys(cloneRefusal({ cause: 'silent' }))).toEqual(['cause'])
+		const bare = { cause: 'value', actual: undefined } as const
+		expect(cloneRefusal(bare)).toEqual(bare)
 	})
 
 	it('cloneGlossaryGap copies a gap and its path', () => {
@@ -2265,18 +2339,6 @@ describe("the account's text", () => {
 		expect(told.map((value) => matchesReceivedValue(preview(value)))).toEqual(told.map(() => true))
 	})
 
-	it('matchesUnboundFact reads a variable among the terms, and no other text', () => {
-		const terms = [[], ['a', 5], ['a?'], [['?x']], ['?x'], ['a', '?']]
-		expect(terms.map((held) => matchesUnboundFact(createFact('f', 'p', held)))).toEqual([
-			false,
-			false,
-			false,
-			false,
-			true,
-			true,
-		])
-	})
-
 	it('collectFaultFields reads the faults of every line, nested ones too', () => {
 		const fault = { reason: 'missing', path: ['a', 'b'], expected: 'number' } as const
 		const inner = buildAccountLine({ role: 'reason', text: 'x', source: { fault } })
@@ -2502,7 +2564,7 @@ describe("the recipe's shape", () => {
 				faults: [],
 				repairs: [],
 				defaulted: ['term', ['extra', 'rate']],
-				errors: [],
+				refusals: [],
 			},
 		)
 		expect(settled).toEqual([
@@ -2521,7 +2583,12 @@ describe("the recipe's shape", () => {
 	it('settleEntities leaves what a refusal saw alone', () => {
 		const entities = [entity]
 		expect(
-			settleEntities(entities, [], { faults: [], repairs: [], defaulted: [], errors: ['no'] }),
+			settleEntities(entities, [], {
+				faults: [],
+				repairs: [],
+				defaulted: [],
+				refusals: [{ cause: 'definition' }],
+			}),
 		).toBe(entities)
 	})
 
@@ -2531,7 +2598,7 @@ describe("the recipe's shape", () => {
 			faults: [],
 			repairs: [],
 			defaulted: [],
-			errors: [],
+			refusals: [],
 		})
 		expect(settled[0]).toBe(entity)
 	})
@@ -2878,8 +2945,187 @@ describe('T31: a glossary merged over another', () => {
 	})
 })
 
+describe('a refusal’s words', () => {
+	const refusal = {
+		cause: 'source',
+		path: ['base'],
+		group: 'rates',
+		factor: 'room',
+		field: ['booking', 'room'],
+		actual: 'loft',
+	} as const
+	const factor = createLookupFactor('room', 'room', {}, { name: 'Room rate' })
+	const definition = createQuantitativeDefinition('quote', 'Quote', [
+		createFactorGroup('rates', 'sum', [factor], { name: 'Rates' }),
+	])
+	const narrator = createNarrator()
+	const plain = new Intl.NumberFormat('en-US', { useGrouping: false })
+
+	it('collectRefusedParts names each part as its definition does, and by its id where none does', () => {
+		expect(collectRefusedParts(refusal, definition)).toEqual([
+			{ id: 'base', name: 'base' },
+			{ part: 'group', id: 'rates', name: 'Rates' },
+			{ part: 'factor', id: 'room', name: 'Room rate' },
+		])
+		const bare = [
+			{ id: 'base', name: 'base' },
+			{ part: 'group', id: 'rates', name: 'rates' },
+			{ part: 'factor', id: 'room', name: 'room' },
+		]
+		expect(collectRefusedParts(refusal)).toEqual(bare)
+		expect(collectRefusedParts(refusal, createLogicalDefinition('l', 'L', []))).toEqual(bare)
+		const rule = createRule('r', [], createAtom('x', 'equals', true), { name: 'R' })
+		const equation = createEquation('e', createVariable('x'), createConstant(1), 'x', { name: 'E' })
+		const deduction = createDeduction('d', [], createFact('c', 'p', []), { name: 'D' })
+		expect([
+			collectRefusedParts({ cause: 'order', rule: 'r' }, createLogicalDefinition('l', 'L', [rule])),
+			collectRefusedParts(
+				{ cause: 'unsolved', equation: 'e' },
+				createSymbolicDefinition('s', 'S', [equation]),
+			),
+			collectRefusedParts(
+				{ cause: 'thrown', deduction: 'd' },
+				createDeductiveDefinition('d', 'D', [], [deduction]),
+			),
+			collectRefusedParts({ cause: 'definition', index: 2 }, definition),
+		]).toEqual([
+			[{ part: 'rule', id: 'r', name: 'R' }],
+			[{ part: 'equation', id: 'e', name: 'E' }],
+			[{ part: 'deduction', id: 'd', name: 'D' }],
+			[],
+		])
+	})
+
+	it('refusalToSource holds the refusal beside the ids of its parts', () => {
+		expect(refusalToSource(refusal)).toEqual({ group: 'rates', factor: 'room', refusal })
+		const parts = { rule: 'r', equation: 'e', deduction: 'd' } as const
+		expect(refusalToSource({ cause: 'thrown', ...parts })).toEqual({
+			...parts,
+			refusal: { cause: 'thrown', ...parts },
+		})
+		expect(refusalToSource({ cause: 'depth', depth: 1 })).toEqual({
+			refusal: { cause: 'depth', depth: 1 },
+		})
+	})
+
+	it('findRefusedValue states no number that could not be used', () => {
+		const stated = REASON_REFUSAL_CAUSES.filter(
+			(cause) => findRefusedValue({ cause, actual: 5 }) === 5,
+		)
+		expect(REASON_REFUSAL_CAUSES.filter((cause) => !stated.includes(cause))).toEqual([
+			'value',
+			'operator',
+		])
+		expect(findRefusedValue({ cause: 'source' })).toBeUndefined()
+	})
+
+	it('collectRefusalGaps asks the words of the field or the key the sentence prints', () => {
+		const formats = new Set(['count'])
+		const label = { word: 'label', field: 'n' }
+		const cases: ReadonlyArray<readonly [ReasonRefusal, readonly unknown[]]> = [
+			[{ cause: 'source', field: 'n', actual: 5 }, [label, { word: 'unit', field: 'n' }]],
+			[{ cause: 'source', field: 'n', actual: 'a' }, [label]],
+			[{ cause: 'conflict', key: 'n', actual: 5 }, [label, { word: 'unit', field: 'n' }]],
+			[{ cause: 'value', key: 'n', actual: 5 }, [label]],
+			[{ cause: 'supplied', key: 'n' }, [label]],
+			[{ cause: 'depth', depth: 5 }, []],
+		]
+		for (const [held, gaps] of cases) {
+			expect(collectRefusalGaps(held, { labels: {} }, formats)).toEqual(gaps)
+			const worded = { labels: { n: 'N' }, units: { n: 'count' } }
+			expect(collectRefusalGaps(held, worded, formats)).toEqual([])
+		}
+	})
+
+	it('renderRefusal names the parts, the entry, and what the refusal holds, and nothing more', () => {
+		const cases: ReadonlyArray<readonly [ReasonRefusal, readonly string[], string]> = [
+			[
+				refusal,
+				['Base', 'Rates', 'Room rate'],
+				'Base, Rates: Room rate has no entry for the value it read (booking.room: loft)',
+			],
+			[refusal, [], 'the run has no entry for the value it read (booking.room: loft)'],
+			[{ cause: 'silent' }, ['Base'], 'Base failed and gave no reason'],
+			[
+				{ cause: 'definition', index: 1 },
+				['Rates'],
+				'Rates: entry 2 has a part missing or written in a form that cannot be used',
+			],
+			[
+				{ cause: 'definition', index: 999 },
+				[],
+				'entry 1000 has a part missing or written in a form that cannot be used',
+			],
+			[
+				{ cause: 'definition', index: Number.NaN },
+				[],
+				'the run has a part missing or written in a form that cannot be used',
+			],
+			[
+				{ cause: 'depth', depth: 5000 },
+				[],
+				'the run did not settle in the passes it was allowed (passes allowed: 5000)',
+			],
+			[
+				{ cause: 'depth', depth: Number.POSITIVE_INFINITY },
+				[],
+				'the run did not settle in the passes it was allowed',
+			],
+			[
+				{ cause: 'operator', field: 'n', operator: 'odd', actual: Number.NaN },
+				['R'],
+				'R uses an operation that is not known (n; and "odd")',
+			],
+			// Every other cause's operator is one the engine knows, so it is no reason.
+			[
+				{ cause: 'comparison', key: 'n', operator: 'above', actual: null },
+				['R'],
+				'R compares what a rule decides in a way that cannot be answered (n: none)',
+			],
+			[{ cause: 'unsolved', key: 'n', operator: 'power' }, ['E'], 'E could not be solved (n)'],
+			[
+				{ cause: 'value', key: 'n', actual: Number.NaN },
+				['E'],
+				'E did not give a finite number (n)',
+			],
+			[{ cause: 'value', actual: null }, ['E'], 'E did not give a finite number'],
+			[{ cause: 'thrown', message: 'no "way"' }, ['R'], 'R failed while it ran ("no "way"")'],
+			[{ cause: 'thrown', message: '' }, ['R'], 'R failed while it ran ("")'],
+			[
+				{ cause: 'unread', field: ['outcome', 'total'] },
+				['Limits', 'Big'],
+				'Limits: Big could not read a value that the run itself supplies (outcome.total)',
+			],
+		]
+		for (const [held, parts, text] of cases) {
+			expect(renderRefusal(held, parts, narrator, plain)).toBe(text)
+		}
+	})
+
+	it('matchesNestedRefusal finds a part’s own refusal under its path, and no other', () => {
+		const own = { cause: 'source', path: ['rent'], actual: [1] } as const
+		const nested = { ...own, path: ['rating', 'rent'] }
+		expect(matchesNestedRefusal(nested, 'rating', [{ cause: 'depth' }, own])).toBe(true)
+		expect(matchesNestedRefusal({ cause: 'depth', path: ['a'] }, 'a', [{ cause: 'depth' }])).toBe(
+			true,
+		)
+		expect(matchesNestedRefusal(nested, 'qualification', [own])).toBe(false)
+		expect(matchesNestedRefusal({ ...nested, actual: [2] }, 'rating', [own])).toBe(false)
+		expect(matchesNestedRefusal({ cause: 'depth' }, 'rating', [{ cause: 'depth' }])).toBe(false)
+		expect(matchesNestedRefusal(nested, 'rating', [])).toBe(false)
+	})
+})
+
 describe('T30: an account projected', () => {
 	const accounts = collectFixtureAccounts()
+
+	it('is a family account’s own JSON where its evidence is plain', () => {
+		const family = collectFamilyAccounts()
+		expect(family.length + accounts.length).toBeGreaterThan(400)
+		for (const account of family) {
+			expect(projectAccount(account)).toEqual(JSON.parse(JSON.stringify(account)))
+		}
+	})
 
 	it('is the account’s own JSON where its evidence is plain, at any depth', () => {
 		expect(accounts.length).toBeGreaterThan(300)
@@ -2902,7 +3148,12 @@ describe('T30: an account projected', () => {
 					text: 'n',
 					source: {
 						check: { field: 'n', operator: 'equals', value },
-						result: { field: 'n', state: 'unread', actual: value },
+						result: {
+							check: { field: 'n', operator: 'equals', value },
+							state: 'unread',
+							actual: value,
+						},
+						refusal: { cause: 'source', actual: value },
 					},
 				}),
 			),
@@ -2923,10 +3174,11 @@ describe('T30: an account projected', () => {
 			].map((held) => ({
 				check: { field: 'n', operator: 'equals', ...held },
 				result: {
-					field: 'n',
+					check: { field: 'n', operator: 'equals', ...held },
 					state: 'unread',
 					...('value' in held ? { actual: held.value } : {}),
 				},
+				refusal: { cause: 'source', ...('value' in held ? { actual: held.value } : {}) },
 			})),
 		)
 	})

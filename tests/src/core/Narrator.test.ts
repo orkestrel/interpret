@@ -1,7 +1,7 @@
 import type {
 	Bounds,
 	Definition,
-	InferentialResult,
+	DeductiveResult,
 	LogicalResult,
 	Subject,
 	SymbolicExpression,
@@ -33,15 +33,16 @@ import {
 	AGGREGATIONS,
 	COMPARISONS,
 	createAtom,
+	createCheck,
 	createCompound,
 	createConstant,
 	createEquation,
 	createFact,
 	createFactorGroup,
 	createFieldFactor,
-	createInference,
-	createInferentialDefinition,
-	createInferentialReasoner,
+	createDeduction,
+	createDeductiveDefinition,
+	createDeductiveReasoner,
 	createLogicalDefinition,
 	createLogicalReasoner,
 	createLookupFactor,
@@ -57,9 +58,12 @@ import {
 	createSymbolicReasoner,
 	createVariable,
 	formatField,
+	isDefinition,
+	isDeductiveResult,
 	isLogicalResult,
 	isQuantitativeResult,
 	MATH_OPERATIONS,
+	REASON_REFUSAL_CAUSES,
 } from '@orkestrel/reason'
 import { captureError, createHostileValues, requireValue } from '@orkestrel/test'
 import {
@@ -78,6 +82,9 @@ import {
 	ABSENT_OPERAND_READINGS,
 	buildBandTables,
 	buildExpressionTrees,
+	buildGatedQuote,
+	buildRefusedQuote,
+	buildRefusedRuns,
 	buildSymbolicTrees,
 	buildWorkshopArea,
 	buildWorkshopCharge,
@@ -88,6 +95,7 @@ import {
 	buildWorkshopQuote,
 	buildWorkshopRules,
 	buildWorkshopScore,
+	collectFixtureAccounts,
 	collectTreeSubjects,
 	computeChanges,
 	FAULT_ABSENCES,
@@ -103,6 +111,7 @@ import {
 	pickMember,
 	QUOTE_FRAMES,
 	QUOTED_LISTS,
+	REFUSED_GLOSSARY,
 	REFUSAL_MAPPINGS,
 	REFUSAL_SENTENCES,
 	renderInterpretUnit,
@@ -131,7 +140,7 @@ const REASON = createReason({
 		createLogicalReasoner(),
 		createQuantitativeReasoner(),
 		createSymbolicReasoner(),
-		createInferentialReasoner(),
+		createDeductiveReasoner(),
 	],
 })
 
@@ -260,7 +269,7 @@ describe('Narrator', () => {
 			expect(narrator.phrase('eligibilities', 'referral')).toBe('referred for review')
 			expect(narrator.phrase('effects', 'notice')).toBe('Notice')
 			expect(narrator.phrase('statuses', 'unrated')).toBe('not fully rated')
-			expect(narrator.phrase('decisions', 'submitted')).toBe('submitted for review')
+			expect(narrator.phrase('dispositions', 'submitted')).toBe('submitted for review')
 			expect(narrator.phrase('joins', 'steps')).toBe(', then ')
 			expect(narrator.phrase('frames', 'rule.settled')).toBe('{{name}} {{verdict}}')
 			expect(narrator.phrase('status', 'closed', 'fallback')).toBe('fallback')
@@ -779,7 +788,7 @@ describe('Narrator', () => {
 			])
 		})
 
-		it('writes each inference with its conclusion, its premises, and its confidence below 1', () => {
+		it('writes each deduction with its conclusion, its premises, and its confidence below 1', () => {
 			const narrator = new Narrator({ glossary: WORKSHOP_GLOSSARY })
 			expect(renderAccount(narrator.describe(buildWorkshopFacts()), { detail: 'full' })).toBe(
 				[
@@ -804,26 +813,23 @@ describe('Narrator', () => {
 			])
 			expect(guide.lines[1]?.lines.map(({ source }) => source)).toEqual([
 				{},
-				{ inference: 'grandparent' },
-				{ inference: 'grandparent' },
+				{ deduction: 'grandparent' },
+				{ deduction: 'grandparent' },
 			])
 		})
 
-		it('states an inference with no premises only where the engine concludes it', () => {
-			const inferences = [
-				createInference('i', [], createFact('c', 'ready', ['hall']), { name: 'I' }),
+		it('states no conclusion of a deduction with no premises, because the engine concludes none', () => {
+			const deductions = [
+				createDeduction('i', [], createFact('c', 'ready', ['hall']), { name: 'I' }),
 			]
-			const forward = createInferentialDefinition('d', 'D', [], inferences)
-			const backward = createInferentialDefinition('d', 'D', [], inferences, {
-				strategy: 'backward',
-			})
 			const narrator = new Narrator({
 				glossary: { labels: {}, predicates: { ready: '{{1}} is ready' } },
 			})
-			expect(REASON.reason({}, forward)).toMatchObject({ success: false, derived: [] })
-			expect(renderAccount(narrator.describe(forward))).toBe('D\nI')
-			expect(REASON.reason({}, backward)).toMatchObject({ success: true })
-			expect(renderAccount(narrator.describe(backward))).toBe('D\nI\n  hall is ready')
+			for (const strategy of ['forward', 'backward'] as const) {
+				const definition = createDeductiveDefinition('d', 'D', [], deductions, { strategy })
+				expect(REASON.reason({}, definition)).toMatchObject({ success: false, derived: [] })
+				expect(renderAccount(narrator.describe(definition))).toBe('D\nI')
+			}
 		})
 
 		it('words every connective, under not, and nested', () => {
@@ -1585,7 +1591,10 @@ describe('Narrator', () => {
 				{
 					...result,
 					rules: [
-						{ ...requireValue(rule), checks: [{ field: 'other', state: 'met', actual: 30 }] },
+						{
+							...requireValue(rule),
+							checks: [{ check: createCheck('other', 'from', 18), state: 'met', actual: 30 }],
+						},
 					],
 				},
 			]
@@ -1752,12 +1761,12 @@ describe('Narrator', () => {
 				[{ equation: 'w' }, { equation: 'w' }],
 				[{ equation: 'd' }, { equation: 'd' }],
 			])
-			const facts = createInferentialDefinition(
+			const facts = createDeductiveDefinition(
 				'facts',
 				'Facts',
 				[createFact('f', 'human', ['ada'])],
 				[
-					createInference(
+					createDeduction(
 						'mortal',
 						[createFact('p', 'human', ['?x'])],
 						createFact('c', 'mortal', ['?x']),
@@ -1802,9 +1811,10 @@ describe('Narrator', () => {
 			const result: SymbolicResult = {
 				reasoning: 'symbolic',
 				solutions: {},
+				bindings: {},
 				success: true,
 				trace: [],
-				errors: [],
+				refusals: [],
 				faults: [],
 				repairs: [],
 				defaulted: [],
@@ -1905,7 +1915,11 @@ describe('Narrator', () => {
 			const line = narrator.narrate(logical, engine.reason(subject, logical)).lines[0]?.lines[0]
 			expect(line?.lines[0]?.source).toEqual({
 				check: { field: ['seat', 'free'], operator: 'any', value: ['a', 'b', 'c'] },
-				result: { field: ['seat', 'free'], state: 'unmet', actual: 'z' },
+				result: {
+					check: { field: ['seat', 'free'], operator: 'any', value: ['a', 'b', 'c'] },
+					state: 'unmet',
+					actual: 'z',
+				},
 			})
 		})
 	})
@@ -2118,25 +2132,59 @@ describe('Narrator', () => {
 				{ name: 'High rule' },
 			)
 			const cases = [
-				['a negative cycle', [flip, seat], {}, { age: 30 }],
-				['a depth cap', chain, { depth: 1 }, { seed: true }],
-				['a supplied conclusion key', [gold, high], {}, { age: 30, tier: 'gold' }],
-				['a conflict', [gold, tin], {}, { age: 30 }],
-				['a conclusion read as a number', [gold, high], {}, { age: 30 }],
+				[
+					'a negative cycle',
+					[flip, seat],
+					{},
+					{ age: 30 },
+					'Flip rule decides something that another rule had taken as not decided (loop)',
+				],
+				[
+					'a depth cap',
+					chain,
+					{ depth: 1 },
+					{ seed: true },
+					'the run did not settle in the passes it was allowed (passes allowed: 1)',
+				],
+				[
+					'a supplied conclusion key',
+					[gold, high],
+					{},
+					{ age: 30, tier: 'gold' },
+					'the run was given a value that only its rules can set (tier)',
+				],
+				[
+					'a conflict',
+					[gold, tin],
+					{},
+					{ age: 30 },
+					'Tin rule gives a second value for something already decided (tier: tin)',
+				],
+				[
+					'a conclusion read as a number',
+					[gold, high],
+					{},
+					{ age: 30 },
+					'High rule compares what a rule decides in a way that cannot be answered (tier: gold)',
+				],
 			] as const
 			const narrator = new Narrator()
-			for (const [title, rules, options, subject] of cases) {
+			for (const [title, rules, options, subject, cause] of cases) {
 				const definition = createLogicalDefinition('d', 'Eligibility', rules, options)
 				// The reasoner alone, because the engine refuses a negative cycle before it runs.
 				const result = createLogicalReasoner().reason(subject, definition)
 				if (!isLogicalResult(result)) throw new Error('Expected a logical result')
 				expect([title, result.success, result.faults]).toEqual([title, false, []])
-				expect(result.errors.length).toBeGreaterThan(0)
+				expect(result.refusals.length).toBeGreaterThan(0)
 				const account = narrator.narrate(definition, result)
-				for (const detail of ['line', 'reasons', 'full'] as const) {
+				expect([title, renderAccount(account, { detail: 'line' })]).toEqual([
+					title,
+					`Eligibility gave no answer, because ${cause}`,
+				])
+				for (const detail of ['reasons', 'full'] as const) {
 					expect([title, renderAccount(account, { detail })]).toEqual([
 						title,
-						'Eligibility gave no answer',
+						`Eligibility gave no answer\n  ${cause}`,
 					])
 				}
 			}
@@ -2148,15 +2196,17 @@ describe('Narrator', () => {
 			)
 			const both = createLogicalDefinition('d', 'Eligibility', [gold, high, income])
 			const account = narrator.narrate(both, createLogicalReasoner().reason({ age: 30 }, both))
+			const compared =
+				'High rule compares what a rule decides in a way that cannot be answered (tier: gold)'
 			expect(renderAccount(account, { detail: 'full' })).toBe(
-				'Eligibility gave no answer\n  income is not known, and must be a number',
+				`Eligibility gave no answer\n  ${compared}\n  income is not known, and must be a number`,
 			)
 			expect(renderAccount(account, { detail: 'line' })).toBe(
-				'Eligibility gave no answer, because income is not known, and must be a number',
+				`Eligibility gave no answer, because ${compared}; and income is not known, and must be a number`,
 			)
 		})
 
-		it('names the fields a door refused, and nothing where the evidence holds no cause', () => {
+		it('names the fields a door refused, and a conclusion the subject held', () => {
 			const rules = [
 				createRule('a', [createAtom('age', 'from', 18)], createAtom('a', 'equals', true), {
 					name: 'Adult',
@@ -2175,8 +2225,11 @@ describe('Narrator', () => {
 			)
 			const plain = createLogicalDefinition('d', 'Loan', rules)
 			const supplied = narrator.narrate(plain, REASON.reason({ age: 30, a: true }, plain))
-			expect(renderAccount(supplied, { detail: 'full' })).toBe('Loan gave no answer')
-			expect(renderAccount(supplied, { detail: 'line' })).toBe('Loan gave no answer')
+			const cause = 'the run was given a value that only its rules can set (a)'
+			expect(renderAccount(supplied, { detail: 'full' })).toBe(`Loan gave no answer\n  ${cause}`)
+			expect(renderAccount(supplied, { detail: 'line' })).toBe(
+				`Loan gave no answer, because ${cause}`,
+			)
 		})
 
 		it('names a field holding a value it cannot use, with what it needed and what it got', () => {
@@ -2194,7 +2247,11 @@ describe('Narrator', () => {
 					summary: 'cost must be a number, and "plenty" is not',
 					source: {
 						check: { field: 'cost', operator: 'to', value: 1250 },
-						result: { field: 'cost', state: 'unread', actual: 'plenty' },
+						result: {
+							check: { field: 'cost', operator: 'to', value: 1250 },
+							state: 'unread',
+							actual: 'plenty',
+						},
 						fault: { reason: 'type', path: 'cost', expected: 'number', received: '"plenty"' },
 					},
 					gaps: [],
@@ -2239,9 +2296,9 @@ describe('Narrator', () => {
 			expect(accounts.map((account) => account.success)).toEqual([false, false, false, false])
 			expect(accounts.map((account) => renderAccount(account, { detail: 'line' }))).toEqual([
 				'Booking score gave no answer, because Base fee found no value to use (cost is not known, and must be a number)',
-				'Booking score gave no answer, because Room rate found no value to use (no entry matches room)',
+				'Booking score gave no answer, because Space: Room rate has no entry for the value it read (room: garage)',
 				'Floor area gave no answer, because depth is not known, and must be a number',
-				'Booking facts gave no answer',
+				'Booking facts gave no answer, because the run did not settle in the passes it was allowed (passes allowed: 1)',
 			])
 			const texts = accounts.map((account) => renderAccount(account, { detail: 'full' }))
 			expect(texts[0]?.split('\n')).toEqual([
@@ -2257,8 +2314,7 @@ describe('Narrator', () => {
 			])
 			expect(texts[1]?.split('\n')).toEqual([
 				'Booking score gave no answer',
-				'  Room rate found no value to use',
-				'    no entry matches room',
+				'  Space: Room rate has no entry for the value it read (room: garage)',
 				'Fees applied',
 				'  Base fee applied',
 				'  Service charge applied',
@@ -2267,8 +2323,10 @@ describe('Narrator', () => {
 				'  Room rate found no value to use',
 			])
 			expect(texts[2]).toBe('Floor area gave no answer\n  depth is not known, and must be a number')
-			expect(texts[3]).toBe('Booking facts gave no answer')
-			for (const text of texts) expect(text).not.toMatch(/\d/)
+			expect(texts[3]).toBe(
+				'Booking facts gave no answer\n  the run did not settle in the passes it was allowed (passes allowed: 1)',
+			)
+			for (const text of texts.slice(0, 3)) expect(text).not.toMatch(/\d/)
 		})
 
 		it('names a required factor that did not apply, and a field a range could not read', () => {
@@ -2280,13 +2338,13 @@ describe('Narrator', () => {
 				narrator.narrate(fees, REASON.reason(subject, fees)),
 			)
 			expect(accounts.map((account) => account.lines[0]?.summary)).toEqual([
-				'Booking fees gave no answer, because Deposit did not apply (cost is $2,000.00, which is more than $1,250.00)',
+				'Booking fees gave no answer, because Hire: Deposit had to apply and did not (cost is $2,000.00, which is more than $1,250.00)',
 				'Booking fees gave no answer, because Crowd charge found no value to use (guest count must be a number, and "many" is not)',
 			])
 			expect(accounts.map((account) => renderAccount(account).split('\n'))).toEqual([
 				[
 					'Booking fees gave no answer',
-					'  Deposit did not apply',
+					'  Hire: Deposit had to apply and did not',
 					'    cost is $2,000.00, which is more than $1,250.00',
 				],
 				[
@@ -2295,9 +2353,11 @@ describe('Narrator', () => {
 					'    guest count must be a number, and "many" is not',
 				],
 			])
-			expect(accounts[0]?.lines[0]?.lines[0]?.summary).toBe(
-				'Deposit did not apply, because cost is $2,000.00, which is more than $1,250.00',
-			)
+			expect(accounts[0]?.lines[0]?.lines[0]?.source).toEqual({
+				group: 'hire',
+				factor: 'deposit',
+				refusal: { cause: 'required', group: 'hire', factor: 'deposit' },
+			})
 			expect(accounts[1]?.lines[0]?.lines[0]?.lines[0]?.source.fault?.reason).toBe('type')
 			// The engine's own numbers for these runs, which no line may hold.
 			for (const account of accounts) {
@@ -2319,9 +2379,9 @@ describe('Narrator', () => {
 				(subject) => narrator.narrate(tables, REASON.reason(subject, tables)).lines[0]?.summary,
 			)
 			expect(texts).toEqual([
-				'D gave no answer, because L found no value to use (no entry matches kind); and R found no value to use (no entry matches size)',
-				'D gave no answer, because L found no value to use (no entry matches kind); and R found no value to use (size is not known, and must be a number)',
-				'D gave no answer, because L found no value to use (kind is not known, and must be one of its allowed forms); and R found no value to use (no entry matches size)',
+				'D gave no answer, because g: L has no entry for the value it read (kind: z); and g: R has no entry for the value it read (size: 9)',
+				'D gave no answer, because g: L has no entry for the value it read (kind: z); and R found no value to use (size is not known, and must be a number)',
+				'D gave no answer, because g: R has no entry for the value it read (size: 9); and L found no value to use (kind is not known, and must be one of its allowed forms)',
 			])
 		})
 
@@ -2332,17 +2392,22 @@ describe('Narrator', () => {
 				[
 					createLookupFactor('f', 't', { gold: 5 }, { name: 'Rate', fallback: 9, ...divided }),
 					{ t: 'bronze' },
-					'its fallback, because no entry matches Tier',
+					'its fallback, because no entry matches Tier: Tier is bronze',
 				],
 				[
 					createLookupFactor('f', 't', { gold: 5 }, { name: 'Rate', fallback: 9, ...divided }),
 					{ t: 'gold' },
-					'looked up by Tier',
+					'looked up by Tier: Tier is gold',
 				],
 				[
 					createLookupFactor('f', 't', { gold: 5 }, { name: 'Rate', fallback: 5, ...divided }),
 					{ t: 'bronze' },
-					'looked up by Tier, or its fallback',
+					'its fallback, because no entry matches Tier: Tier is bronze',
+				],
+				[
+					createLookupFactor('f', 't', { gold: 5 }, { name: 'Rate', fallback: 5, ...divided }),
+					{ t: 'gold' },
+					'looked up by Tier: Tier is gold',
 				],
 				[
 					createRangeFactor('f', 'n', [{ bounds: { maximum: 3 }, value: 2 }], {
@@ -2351,7 +2416,7 @@ describe('Narrator', () => {
 						...divided,
 					}),
 					{ n: 5 },
-					'its fallback, because no entry matches Count',
+					'its fallback, because no entry matches Count: Count is 5',
 				],
 				[
 					createRangeFactor('f', 'n', [{ bounds: { maximum: 3 }, value: 8 }], {
@@ -2359,21 +2424,17 @@ describe('Narrator', () => {
 						fallback: 8,
 						...divided,
 					}),
-					{ n: 5 },
-					'looked up by Count, or its fallback',
+					{ n: 2 },
+					'set by the first range Count falls in: Count is 2',
 				],
 				[createFieldFactor('f', 'n', { name: 'Rate', ...divided }), { n: 5 }, 'Count is 5'],
-				[
-					createLookupFactor('f', 't', { gold: 5 }, { name: 'Rate', ...divided }),
-					{ t: 'bronze' },
-					'no entry matches Tier',
-				],
-				[
-					createLookupFactor('f', 't', { gold: 5 }, { name: 'Rate', fallback: 9, ...divided }),
-					{},
-					'Tier is not known, and must be one of its allowed forms',
-				],
 			] as const
+			const unread = createQuantitativeDefinition('q', 'Quote', [
+				createFactorGroup('g', 'sum', [sources[0][0]], { name: 'Group' }),
+			])
+			expect(renderAccount(narrator.narrate(unread, REASON.reason({}, unread)))).toBe(
+				'Quote gave no answer\n  Rate found no value to use\n    Tier is not known, and must be one of its allowed forms',
+			)
 			for (const [factor, subject, source] of sources) {
 				const definition = createQuantitativeDefinition('q', 'Quote', [
 					createFactorGroup('g', 'sum', [factor], { name: 'Group' }),
@@ -2383,12 +2444,14 @@ describe('Narrator', () => {
 				const account = narrator.narrate(definition, result)
 				expect(renderAccount(account).split('\n')).toEqual([
 					'Quote gave no answer',
-					'  Rate found no value to use',
+					'  Group: Rate did not give a finite number',
 					`    ${source}`,
 				])
 				expect(account.lines[0]?.summary).toBe(
-					`Quote gave no answer, because Rate found no value to use (${source})`,
+					`Quote gave no answer, because Group: Rate did not give a finite number (${source})`,
 				)
+				// The group's own line says no more than that the factor did not apply.
+				expect(account.lines[1]?.lines.map((line) => line.summary)).toEqual(['Rate did not apply'])
 			}
 		})
 
@@ -2603,7 +2666,7 @@ describe('Narrator', () => {
 				'    wOrkshop tier is silver, which is not gold',
 				'Space: 20',
 				'  Room rate: 20',
-				'    looked up by room',
+				'    looked up by room: room is studio',
 				'Total: 130',
 			])
 			expect(renderAccount(account).split('\n')).toEqual(
@@ -2619,7 +2682,11 @@ describe('Narrator', () => {
 				group: 'fees',
 				factor: 'discount',
 				check: { field: 'member', operator: 'equals', value: 'gold' },
-				result: { field: 'member', state: 'unmet', actual: 'silver' },
+				result: {
+					check: { field: 'member', operator: 'equals', value: 'gold' },
+					state: 'unmet',
+					actual: 'silver',
+				},
 			})
 		})
 
@@ -2639,7 +2706,7 @@ describe('Narrator', () => {
 					'    hourly rate is $20.00',
 					'    changes: times 2',
 					'  Crowd charge: $15.00',
-					'    set by the first range guest count falls in',
+					'    set by the first range guest count falls in: guest count is 8',
 					'    before its changes: 5',
 					'    changes: times 3',
 					'  Deposit: $50.00',
@@ -2648,7 +2715,7 @@ describe('Narrator', () => {
 					'  Discount: 0.9',
 					'    fixed at 0.9',
 					'  Season: 1.5',
-					'    looked up by season',
+					'    looked up by season: season is peak',
 					'Extras: $15.00',
 					'  Tool hire: $10.00',
 					'    fixed at $10.00',
@@ -2663,7 +2730,7 @@ describe('Narrator', () => {
 					'    hourly rate is $20.00',
 					'    changes: times 2',
 					'  Crowd charge: $120.00',
-					'    its fallback, because no entry matches guest count',
+					'    its fallback, because no entry matches guest count: guest count is 50',
 					'    before its changes: 40',
 					'    changes: times 3',
 					'  Deposit: $50.00',
@@ -2672,7 +2739,7 @@ describe('Narrator', () => {
 					'  Discount: 0.9',
 					'    fixed at 0.9',
 					'  Season: 1',
-					'    its fallback, because no entry matches season',
+					'    its fallback, because no entry matches season: season is spring',
 					'Extras did not apply',
 					'  Tool hire did not apply',
 					'    tools brought is false',
@@ -2709,7 +2776,7 @@ describe('Narrator', () => {
 			])
 		})
 
-		it('says so where a value is both the fallback and an entry', () => {
+		it('tells the fallback from an entry of the same value', () => {
 			const narrator = new Narrator({
 				glossary: { labels: { tier: 'Customer tier', b: 'Field B' } },
 			})
@@ -2743,17 +2810,52 @@ describe('Narrator', () => {
 					line.lines.map(({ text }) => text),
 				])
 			})
-			const unsettled = [
-				['Tier rate: 5', ['looked up by Customer tier, or its fallback']],
-				['Band: 8', ['looked up by Field B, or its fallback']],
-			]
 			expect(texts).toEqual([
-				unsettled,
-				unsettled,
 				[
-					['Tier rate: 3', ['looked up by Customer tier']],
-					['Band: 2', ['set by the first range Field B falls in']],
+					[
+						'Tier rate: 5',
+						['its fallback, because no entry matches Customer tier: Customer tier is bronze'],
+					],
+					['Band: 8', ['its fallback, because no entry matches Field B: Field B is 5']],
 				],
+				[
+					['Tier rate: 5', ['looked up by Customer tier: Customer tier is gold']],
+					['Band: 8', ['set by the first range Field B falls in: Field B is 9']],
+				],
+				[
+					['Tier rate: 3', ['looked up by Customer tier: Customer tier is silver']],
+					['Band: 2', ['set by the first range Field B falls in: Field B is 1']],
+				],
+			])
+		})
+
+		it('names the value a lookup read in its field’s words, and nothing where a result holds none', () => {
+			const narrator = new Narrator({ glossary: { labels: { paid: 'Paid', seats: 'Seats' } } })
+			const table = createQuantitativeDefinition('d', 'D', [
+				createFactorGroup('g', 'sum', [
+					createLookupFactor('a', 'paid', { true: 5 }, { name: 'A' }),
+					createLookupFactor('b', 'seats', { 1200: 7 }, { name: 'B' }),
+				]),
+			])
+			const result = REASON.reason({ paid: true, seats: 1200 }, table)
+			if (!isQuantitativeResult(result)) throw new Error('Expected a quantitative result')
+			const dropped = {
+				...result,
+				groups: result.groups.map((group) => ({
+					...group,
+					factors: group.factors.map(({ actual: _actual, ...factor }) => factor),
+				})),
+			}
+			const [read, bare] = [result, dropped].map((held) =>
+				narrator.narrate(table, held).lines[1]?.lines.map((line) => line.lines[0]),
+			)
+			expect(read?.map((line) => [line?.text, line?.gaps])).toEqual([
+				['looked up by Paid: Paid is true', []],
+				['looked up by Seats: Seats is 1200', [{ word: 'unit', field: 'seats' }]],
+			])
+			expect(bare?.map((line) => [line?.text, line?.gaps])).toEqual([
+				['looked up by Paid', []],
+				['looked up by Seats', []],
 			])
 		})
 
@@ -3006,10 +3108,16 @@ describe('Narrator', () => {
 			if (!isQuantitativeResult(result)) throw new Error('Expected a quantitative result')
 			const claimed = new Narrator().narrate(broken, {
 				...result,
+				refusals: [],
 				success: true,
 				value: 1,
 				groups: [
-					{ id: 'g', applied: true, value: 1, factors: [{ id: 's', applied: true, value: 1 }] },
+					{
+						id: 'g',
+						applied: true,
+						value: 1,
+						factors: [{ id: 's', applied: true, value: 1, fallback: false }],
+					},
 				],
 			})
 			expect(renderAccount(claimed, { detail: 'full' }).split('\n')).toEqual([
@@ -3026,20 +3134,64 @@ describe('Narrator', () => {
 			const silver = requireValue(WORKSHOP_SCORES.silver)
 			const result = REASON.reason(silver.subject, score)
 			if (!isQuantitativeResult(result)) throw new Error('Expected a quantitative result')
-			const altered = {
-				...result,
-				groups: result.groups.map((group) => ({
-					...group,
-					factors: group.factors.map((factor) =>
-						factor.id === 'discount' ? { ...factor, checks: [] } : factor,
-					),
-				})),
-			}
-			const line = new Narrator().narrate(score, altered).lines[1]?.lines[2]
-			expect([line?.text, line?.summary, line?.lines]).toEqual([
-				'Gold bonus did not apply',
-				'Gold bonus did not apply',
-				[],
+			const other = { check: createCheck('other', 'equals', 1), state: 'unmet', actual: 2 } as const
+			const lines = [[other], []].map((checks) => {
+				const altered = {
+					...result,
+					groups: result.groups.map((group) => ({
+						...group,
+						factors: group.factors.map((factor) =>
+							factor.id === 'discount' ? { ...factor, checks } : factor,
+						),
+					})),
+				}
+				return new Narrator().narrate(score, altered).lines[1]?.lines[2]
+			})
+			expect(lines.map((line) => [line?.text, line?.lines])).toEqual([
+				['Gold bonus did not apply', []],
+				['Gold bonus found no value to use', []],
+			])
+			expect(lines[0]?.summary).toBe('Gold bonus did not apply')
+		})
+
+		it('tells a factor gated out from one whose checks passed and whose table missed', () => {
+			const narrator = new Narrator({ glossary: REFUSED_GLOSSARY })
+			const definition = buildRefusedQuote([
+				{
+					...createLookupFactor('room', 'room', { hall: 60 }, { name: 'Room rate' }),
+					checks: [createCheck('guests', 'from', 10)],
+				},
+			])
+			const texts = [
+				{ guests: 12, room: 'hall' },
+				{ guests: 12, room: 'loft' },
+				{ guests: 4, room: 'hall' },
+			].map((subject) =>
+				renderAccount(narrator.narrate(definition, REASON.reason(subject, definition)), {
+					detail: 'full',
+				}).split('\n'),
+			)
+			expect(texts).toEqual([
+				[
+					'Quote: 60',
+					'Fees: 60',
+					'  Room rate: 60',
+					'    looked up by Room: Room is hall',
+					'Total: 60',
+				],
+				[
+					'Quote gave no answer',
+					'  Fees: Room rate has no entry for the value it read (Room: loft)',
+					'Fees did not apply',
+					'  Room rate found no value to use',
+				],
+				[
+					'Quote: 0',
+					'Fees did not apply',
+					'  Room rate did not apply',
+					'    Group size is 4, which is less than 10',
+					'Total: 0',
+				],
 			])
 		})
 
@@ -3203,7 +3355,7 @@ describe('Narrator', () => {
 			).toEqual([])
 		})
 
-		it('prints one whole line whatever an equation, a fact, or an inference holds', () => {
+		it('prints one whole line whatever an equation, a fact, or a deduction holds', () => {
 			const narrators = [
 				new Narrator(),
 				new Narrator({
@@ -3221,26 +3373,26 @@ describe('Narrator', () => {
 					for (const predicate of ['known', 'listed', 'has', 'fresh', '', ' ', 'a\nb']) {
 						for (const terms of [[], [term], ['tier', term], [term, 'a, b']]) {
 							const fact = createFact('f', predicate, terms, 0.5)
-							const definition = createInferentialDefinition(
+							const definition = createDeductiveDefinition(
 								'd',
 								'D',
 								[],
 								[
-									createInference('i', [fact], createFact('c', 'out', ['?x']), { name: ' ' }),
-									createInference('e', [], fact, { confidence: 0.99999 }),
+									createDeduction('i', [fact], createFact('c', 'out', ['?x']), { name: ' ' }),
+									createDeduction('e', [], fact, { confidence: 0.99999 }),
 								],
 							)
-							const result: InferentialResult = {
-								reasoning: 'inferential',
+							const result: DeductiveResult = {
+								reasoning: 'deductive',
 								derived: [fact],
 								success: true,
 								trace: [],
-								errors: [],
+								refusals: [],
 								faults: [],
 								repairs: [],
 								defaulted: [],
 							}
-							const proof = { fact: 'f', inference: '', depth: 0 }
+							const proof = [{ fact, deduction: '', premises: [] }]
 							lines.push(...narrator.describe(definition).lines)
 							lines.push(...narrator.narrate(definition, result).lines)
 							lines.push(...narrator.narrate(definition, { ...result, proof }).lines)
@@ -3261,9 +3413,10 @@ describe('Narrator', () => {
 							...narrator.narrate(definition, {
 								reasoning: 'symbolic',
 								solutions: { 'a\nb': number, '': number },
+								bindings: {},
 								success: true,
 								trace: [],
-								errors: [],
+								refusals: [],
 								faults: [],
 								repairs: [],
 								defaulted: [],
@@ -3361,11 +3514,11 @@ describe('Narrator', () => {
 				'cost is $1,250.50\n  cost = 1250.5',
 			)
 			const worn = createFact('c', 'worn', ['?x'])
-			const facts = createInferentialDefinition(
+			const facts = createDeductiveDefinition(
 				'f',
 				'F',
 				[],
-				[createInference('i', [createFact('p', 'has', ['cost', 1250.5])], worn, { name: 'I' })],
+				[createDeduction('i', [createFact('p', 'has', ['cost', 1250.5])], worn, { name: 'I' })],
 			)
 			expect(renderAccount(narrator.describe(facts)).split('\n').at(-1)).toBe(
 				'  worn(?x), when cost is $1,250.50',
@@ -3494,13 +3647,13 @@ describe('Narrator', () => {
 			])
 		})
 
-		it('prints a predicate, its sentence, a term, an inference, and an entry key byte for byte', () => {
+		it('prints a predicate, its sentence, a term, a deduction, and an entry key byte for byte', () => {
 			const read = createFact('p', 'rEad', ['?X'])
-			const facts = createInferentialDefinition(
+			const facts = createDeductiveDefinition(
 				'f',
 				'F',
 				[createFact('k', 'rEad', ['aDa'])],
-				[createInference('i', [read], createFact('c', 'kNown', ['?X']), { name: 'iNFER' })],
+				[createDeduction('i', [read], createFact('c', 'kNown', ['?X']), { name: 'iNFER' })],
 			)
 			const sentences = new Narrator({
 				glossary: { labels: {}, predicates: { kNown: '{{1}} is kNOWN' } },
@@ -4070,7 +4223,7 @@ describe('Narrator', () => {
 					'share: 1.35',
 					'towels: 20',
 					'hourly rate is 20',
-					'looked up by season',
+					'looked up by season: season is peak',
 				]),
 			)
 		})
@@ -4363,7 +4516,7 @@ describe('Narrator', () => {
 			])
 		})
 
-		it('reports a missing name of an equation and of an inference, and asks no name of a proof line with one', () => {
+		it('reports a missing name of an equation and of a deduction, and asks no name of a proof line with one', () => {
 			const charge = buildWorkshopCharge()
 			const unnamed = {
 				...charge,
@@ -4380,15 +4533,21 @@ describe('Narrator', () => {
 			const result = REASON.reason({}, kin)
 			const nameless = {
 				...kin,
-				inferences: kin.inferences.map((inference) => ({ ...inference, name: inference.id })),
+				deductions: kin.deductions.map((deduction) => ({ ...deduction, name: deduction.id })),
 			}
-			const proved = [kin, nameless, { ...kin, inferences: [] }].map(
+			const proved = [kin, nameless, { ...kin, deductions: [] }].map(
 				(definition) => narrator.narrate(definition, result).lines[0]?.lines[0],
 			)
 			expect(proved.map((line) => [line?.text, line?.gaps])).toEqual([
-				['supported through Grandparents', []],
-				['supported through grandparent', [{ word: 'name', part: 'inference', id: 'grandparent' }]],
-				['supported through grandparent', [{ word: 'name', part: 'inference', id: 'grandparent' }]],
+				['alice is a grandparent of cara (confidence 85.5%), through Grandparents', []],
+				[
+					'alice is a grandparent of cara (confidence 85.5%), through grandparent',
+					[{ word: 'name', part: 'deduction', id: 'grandparent' }],
+				],
+				[
+					'alice is a grandparent of cara (confidence 85.5%), through grandparent',
+					[{ word: 'name', part: 'deduction', id: 'grandparent' }],
+				],
 			])
 		})
 
@@ -4607,7 +4766,7 @@ describe('Narrator', () => {
 			const account = new Narrator().narrate(definition, REASON.reason({ n: 'a' }, definition))
 			expect(renderAccount(account).split('\n').slice(2, 7)).toEqual([
 				'  l: 10',
-				'    looked up by n',
+				'    looked up by n: n is a',
 				'    before its changes: 10',
 				'    changes: times 3',
 				'    bounds: at most 10',
@@ -4622,7 +4781,12 @@ describe('Narrator', () => {
 				...result,
 				groups: result.groups.map((group) => ({
 					...group,
-					factors: group.factors.map(({ id, applied, value }) => ({ id, applied, value })),
+					factors: group.factors.map(({ id, applied, value, fallback }) => ({
+						id,
+						applied,
+						value,
+						fallback,
+					})),
 				})),
 			}
 			const costly = REASON.reason(requireValue(WORKSHOP_QUOTES.costly).subject, quote)
@@ -4737,10 +4901,10 @@ describe('Narrator', () => {
 				'Hire: $127.00',
 				'  base: $5.00, added to the rest',
 				'  Material rate: $6.00',
-				'    its fallback, because no entry matches material',
+				'    its fallback, because no entry matches material: material is ash',
 				'    weight: 2',
 				'  Session charge: $60.00',
-				'    set by the first range hours booked falls in',
+				'    set by the first range hours booked falls in: hours booked is 10',
 				'    before its changes: 75',
 				'    changes: 90% of it, then plus 0.4, then rounded up to a whole number',
 				'    bounds: $28.00 to $60.00',
@@ -4749,7 +4913,7 @@ describe('Narrator', () => {
 				'  bounds: at most $500.00',
 				'Crowd: $0.00',
 				'  Crowd charge: $0.00',
-				'    its fallback, because no entry matches guest count',
+				'    its fallback, because no entry matches guest count: guest count is 5',
 				'bounds: at least $25.00',
 			])
 		})
@@ -4886,7 +5050,7 @@ describe('Narrator', () => {
 			const sure = {
 				...kin,
 				facts: kin.facts.map(({ confidence: _confidence, ...fact }) => fact),
-				inferences: kin.inferences.map(({ confidence: _confidence, ...inference }) => inference),
+				deductions: kin.deductions.map(({ confidence: _confidence, ...deduction }) => deduction),
 			}
 			const certain = new Narrator({ glossary: WORKSHOP_GLOSSARY })
 			expect(
@@ -4896,12 +5060,12 @@ describe('Narrator', () => {
 
 		it('names the facts a forward run derived in its summary, at most the limit, with the gaps of those', () => {
 			const people = ['ada', 'bo', 'cy', 'di', 'ed', 'flo']
-			const definition = createInferentialDefinition(
+			const definition = createDeductiveDefinition(
 				'd',
 				'D',
 				people.map((person) => createFact(person, 'known', [person])),
 				[
-					createInference('i', [createFact('p', 'known', ['?x'])], createFact('c', 'out', ['?x']), {
+					createDeduction('i', [createFact('p', 'known', ['?x'])], createFact('c', 'out', ['?x']), {
 						name: 'I',
 					}),
 				],
@@ -4936,33 +5100,33 @@ describe('Narrator', () => {
 			)
 		})
 
-		it('says a conclusion with a variable left unbound is of some values, and of one without, nothing', () => {
+		it('prints a `?` string of a fact as the constant it is, and none a stated fact already holds', () => {
 			const known = createFact('k', 'known', ['ada', 'bo'])
 			const cases = [
-				[['?x', 'bo'], '?x knows bo, its values left open (confidence 50%)'],
-				[['?x', '?y'], '?x knows ?y, its values left open (confidence 50%)'],
-				[['ada', 'bo'], 'ada knows bo (confidence 50%)'],
-				[['a?', 'bo'], 'possible: a? knows bo (confidence 50%)'],
+				[['?x', 'bo'], '?x knows bo (confidence 50%)'],
+				[['?x', '?y'], '?x knows ?y (confidence 50%)'],
+				[['ada', 'bo'], 'Facts derived: 0'],
+				[['a?', 'bo'], 'a? knows bo (confidence 50%)'],
 			] as const
 			const narrator = new Narrator({
 				glossary: { labels: {}, predicates: { known: '{{1}} knows {{2}}' } },
 			})
 			for (const [terms, text] of cases) {
-				const goal = createInference('i', [known], createFact('c', 'known', terms), {
+				const goal = createDeduction('i', [known], createFact('c', 'known', terms), {
 					name: 'I',
 					confidence: 0.5,
 				})
-				const definition = createInferentialDefinition('d', 'D', [known], [goal], {
+				const definition = createDeductiveDefinition('d', 'D', [known], [goal], {
 					strategy: 'backward',
 				})
 				const account = narrator.narrate(definition, REASON.reason({}, definition))
 				expect(account.lines[0]?.text).toBe(text)
 			}
-			const forward = createInferentialDefinition(
+			const forward = createDeductiveDefinition(
 				'd',
 				'D',
 				[known],
-				[createInference('i', [known], createFact('c', 'out', ['?z']), { name: 'I' })],
+				[createDeduction('i', [known], createFact('c', 'out', ['?z']), { name: 'I' })],
 			)
 			expect(narrator.narrate(forward, REASON.reason({}, forward)).lines[1]?.text).toBe('out(?z)')
 		})
@@ -5010,31 +5174,34 @@ describe('Narrator', () => {
 			)
 		})
 
-		it('writes the conclusion of a backward run, unbound as the result holds it, and what proved it', () => {
+		it('writes the fact of a backward run, and the step that proved it', () => {
 			const kin = buildWorkshopKin('backward')
 			const account = new Narrator({ glossary: WORKSHOP_GLOSSARY }).narrate(
 				kin,
 				REASON.reason({}, kin),
 			)
 			expect(renderAccount(account, { detail: 'full' }).split('\n')).toEqual([
-				'possible: ?x is a grandparent of ?z, its values left open (confidence 95%)',
-				'  supported through Grandparents',
+				'alice is a grandparent of cara (confidence 85.5%)',
+				'  alice is a grandparent of cara (confidence 85.5%), through Grandparents',
 			])
 			expect(renderAccount(account, { detail: 'line' })).toBe(
-				'possible: ?x is a grandparent of ?z, its values left open (confidence 95%)',
+				'alice is a grandparent of cara (confidence 85.5%)',
 			)
 			expect(account.lines[0]?.source).toEqual({ fact: 'grandparent-conclusion' })
-			expect(account.lines[0]?.lines[0]?.source).toEqual({ inference: 'grandparent' })
+			expect(account.lines[0]?.lines[0]?.source).toEqual({
+				deduction: 'grandparent',
+				fact: 'grandparent-conclusion',
+			})
 		})
 
-		it('names the inference of the proof, not of the goal, and none where a known fact is the proof', () => {
-			const first = createInference(
+		it('names the deduction of the proof, and derives nothing where none has a step', () => {
+			const first = createDeduction(
 				'first',
 				[createFact('p', 'known', ['?x'])],
 				createFact('a', 'out', ['ada']),
 				{ name: 'First' },
 			)
-			const goal = createInference(
+			const goal = createDeduction(
 				'goal',
 				[createFact('q', 'never', ['?x'])],
 				createFact('b', 'out', ['?who']),
@@ -5044,18 +5211,18 @@ describe('Narrator', () => {
 			const narrator = new Narrator({
 				glossary: { labels: {}, predicates: { out: '{{1}} is out' } },
 			})
-			const through = createInferentialDefinition('d', 'D', [known], [first], {
+			const through = createDeductiveDefinition('d', 'D', [known], [first], {
 				strategy: 'backward',
 			})
 			expect(renderAccount(narrator.narrate(through, REASON.reason({}, through)))).toBe(
-				'possible: ada is out\n  supported through First',
+				'ada is out\n  ada is out, through First',
 			)
 			const bo = createFact('o', 'out', ['bo'])
-			const stated = createInferentialDefinition('d', 'D', [bo], [goal], { strategy: 'backward' })
+			const stated = createDeductiveDefinition('d', 'D', [bo], [goal], { strategy: 'backward' })
 			expect(renderAccount(narrator.narrate(stated, REASON.reason({}, stated)))).toBe(
-				'?who is out, its values left open (confidence 50%)',
+				'Facts derived: 0',
 			)
-			const other = createInferentialDefinition(
+			const other = createDeductiveDefinition(
 				'd',
 				'D',
 				[known],
@@ -5067,21 +5234,21 @@ describe('Narrator', () => {
 				{ strategy: 'backward' },
 			)
 			expect(renderAccount(narrator.narrate(other, REASON.reason({}, other)))).toBe(
-				'possible: ada is out\n  supported through Last',
+				'ada is out\n  ada is out, through Last',
 			)
-			const unproved = createInferentialDefinition('d', 'D', [], [goal], { strategy: 'backward' })
+			const unproved = createDeductiveDefinition('d', 'D', [], [goal], { strategy: 'backward' })
 			expect(renderAccount(narrator.narrate(unproved, REASON.reason({}, unproved)))).toBe(
 				'Facts derived: 0',
 			)
 		})
 
 		it("prints a has fact as a field only where it can only be the subject's", () => {
-			const pets = createInferentialDefinition(
+			const pets = createDeductiveDefinition(
 				'pets',
 				'Pets',
 				[createFact('pet', 'has', ['alice', 'dog'])],
 				[
-					createInference(
+					createDeduction(
 						'owner',
 						[createFact('p', 'has', ['?who', 'dog'])],
 						createFact('c', 'has', ['?who', 'lead']),
@@ -5112,11 +5279,11 @@ describe('Narrator', () => {
 				['alice,', true],
 				['', null],
 			].map((terms) =>
-				createInferentialDefinition(
+				createDeductiveDefinition(
 					'd',
 					'D',
 					[createFact('k', 'go', [])],
-					[createInference('i', [createFact('p', 'go', [])], createFact('c', 'out', terms))],
+					[createDeduction('i', [createFact('p', 'go', [])], createFact('c', 'out', terms))],
 				),
 			)
 			const texts = build.map(
@@ -5143,8 +5310,8 @@ describe('Narrator', () => {
 				['bob', 'a, b'],
 				['a, b', 'q", "r'],
 			].map((terms, index) => createFact(`f${String(index)}`, 'parent', terms))
-			const definition = createInferentialDefinition('d', 'D', parents, [
-				createInference(
+			const definition = createDeductiveDefinition('d', 'D', parents, [
+				createDeduction(
 					'i',
 					[createFact('p', 'parent', ['?x', '?y']), createFact('q', 'parent', ['?y', '?z'])],
 					createFact('c', 'grandparent', ['?x', '?z']),
@@ -5165,11 +5332,11 @@ describe('Narrator', () => {
 				})
 				return QUOTED_LISTS.flatMap((terms) => {
 					const known = createFact('k', 'go', [])
-					const stated = createInferentialDefinition(
+					const stated = createDeductiveDefinition(
 						's',
 						'S',
 						[known],
-						[createInference('i', [known], createFact('c', 'out', terms), { name: 'I' })],
+						[createDeduction('i', [known], createFact('c', 'out', terms), { name: 'I' })],
 					)
 					const read = REASON.reason({}, stated)
 					const bare = narrator.narrate(stated, read).lines[1]?.text ?? ''
@@ -5183,13 +5350,13 @@ describe('Narrator', () => {
 			expect(misread).toEqual([])
 		})
 
-		it('calls a conclusion it reached through an inference possible, and one that is a known fact plain', () => {
-			const apart = createInferentialDefinition(
+		it('states only a fact the derivation derived, and nothing a stated fact already holds', () => {
+			const apart = createDeductiveDefinition(
 				'd',
 				'D',
 				[createFact('a', 'a', [1]), createFact('b', 'b', [2])],
 				[
-					createInference(
+					createDeduction(
 						'i',
 						[createFact('p', 'a', ['?x']), createFact('q', 'b', ['?x'])],
 						createFact('c', 'c', ['?x']),
@@ -5205,12 +5372,12 @@ describe('Narrator', () => {
 					createFact('cd', 'parent', ['carl', 'dina']),
 				],
 			}
-			const ground = createInferentialDefinition(
+			const ground = createDeductiveDefinition(
 				'd',
 				'D',
 				[createFact('k', 'known', ['ada'])],
 				[
-					createInference(
+					createDeduction(
 						'i',
 						[createFact('p', 'known', ['?x'])],
 						createFact('c', 'out', ['ada']),
@@ -5220,12 +5387,12 @@ describe('Narrator', () => {
 				{ strategy: 'backward' },
 			)
 			const base = { ...ground, facts: [createFact('o', 'out', ['ada'])] }
-			const open = createInferentialDefinition(
+			const open = createDeductiveDefinition(
 				'd',
 				'D',
 				[createFact('o', 'out', ['bo'])],
 				[
-					createInference(
+					createDeduction(
 						'i',
 						[createFact('p', 'known', ['?x'])],
 						createFact('c', 'out', ['?who']),
@@ -5243,32 +5410,57 @@ describe('Narrator', () => {
 				renderAccount(narrator.narrate(definition, REASON.reason({}, definition))),
 			)
 			expect(texts).toEqual([
-				'possible: c(?x), its values left open\n  supported through Both',
-				'possible: ?x is a grandparent of ?z, its values left open (confidence 95%)\n  supported through Grandparents',
-				'possible: out(ada)\n  supported through First',
-				'out(ada)',
-				'out(?who), its values left open',
+				'Facts derived: 0',
+				'Facts derived: 0',
+				'out(ada)\n  out(ada), through First',
+				'Facts derived: 0',
+				'Facts derived: 0',
 			])
 			const reworded = new Narrator({
 				lexicon: {
 					frames: {
-						'fact.possible': 'perhaps {{fact}}',
+						'proof.step': '{{name}} gives {{fact}}',
 						'fact.confidence': '[{{fact}}] {{confidence}}',
 					},
 				},
 				glossary: WORKSHOP_GLOSSARY,
 			})
-			expect(reworded.narrate(unrelated, REASON.reason({}, unrelated)).lines[0]?.text).toBe(
-				'[perhaps ?x is a grandparent of ?z, its values left open] 95%',
+			const kin = buildWorkshopKin('backward')
+			expect(renderAccount(reworded.narrate(kin, REASON.reason({}, kin)))).toBe(
+				'[alice is a grandparent of cara] 85.5%\n  Grandparents gives [alice is a grandparent of cara] 85.5%',
 			)
 		})
 
+		// A term that opens with `?` is a variable in a pattern, and a key like any other in a fact.
+		it('reads a `?` string as a variable in a guide, and as a constant in an account', () => {
+			const definition = createDeductiveDefinition(
+				'd',
+				'D',
+				[createFact('k', 'known', ['?x'])],
+				[
+					createDeduction(
+						'i',
+						[createFact('p', 'known', ['?y']), createFact('q', 'has', ['?key', 'gold'])],
+						createFact('c', 'out', ['?y']),
+						{ name: 'I' },
+					),
+				],
+			)
+			const narrator = new Narrator({ glossary: { labels: { '?key': 'Key' } } })
+			expect(renderAccount(narrator.describe(definition)).split('\n').at(-1)).toBe(
+				'  out(?y), when known(?y) and has(?key, gold)',
+			)
+			expect(
+				renderAccount(narrator.narrate(definition, REASON.reason({ tier: 'gold' }, definition))),
+			).toBe('Facts derived: 1\nout(?x)')
+		})
+
 		it('states a fact of no terms by its predicate alone', () => {
-			const rain = createInferentialDefinition(
+			const rain = createDeductiveDefinition(
 				'd',
 				'D',
 				[createFact('k', 'cloud', [])],
-				[createInference('i', [createFact('p', 'cloud', [])], createFact('c', 'rain', []))],
+				[createDeduction('i', [createFact('p', 'cloud', [])], createFact('c', 'rain', []))],
 			)
 			expect(renderAccount(new Narrator().narrate(rain, REASON.reason({}, rain)))).toBe(
 				'Facts derived: 1\nrain',
@@ -5289,12 +5481,16 @@ describe('Narrator', () => {
 			})
 			for (const [confidence, text] of confidences) {
 				const known = createFact('k', 'known', [])
-				const inference = createInference('i', [known], createFact('c', 'out', []), { confidence })
-				const definition = createInferentialDefinition('d', 'D', [known], [inference], {
+				const deduction = createDeduction('i', [known], createFact('c', 'out', []), { confidence })
+				const definition = createDeductiveDefinition('d', 'D', [known], [deduction], {
 					strategy: 'backward',
 				})
-				const account = narrator.narrate(definition, REASON.reason({}, definition))
-				expect(account.lines[0]?.text).toBe(`possible: out${text}`)
+				// The engine rounds what it derives, so the fact's own confidence is put back.
+				const result = REASON.reason({}, definition)
+				if (!isDeductiveResult(result)) throw new Error('Expected a deductive result')
+				const derived = result.derived.map((fact) => ({ ...fact, confidence }))
+				const account = narrator.narrate(definition, { ...result, derived })
+				expect(account.lines[0]?.text).toBe(`out${text}`)
 				const rendered = renderAccount(narrator.describe(definition))
 				expect(rendered.split('\n').slice(3)).toEqual(
 					text === '' ? [] : [`  confidence: ${text.slice(13, -1)}`],
@@ -5309,8 +5505,183 @@ describe('Narrator', () => {
 				const result = REASON.reason({}, capped)
 				expect(result.success).toBe(false)
 				const account = new Narrator({ glossary: WORKSHOP_GLOSSARY }).narrate(capped, result)
-				expect(renderAccount(account, { detail: 'full' })).toBe('Booking facts gave no answer')
+				expect(renderAccount(account, { detail: 'full' })).toBe(
+					`Booking facts gave no answer\n  the run did not settle in the passes it was allowed (passes allowed: ${String(capped.depth)})`,
+				)
 			}
+		})
+	})
+
+	describe('T25: every refusal names its cause, and states only what it holds', () => {
+		const runs = buildRefusedRuns()
+		const narrator = new Narrator({ glossary: REFUSED_GLOSSARY })
+
+		it('reaches every cause a reasoner gives, and leaves two to the packages', () => {
+			const reached = new Set(
+				runs.flatMap(({ result }) => result.refusals.map((refusal) => refusal.cause)),
+			)
+			expect(REASON_REFUSAL_CAUSES.filter((cause) => !reached.has(cause))).toEqual([
+				'unread',
+				'silent',
+			])
+			expect(new Set(runs.map(({ result }) => result.reasoning))).toEqual(
+				new Set(['quantitative', 'logical', 'symbolic', 'deductive']),
+			)
+		})
+
+		it.each(runs)('states the causes of $name', ({ definition, admitted, result, sentences }) => {
+			expect(isDefinition(definition)).toBe(admitted)
+			expect(result.success).toBe(false)
+			const account = narrator.narrate(definition, result)
+			const [verdict] = account.lines
+			const held = (verdict?.lines ?? []).filter((line) => line.source.refusal !== undefined)
+			expect(held.map((line) => line.text)).toEqual(sentences)
+			expect(held.map((line) => line.source.refusal)).toEqual(result.refusals)
+			// No run is refused by a generic line where its cause is known.
+			expect(verdict?.text).toBe(`${definition.name} gave no answer`)
+			expect(verdict?.summary.startsWith(`${definition.name} gave no answer, because `)).toBe(true)
+			for (const sentence of sentences) expect(verdict?.summary).toContain(sentence)
+			const full = renderAccount(account, { detail: 'full' })
+			expect(full).not.toMatch(/NaN|undefined|Infinity|∞|\{\{/)
+			const gaps = (verdict?.lines ?? []).flatMap((line) => line.gaps)
+			expect(admitted ? gaps : []).toEqual([])
+		})
+
+		it.each(runs)('explains $name by its ids, in one line', ({ result }) => {
+			for (const refusal of result.refusals) {
+				const text = narrator.explain(refusal)
+				expect(text).toContain(narrator.phrase('causes', refusal.cause))
+				const ids = [
+					refusal.group,
+					refusal.factor,
+					refusal.rule,
+					refusal.equation,
+					refusal.deduction,
+				]
+				for (const id of ids) expect(text).toContain(id ?? '')
+			}
+		})
+
+		it('states each member by its own words, and drops what a refusal does not hold', () => {
+			const refusal = {
+				cause: 'source',
+				path: ['rating', 'rent'],
+				group: 'rates',
+				factor: 'room',
+				field: 'room',
+				actual: 'loft',
+			} as const
+			const { actual: _actual, ...bare } = refusal
+			const texts = [refusal, bare, { ...refusal, path: [] }, { ...refusal, actual: 'barn' }].map(
+				(held) => narrator.explain(held),
+			)
+			expect(texts).toEqual([
+				'rating, rent, rates: room has no entry for the value it read (Room: loft)',
+				'rating, rent, rates: room has no entry for the value it read (Room)',
+				'rates: room has no entry for the value it read (Room: loft)',
+				'rating, rent, rates: room has no entry for the value it read (Room: barn)',
+			])
+			expect(narrator.explain({ cause: 'source', field: 'guests', actual: 1200 })).toBe(
+				'the run has no entry for the value it read (Group size: 1,200)',
+			)
+			expect(narrator.explain({ cause: 'silent', path: [' '] })).toBe(
+				'" " failed and gave no reason',
+			)
+			expect(narrator.explain({ cause: 'thrown', message: 'a\nb' })).toBe(
+				'the run failed while it ran ("a b")',
+			)
+		})
+
+		it('words each cause by its own override alone', () => {
+			for (const cause of REASON_REFUSAL_CAUSES) {
+				const worded = new Narrator({ lexicon: { causes: { [cause]: 'stopped' } } })
+				const changed = REASON_REFUSAL_CAUSES.filter(
+					(other) => worded.explain({ cause: other }) !== new Narrator().explain({ cause: other }),
+				)
+				expect(changed).toEqual([cause])
+				expect(worded.explain({ cause })).toBe('the run stopped')
+			}
+		})
+
+		it('states a value an engine read and could not compare, and never as one nobody gave', () => {
+			const run = runs.find(({ name }) => name === 'a factor with an unknown comparison')
+			if (run === undefined) throw new Error('Expected the run')
+			const definition = buildGatedQuote('from', false)
+			const account = narrator.narrate(definition, {
+				...run.result,
+				refusals: [],
+			})
+			expect(renderAccount(account, { detail: 'full' })).not.toContain('not known')
+		})
+	})
+
+	describe('T27: a proof’s lines are its steps', () => {
+		const steps = createDeductiveDefinition(
+			'family',
+			'Family',
+			[
+				createFact('ab', 'parent', ['alice', 'bob'], 0.9),
+				createFact('bc', 'parent', ['bob', 'cara']),
+				createFact('cd', 'parent', ['cara', 'dan']),
+			],
+			[
+				createDeduction(
+					'guest',
+					[createFact('g', 'far', ['?x', '?z']), createFact('m', 'has', ['member', 'gold'])],
+					createFact('guested', 'guest', ['?x']),
+					{ name: 'Guests' },
+				),
+				createDeduction(
+					'far',
+					[createFact('n', 'near', ['?x', '?y']), createFact('p', 'parent', ['?y', '?z'])],
+					createFact('farther', 'far', ['?x', '?z']),
+					{ name: 'Two steps', confidence: 0.5 },
+				),
+				createDeduction(
+					'near',
+					[createFact('q', 'parent', ['?x', '?y'])],
+					createFact('nearer', 'near', ['?x', '?y']),
+					{ name: 'One step' },
+				),
+			],
+			{ strategy: 'backward' },
+		)
+		const predicates = {
+			near: '{{1}} is near {{2}}',
+			far: '{{1}} is far from {{2}}',
+			guest: '{{1}} is a guest',
+			parent: '{{1}} is a parent of {{2}}',
+		}
+		const narrator = new Narrator({ glossary: { labels: { member: 'Member' }, predicates } })
+
+		it('in order, each naming its deduction, the last stating the result’s fact', () => {
+			const result = REASON.reason({ member: 'gold' }, steps)
+			if (!isDeductiveResult(result)) throw new Error('Expected a deductive result')
+			const account = narrator.narrate(steps, result)
+			expect(renderAccount(account, { detail: 'full' }).split('\n')).toEqual([
+				'alice is a guest (confidence 45%)',
+				'  alice is near bob (confidence 90%), through One step',
+				'  alice is far from cara (confidence 45%), through Two steps',
+				'  alice is a guest (confidence 45%), through Guests',
+			])
+			expect(account.lines[0]?.lines.map((line) => line.source)).toEqual(
+				(result.proof ?? []).map(({ deduction, fact }) => ({ deduction, fact: fact.id })),
+			)
+			const last = account.lines[0]?.lines.at(-1)
+			expect(last?.text).toBe(`${account.lines[0]?.text ?? ''}, through Guests`)
+			expect(narrator.audit([steps])).toEqual([])
+			expect(
+				account.lines.flatMap((line) => [line, ...line.lines]).flatMap(({ gaps }) => gaps),
+			).toEqual([])
+		})
+
+		it('in no text that calls one possible, whatever the run', () => {
+			const accounts = collectFixtureAccounts()
+			const lines = accounts.flatMap((account) => account.lines)
+			for (const line of lines) lines.push(...line.lines)
+			expect(
+				lines.filter(({ text, summary }) => /possible|supported through|\{\{/.test(text + summary)),
+			).toEqual([])
 		})
 	})
 })

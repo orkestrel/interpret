@@ -8,9 +8,10 @@ import type {
 	Fact,
 	Factor,
 	FactorSource,
-	InferentialDefinition,
+	DeductiveDefinition,
 	LogicalDefinition,
 	LogicalOperator,
+	ReasonRefusal,
 	Rule,
 	RuleResult,
 	Subject,
@@ -42,6 +43,7 @@ import type {
 	NarratorInterface,
 	NarratorOptions,
 	Recipe,
+	RefusedPart,
 	ReadNumber,
 	RuleReason,
 	ShapeDefault,
@@ -85,12 +87,15 @@ import {
 	formatField,
 	isCheckState,
 	isComparison,
+	nestRefusals,
 	projectCheck,
+	projectRefusal,
 	projectValue,
 	readClosedState,
 	scanShape,
 	scanSymbolicExpression,
 	settleComparison,
+	SUBJECT_PREDICATE,
 } from '@orkestrel/reason'
 import {
 	DEFAULT_LOCALE,
@@ -994,10 +999,11 @@ export function scanLexicon(input: unknown): readonly string[] {
 			case 'expected':
 			case 'received':
 			case 'unreadables':
+			case 'causes':
 			case 'eligibilities':
 			case 'effects':
 			case 'statuses':
-			case 'decisions':
+			case 'dispositions':
 			case 'values':
 			case 'joins':
 				return scanWords([table], words, Object.keys(DEFAULT_LEXICON[table]))
@@ -1161,10 +1167,11 @@ export function mergeLexicon(base: Lexicon, input: LexiconInput): Lexicon {
 		transforms: Object.freeze({ ...base.transforms, ...input.transforms }),
 		refusals: Object.freeze({ ...base.refusals, ...input.refusals }),
 		unreadables: Object.freeze({ ...base.unreadables, ...input.unreadables }),
+		causes: Object.freeze({ ...base.causes, ...input.causes }),
 		eligibilities: Object.freeze({ ...base.eligibilities, ...input.eligibilities }),
 		effects: Object.freeze({ ...base.effects, ...input.effects }),
 		statuses: Object.freeze({ ...base.statuses, ...input.statuses }),
-		decisions: Object.freeze({ ...base.decisions, ...input.decisions }),
+		dispositions: Object.freeze({ ...base.dispositions, ...input.dispositions }),
 		values: Object.freeze({ ...base.values, ...input.values }),
 		joins: Object.freeze({ ...base.joins, ...input.joins }),
 		frames: Object.freeze({ ...base.frames, ...input.frames }),
@@ -1441,28 +1448,63 @@ export function cloneEvidence(value: unknown): unknown {
  * ```
  */
 export function cloneAccountSource(source: AccountSource): AccountSource {
-	const { check, result, fault } = source
+	const { check, result, fault, refusal } = source
 	return {
 		...source,
-		...(check === undefined
-			? {}
-			: {
-					check: {
-						...check,
-						field: cloneFieldPath(check.field),
-						value: cloneEvidence(check.value),
-					},
-				}),
+		...(check === undefined ? {} : { check: cloneCheck(check) }),
 		...(result === undefined
 			? {}
 			: {
 					result: {
 						...result,
-						field: cloneFieldPath(result.field),
+						check: cloneCheck(result.check),
 						actual: cloneEvidence(result.actual),
 					},
 				}),
 		...(fault === undefined ? {} : { fault: structuredClone(fault) }),
+		...(refusal === undefined ? {} : { refusal: cloneRefusal(refusal) }),
+	}
+}
+
+/**
+ * Clones a check.
+ *
+ * @param check - The check
+ * @returns A copy that shares no object with it
+ *
+ * @example
+ * ```ts
+ * import { cloneCheck } from '@orkestrel/interpret'
+ *
+ * cloneCheck({ field: 'kind', operator: 'any', value: ['a'] })
+ * // { field: 'kind', operator: 'any', value: ['a'] }
+ * ```
+ */
+export function cloneCheck(check: Check): Check {
+	return { ...check, field: cloneFieldPath(check.field), value: cloneEvidence(check.value) }
+}
+
+/**
+ * Clones a refusal.
+ *
+ * @param refusal - The refusal
+ * @returns A copy that shares no object with it
+ *
+ * @example
+ * ```ts
+ * import { cloneRefusal } from '@orkestrel/interpret'
+ *
+ * cloneRefusal({ cause: 'unread', path: ['authority'], field: ['outcome', 'total'] })
+ * // { cause: 'unread', path: ['authority'], field: ['outcome', 'total'] }
+ * ```
+ */
+export function cloneRefusal(refusal: ReasonRefusal): ReasonRefusal {
+	const { path, field, actual } = refusal
+	return {
+		...refusal,
+		...(path === undefined ? {} : { path: [...path] }),
+		...(field === undefined ? {} : { field: cloneFieldPath(field) }),
+		...(actual === undefined ? {} : { actual: cloneEvidence(actual) }),
 	}
 }
 
@@ -1558,9 +1600,11 @@ export function matchesChangedFactor(factor: Factor): boolean {
 }
 
 /**
- * Finds the subject's key a `has(key, value)` fact states a value of.
+ * Finds the subject's key a `has(key, value)` fact or pattern states a value of.
  *
- * @param fact - The fact to read
+ * @param fact - The fact or the pattern to read
+ * @param pattern - If `true`, it is a deduction's premise or conclusion, whose `?` strings are
+ * variables; if `false`, it is a fact, whose every term is a constant
  * @returns The key, or `undefined` when the fact has another predicate, another number of terms, or
  * a first term that is no key
  *
@@ -1569,16 +1613,17 @@ export function matchesChangedFactor(factor: Factor): boolean {
  * import { createFact } from '@orkestrel/reason'
  * import { findSubjectKey } from '@orkestrel/interpret'
  *
- * findSubjectKey(createFact('f', 'has', ['tier', 'gold'])) // 'tier'
- * findSubjectKey(createFact('f', 'has', ['?key', 'gold'])) // undefined
+ * findSubjectKey(createFact('f', 'has', ['tier', 'gold']), true) // 'tier'
+ * findSubjectKey(createFact('f', 'has', ['?key', 'gold']), true) // undefined
+ * findSubjectKey(createFact('f', 'has', ['?key', 'gold']), false) // '?key'
  * ```
  */
-export function findSubjectKey(fact: Fact): string | undefined {
+export function findSubjectKey(fact: Fact, pattern: boolean): string | undefined {
 	const [key] = fact.terms
-	return fact.predicate === 'has' &&
+	return fact.predicate === SUBJECT_PREDICATE &&
 		fact.terms.length === 2 &&
 		isString(key) &&
-		!key.startsWith('?')
+		!(pattern && key.startsWith('?'))
 		? key
 		: undefined
 }
@@ -1596,21 +1641,21 @@ export function findSubjectKey(fact: Fact): string | undefined {
  *
  * @example
  * ```ts
- * import { createFact, createInferentialDefinition } from '@orkestrel/reason'
+ * import { createFact, createDeductiveDefinition } from '@orkestrel/reason'
  * import { matchesSubjectKeys } from '@orkestrel/interpret'
  *
  * const pet = createFact('pet', 'has', ['alice', 'dog'])
- * matchesSubjectKeys(createInferentialDefinition('pets', 'Pets', [pet], []), { labels: {} }) // false
- * matchesSubjectKeys(createInferentialDefinition('pets', 'Pets', [], []), { labels: {} }) // true
+ * matchesSubjectKeys(createDeductiveDefinition('pets', 'Pets', [pet], []), { labels: {} }) // false
+ * matchesSubjectKeys(createDeductiveDefinition('pets', 'Pets', [], []), { labels: {} }) // true
  * ```
  */
-export function matchesSubjectKeys(definition: InferentialDefinition, glossary: Glossary): boolean {
-	if (findWord(glossary.predicates, 'has') !== undefined) return false
-	const concluded = definition.inferences
-		.filter((inference) => inference.enabled !== false)
-		.map((inference) => inference.conclusion)
+export function matchesSubjectKeys(definition: DeductiveDefinition, glossary: Glossary): boolean {
+	if (findWord(glossary.predicates, SUBJECT_PREDICATE) !== undefined) return false
+	const concluded = definition.deductions
+		.filter((deduction) => deduction.enabled !== false)
+		.map((deduction) => deduction.conclusion)
 	return ![...definition.facts, ...concluded].some(
-		({ predicate, terms }) => predicate === 'has' && terms.length === 2,
+		({ predicate, terms }) => predicate === SUBJECT_PREDICATE && terms.length === 2,
 	)
 }
 
@@ -1650,30 +1695,11 @@ export function findFactSentence(
 }
 
 /**
- * Determines whether a fact leaves a variable unbound.
+ * Collects the gaps of the words of one fact or pattern.
  *
- * @param fact - The fact to read
- * @returns True if a term is a variable; false otherwise
- *
- * @example
- * ```ts
- * import { createFact } from '@orkestrel/reason'
- * import { matchesUnboundFact } from '@orkestrel/interpret'
- *
- * matchesUnboundFact(createFact('f', 'mortal', ['?x'])) // true
- * matchesUnboundFact(createFact('f', 'mortal', ['socrates'])) // false
- * ```
- */
-export function matchesUnboundFact(fact: Fact): boolean {
-	return fact.terms.some((term) => isString(term) && term.startsWith('?'))
-}
-
-/**
- * Collects the gaps of one fact's words.
- *
- * @param fact - The fact the words are for
- * @param keyed - If `true`, a `has(key, value)` fact states a field of the subject; if `false`, it
- * is a fact like any other
+ * @param fact - The fact or the pattern the words are for
+ * @param key - The subject's key it states a value of, as `findSubjectKey` finds it; absent for a
+ * fact like any other
  * @param glossary - The domain words supplied
  * @param formats - The units that have a format
  * @returns The gaps of the field, or the gap of the predicate's sentence
@@ -1683,17 +1709,16 @@ export function matchesUnboundFact(fact: Fact): boolean {
  * import { createFact } from '@orkestrel/reason'
  * import { collectFactGaps } from '@orkestrel/interpret'
  *
- * collectFactGaps(createFact('f', 'parent', ['alice', 'bob']), true, { labels: {} }, new Set())
- * // [{ word: 'predicate', id: 'parent' }]
+ * const fact = createFact('f', 'parent', ['alice', 'bob'])
+ * collectFactGaps(fact, undefined, { labels: {} }, new Set()) // [{ word: 'predicate', id: 'parent' }]
  * ```
  */
 export function collectFactGaps(
 	fact: Fact,
-	keyed: boolean,
+	key: string | undefined,
 	glossary: Glossary,
 	formats: ReadonlySet<string>,
 ): readonly GlossaryGap[] {
-	const key = keyed ? findSubjectKey(fact) : undefined
 	if (key !== undefined) {
 		return collectFieldGaps(key, isNumber(fact.terms[1]), glossary, formats)
 	}
@@ -1887,15 +1912,31 @@ export function collectGaps(
 						),
 					]
 				}
-				case 'inferential': {
-					const inferences = definition.inferences.filter(({ enabled }) => enabled !== false)
+				case 'deductive': {
+					const deductions = definition.deductions.filter(({ enabled }) => enabled !== false)
 					const keyed = matchesSubjectKeys(definition, glossary)
-					const facts = inferences.flatMap(({ premises, conclusion }) => [...premises, conclusion])
+					const patterns = deductions.flatMap(({ premises, conclusion }) => [
+						...premises,
+						conclusion,
+					])
 					return [
 						...name,
-						...inferences.flatMap((inference) => collectNameGaps('inference', inference)),
-						...[...definition.facts, ...facts].flatMap((fact) =>
-							collectFactGaps(fact, keyed, glossary, formats),
+						...deductions.flatMap((deduction) => collectNameGaps('deduction', deduction)),
+						...definition.facts.flatMap((fact) =>
+							collectFactGaps(
+								fact,
+								keyed ? findSubjectKey(fact, false) : undefined,
+								glossary,
+								formats,
+							),
+						),
+						...patterns.flatMap((fact) =>
+							collectFactGaps(
+								fact,
+								keyed ? findSubjectKey(fact, true) : undefined,
+								glossary,
+								formats,
+							),
 						),
 					]
 				}
@@ -2054,13 +2095,13 @@ export function findConditionRules(
  *
  * @example
  * ```ts
- * import { createAtom, createCompound } from '@orkestrel/reason'
+ * import { createAtom, createCheck, createCompound } from '@orkestrel/reason'
  * import { settleExpression } from '@orkestrel/interpret'
  *
  * const expression = createCompound('or', [createAtom('a', 'equals', 1), createAtom('b', 'equals', 1)])
  * const settled = settleExpression(expression, [
- * 	{ field: 'a', state: 'unmet', actual: 2 },
- * 	{ field: 'b', state: 'met', actual: 1 },
+ * 	{ check: createCheck('a', 'equals', 1), state: 'unmet', actual: 2 },
+ * 	{ check: createCheck('b', 'equals', 1), state: 'met', actual: 1 },
  * ])
  * settled.state // 'met'
  * settled.reasons.map((reason) => reason.check.field) // ['b']
@@ -2102,8 +2143,8 @@ export function settleExpression(
  * import { settleOperands } from '@orkestrel/interpret'
  *
  * settleOperands([createAtom('a', 'equals', 1), createAtom('b', 'equals', 1)], [
- * 	{ field: 'a', state: 'unmet', actual: 2 },
- * 	{ field: 'b', state: 'met', actual: 1 },
+ * 	{ check: createCheck('a', 'equals', 1), state: 'unmet', actual: 2 },
+ * 	{ check: createCheck('b', 'equals', 1), state: 'met', actual: 1 },
  * ]).map((operand) => operand.state) // ['unmet', 'met']
  * ```
  */
@@ -2141,18 +2182,15 @@ export function settleOperands(
  * 	id: 'adult',
  * 	state: 'met',
  * 	premises: ['met'],
- * 	checks: [{ field: 'age', state: 'met', actual: 30 }],
+ * 	checks: [{ check: { field: 'age', operator: 'from', value: 18 }, state: 'met', actual: 30 }],
  * }).length // 1
  * ```
  */
 export function collectReasons(rule: Rule, result: RuleResult): readonly RuleReason[] {
 	const read = attempt(() => {
 		const atoms = rule.premises.flatMap((premise) => extractAtoms(premise))
-		const fields = result.checks.map((check) => formatField(check.field))
-		const paired =
-			atoms.length === fields.length &&
-			atoms.every((atom, index) => formatField(atom.check.field) === fields[index])
-		if (!paired) return []
+		const checks = atoms.map((atom) => atom.check)
+		if (!matchesChecks(checks, result.checks)) return []
 		const premises = settleOperands(rule.premises, result.checks)
 		const states = premises.map((premise) => premise.state)
 		const agreed =
@@ -2397,6 +2435,280 @@ export function renderQuoted(
 }
 
 /**
+ * Determines whether results answer a list of checks, one for each in order.
+ *
+ * @remarks
+ * Checks agree on their field's path, their operator, and their value, so a list that does not line
+ * up, or is empty because nothing ran, answers nothing.
+ *
+ * @param checks - The checks, in order
+ * @param results - The results to read
+ * @returns True if each result is of the check in its place; false otherwise
+ *
+ * @example
+ * ```ts
+ * import { matchesChecks } from '@orkestrel/interpret'
+ *
+ * const check = { field: 'age', operator: 'from', value: 18 } as const
+ * matchesChecks([check], [{ check, state: 'met', actual: 30 }]) // true
+ * matchesChecks([check], []) // false
+ * ```
+ */
+export function matchesChecks(checks: readonly Check[], results: readonly CheckResult[]): boolean {
+	return (
+		checks.length === results.length &&
+		checks.every(({ field, operator, value }, index) => {
+			const read = results[index]?.check
+			return (
+				read !== undefined &&
+				formatField(read.field) === formatField(field) &&
+				read.operator === operator &&
+				canonicalize(read.value) === canonicalize(value)
+			)
+		})
+	)
+}
+
+/**
+ * Collects the parts a refusal names by id, outermost first, each under its definition's name.
+ *
+ * @remarks
+ * Its `path` is the composing definition's to name, so each of its parts stands under its id. Its
+ * `index` names no part.
+ *
+ * @param refusal - The refusal
+ * @param definition - The definition whose parts it names. Default: none, and each id stands as its
+ * part's name
+ * @returns The parts
+ *
+ * @example
+ * ```ts
+ * import { createFactorGroup, createQuantitativeDefinition } from '@orkestrel/reason'
+ * import { collectRefusedParts } from '@orkestrel/interpret'
+ *
+ * const group = createFactorGroup('rates', 'sum', [], { name: 'Rates' })
+ * const definition = createQuantitativeDefinition('quote', 'Quote', [group])
+ * collectRefusedParts({ cause: 'definition', group: 'rates' }, definition)
+ * // [{ part: 'group', id: 'rates', name: 'Rates' }]
+ * ```
+ */
+export function collectRefusedParts(
+	refusal: ReasonRefusal,
+	definition?: Definition,
+): readonly RefusedPart[] {
+	const groups = definition?.reasoning === 'quantitative' ? definition.groups : []
+	const group = groups.find((entry) => entry.id === refusal.group)
+	const factor = group?.factors.find((entry) => entry.id === refusal.factor)
+	const rules = definition?.reasoning === 'logical' ? definition.rules : []
+	const equations = definition?.reasoning === 'symbolic' ? definition.equations : []
+	const deductions = definition?.reasoning === 'deductive' ? definition.deductions : []
+	const parts = [
+		{ part: 'group', id: refusal.group, found: group },
+		{ part: 'factor', id: refusal.factor, found: factor },
+		{ part: 'rule', id: refusal.rule, found: rules.find((entry) => entry.id === refusal.rule) },
+		{
+			part: 'equation',
+			id: refusal.equation,
+			found: equations.find((entry) => entry.id === refusal.equation),
+		},
+		{
+			part: 'deduction',
+			id: refusal.deduction,
+			found: deductions.find((entry) => entry.id === refusal.deduction),
+		},
+	] as const
+	return [
+		...(refusal.path ?? []).map((id) => ({ id, name: id })),
+		...parts.flatMap(({ part, id, found }) =>
+			id === undefined ? [] : [{ part, id, name: found?.name ?? id }],
+		),
+	]
+}
+
+/**
+ * Determines whether a composed run's refusal is one of a part's own, with the part opening its path.
+ *
+ * @param refusal - The composed run's refusal
+ * @param part - The part's id
+ * @param refusals - The part's own refusals
+ * @returns True if the part gave the refusal; false otherwise
+ *
+ * @example
+ * ```ts
+ * import { matchesNestedRefusal } from '@orkestrel/interpret'
+ *
+ * const refusal = { cause: 'depth', path: ['rating', 'rent'], depth: 1 } as const
+ * matchesNestedRefusal(refusal, 'rating', [{ cause: 'depth', path: ['rent'], depth: 1 }]) // true
+ * matchesNestedRefusal(refusal, 'rating', [{ cause: 'depth', depth: 1 }]) // false
+ * ```
+ */
+export function matchesNestedRefusal(
+	refusal: ReasonRefusal,
+	part: string,
+	refusals: readonly ReasonRefusal[],
+): boolean {
+	const key = canonicalize(refusal)
+	return nestRefusals(refusals, part).some((nested) => canonicalize(nested) === key)
+}
+
+/**
+ * Projects a refusal to the data its line was written from.
+ *
+ * @param refusal - The refusal
+ * @returns The refusal, beside the ids of the parts it names
+ *
+ * @example
+ * ```ts
+ * import { refusalToSource } from '@orkestrel/interpret'
+ *
+ * refusalToSource({ cause: 'conflict', rule: 'low', key: 'tier' })
+ * // { rule: 'low', refusal: { cause: 'conflict', rule: 'low', key: 'tier' } }
+ * ```
+ */
+export function refusalToSource(refusal: ReasonRefusal): AccountSource {
+	const { rule, group, factor, equation, deduction } = refusal
+	return {
+		...(rule === undefined ? {} : { rule }),
+		...(group === undefined ? {} : { group }),
+		...(factor === undefined ? {} : { factor }),
+		...(equation === undefined ? {} : { equation }),
+		...(deduction === undefined ? {} : { deduction }),
+		refusal,
+	}
+}
+
+/**
+ * Finds the value a refusal's sentence states beside its field or its key.
+ *
+ * @remarks
+ * A `value` refusal's and an `operator` refusal's is the number that could not be used, so neither
+ * is stated.
+ *
+ * @param refusal - The refusal
+ * @returns The value, or `undefined` when the refusal holds none to state
+ *
+ * @example
+ * ```ts
+ * import { findRefusedValue } from '@orkestrel/interpret'
+ *
+ * findRefusedValue({ cause: 'source', field: 'room', actual: 'loft' }) // 'loft'
+ * findRefusedValue({ cause: 'value', actual: Number.NaN }) // undefined
+ * ```
+ */
+export function findRefusedValue(refusal: ReasonRefusal): unknown {
+	const { cause, actual } = refusal
+	return cause === 'value' || cause === 'operator' ? undefined : actual
+}
+
+/**
+ * Collects the gaps of the field or the key a refusal's sentence names.
+ *
+ * @param refusal - The refusal
+ * @param glossary - The domain words supplied
+ * @param formats - The units that have a format
+ * @returns The gaps; none when the sentence names no field and no key
+ *
+ * @example
+ * ```ts
+ * import { collectRefusalGaps } from '@orkestrel/interpret'
+ *
+ * collectRefusalGaps({ cause: 'supplied', key: 'adult' }, { labels: {} }, new Set())
+ * // [{ word: 'label', field: 'adult' }]
+ * ```
+ */
+export function collectRefusalGaps(
+	refusal: ReasonRefusal,
+	glossary: Glossary,
+	formats: ReadonlySet<string>,
+): readonly GlossaryGap[] {
+	const place = refusal.field ?? refusal.key
+	if (place === undefined) return []
+	const actual = findRefusedValue(refusal)
+	const gaps = collectFieldGaps(place, isNumber(actual), glossary, formats)
+	return isNumber(actual) ? gaps : gaps.filter((gap) => gap.word === 'label')
+}
+
+/**
+ * Renders why one part of a run refused, stating only what the refusal holds.
+ *
+ * @remarks
+ * The part is the last of `parts`, or the entry its `index` counts to from one, and the parts before
+ * it lead the sentence. A refusal that names none is the whole run's. Its field or its key prints
+ * with the value it holds, an operator the engine does not know and a thrown error's message print
+ * quoted, and a cap that is no finite number does not print.
+ *
+ * @param refusal - The refusal
+ * @param parts - The names of the parts it stands in, outermost first
+ * @param narrator - The narrator whose words print
+ * @param plain - The format of a count
+ * @returns The sentence
+ *
+ * @example
+ * ```ts
+ * import { createNarrator, renderRefusal } from '@orkestrel/interpret'
+ *
+ * const refusal = { cause: 'source', field: 'room', actual: 'loft' } as const
+ * renderRefusal(refusal, ['Rates', 'Room rate'], createNarrator(), new Intl.NumberFormat('en-US'))
+ * // 'Rates: Room rate has no entry for the value it read (room: loft)'
+ * ```
+ */
+export function renderRefusal(
+	refusal: ReasonRefusal,
+	parts: readonly string[],
+	narrator: NarratorInterface,
+	plain: Intl.NumberFormat,
+): string {
+	const { index, operator, depth, message } = refusal
+	const cause = narrator.phrase('causes', refusal.cause)
+	const place = refusal.field ?? refusal.key
+	const actual = findRefusedValue(refusal)
+	const details = [
+		...(place === undefined
+			? []
+			: [
+					actual === undefined
+						? narrator.label(place)
+						: narrator.line('cause.value', {
+								label: narrator.label(place),
+								actual: narrator.value(place, actual),
+							}),
+				]),
+		...(refusal.cause === 'operator' && operator !== undefined
+			? [narrator.line('value.quoted', { value: operator })]
+			: []),
+		...(isFiniteNumber(depth)
+			? [narrator.line('cause.depth', { depth: plain.format(depth) })]
+			: []),
+		...(message === undefined ? [] : [narrator.line('value.quoted', { value: message })]),
+	]
+	const entry = isFiniteNumber(index)
+		? [narrator.line('cause.entry', { entry: plain.format(index + 1) })]
+		: []
+	const path = [...parts, ...entry]
+	const part = path.at(-1)
+	const outcome =
+		part === undefined
+			? narrator.line('cause.run', { cause })
+			: narrator.line('cause.part', { part, cause })
+	const sentence =
+		details.length === 0
+			? outcome
+			: narrator.line('reason.step', {
+					outcome,
+					reasons: renderReasons(details, {
+						reasons: narrator.phrase('joins', 'reasons'),
+						last: narrator.phrase('joins', 'last'),
+					}),
+				})
+	return path.length < 2
+		? sentence
+		: narrator.line('cause.path', {
+				path: path.slice(0, -1).join(narrator.phrase('joins', 'terms')),
+				refusal: sentence,
+			})
+}
+
+/**
  * Renders reasons as one list, joined by a lexicon's words.
  *
  * @param reasons - The reasons, in order
@@ -2589,7 +2901,7 @@ export function matchesAccountLines(lines: readonly unknown[], depth = 1): boole
  * Projects an account's line, and every line under it, to JSON.
  *
  * @remarks
- * A check's `value` and a result's `actual` hold whatever the definition and the subject held, so
+ * A check's `value` and an `actual` hold whatever the definition and the subject held, so
  * each is projected on its own budget, as `projectResult` of `@orkestrel/reason` does, and one
  * huge value cannot starve the evidence around it.
  *
@@ -2606,11 +2918,12 @@ export function matchesAccountLines(lines: readonly unknown[], depth = 1): boole
  * ```
  */
 export function projectAccountLine(line: AccountLine): JSONValue {
-	const { check, result } = line.source
+	const { check, result, refusal } = line.source
 	const source = {
 		...line.source,
 		...(check === undefined ? {} : { check: { ...check, value: projectValue(check.value) } }),
 		...(result === undefined ? {} : { result: projectCheck(result) }),
+		...(refusal === undefined ? {} : { refusal: projectRefusal(refusal) }),
 	}
 	return {
 		role: line.role,
@@ -2976,7 +3289,7 @@ export function collectShapeDefaults(
  * 	faults: [],
  * 	repairs: [],
  * 	defaulted: ['term'],
- * 	errors: [],
+ * 	refusals: [],
  * })[0]?.provenance // { category: 'default' }
  * ```
  */
